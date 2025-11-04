@@ -22,7 +22,7 @@ pub use types::{PathKey, PathString};
 /// Database wrapper that encapsulates all database operations
 /// 
 /// Uses two trees for efficient bidirectional lookups:
-/// - `files` tree: `file_path` -> Vec<tag>
+/// - `files` tree: `file_path` -> `Vec<tag>`
 /// - `tags` tree: tag -> Vec<`file_path`>
 pub struct Database {
     db: Db,

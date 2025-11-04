@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use bincode;
 use super::error::DbError;
 
-/// Wrapper for `PathBuf` that can be converted to Vec<u8> for database keys
+/// Wrapper for `PathBuf` that can be converted to `Vec<u8>` for database keys
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathKey(pub PathBuf);
 

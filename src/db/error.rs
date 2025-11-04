@@ -37,6 +37,10 @@ pub enum DbError {
     /// File does not exist on the filesystem
     #[error("File not found: {0}")]
     FileNotFound(String),
+
+    /// File does not exist on the filesystem
+    #[error("Error while reading path{0}")]
+    PathError(String),
 }
 
 #[cfg(test)]
