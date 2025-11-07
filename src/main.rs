@@ -244,7 +244,8 @@ fn handle_tag_command(db: &Database, file: Option<PathBuf>, tags: &[String], qui
         if tags.is_empty() {
             return Err(TagrError::InvalidInput("No tags provided".into()));
         }
-        let fullpath = &file_path.canonicalize().expect("Could not read path");
+        let fullpath = file_path.canonicalize()
+            .map_err(|e| TagrError::InvalidInput(format!("Cannot access path '{}': {}", file_path.display(), e)))?;
         db.add_tags(&fullpath, tags.to_vec())?;
         if !quiet {
             println!("Tagged {} with: {}", file_path.display(), tags.join(", "));
