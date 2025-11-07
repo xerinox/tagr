@@ -96,7 +96,6 @@ fn parse_cleanup_response(response: &str) -> CleanupAction {
         "y" | "yes" => CleanupAction::Delete,
         "a" | "yes-to-all" => CleanupAction::DeleteAll,
         "q" | "no-to-all" => CleanupAction::SkipAll,
-        "n" | "no" | "" => CleanupAction::Skip,
         _ => CleanupAction::Skip,
     }
 }
@@ -110,7 +109,7 @@ fn parse_cleanup_response(response: &str) -> CleanupAction {
 /// * `quiet` - If true, suppress prompts and auto-delete
 ///
 /// # Returns
-/// Tuple of (deleted_count, skipped_count)
+/// Tuple of (`deleted_count`, `skipped_count`)
 ///
 /// # Errors
 /// Returns `TagrError` if database operations or I/O operations fail.
@@ -272,7 +271,7 @@ fn handle_tag_command(db: &Database, file: Option<PathBuf>, tags: &[String], qui
 /// # Errors
 ///
 /// Returns `TagrError` if no search criteria provided or database query fails.
-fn handle_search_command(db: &Database, params: tagr::cli::SearchParams, quiet: bool) -> Result<()> {
+fn handle_search_command(db: &Database, params: &tagr::cli::SearchParams, quiet: bool) -> Result<()> {
     use tagr::cli::SearchMode;
     
     // Handle general query mode (no -t or -f flags)
@@ -283,14 +282,14 @@ fn handle_search_command(db: &Database, params: tagr::cli::SearchParams, quiet: 
             ));
         }
         
-        let mut files_by_tag = db.find_by_tag_regex(query)?;
+        let files_by_tag = db.find_by_tag_regex(query)?;
         
         // Search for files by filename pattern (using glob with wildcards for substring matching)
         let all_files = db.list_all_files()?;
-        let filename_pattern = format!("*{}*", query);
+        let filename_pattern = format!("*{query}*");
         let files_by_name = Database::filter_by_patterns_any(all_files, &[filename_pattern])?;
         
-        let mut files: std::collections::HashSet<_> = files_by_tag.drain(..).collect();
+        let mut files: std::collections::HashSet<_> = files_by_tag.into_iter().collect();
         files.extend(files_by_name);
         let mut files: Vec<_> = files.into_iter().collect();
         files.sort();
@@ -307,16 +306,14 @@ fn handle_search_command(db: &Database, params: tagr::cli::SearchParams, quiet: 
             for file in files {
                 if quiet {
                     println!("{}", file.display());
-                } else {
-                    if let Ok(Some(tags)) = db.get_tags(&file) {
-                        if tags.is_empty() {
-                            println!("  {} (no tags)", file.display());
-                        } else {
-                            println!("  {} [{}]", file.display(), tags.join(", "));
-                        }
+                } else if let Ok(Some(tags)) = db.get_tags(&file) {
+                    if tags.is_empty() {
+                        println!("  {} (no tags)", file.display());
                     } else {
-                        println!("  {}", file.display());
+                        println!("  {} [{}]", file.display(), tags.join(", "));
                     }
+                } else {
+                    println!("  {}", file.display());
                 }
             }
         }
@@ -352,21 +349,19 @@ fn handle_search_command(db: &Database, params: tagr::cli::SearchParams, quiet: 
             } else {
                 Database::filter_by_regex_any(files, &params.file_patterns)?
             }
+        } else if params.file_mode == SearchMode::All {
+            Database::filter_by_patterns_all(files, &params.file_patterns)?
         } else {
-            if params.file_mode == SearchMode::All {
-                Database::filter_by_patterns_all(files, &params.file_patterns)?
-            } else {
-                Database::filter_by_patterns_any(files, &params.file_patterns)?
-            }
+            Database::filter_by_patterns_any(files, &params.file_patterns)?
         };
     }
 
     if files.is_empty() {
         if !quiet {
-            let criteria = if !params.tags.is_empty() {
-                format!("tags: {}", params.tags.join(", "))
-            } else {
+            let criteria = if params.tags.is_empty() {
                 format!("file patterns: {}", params.file_patterns.join(", "))
+            } else {
+                format!("tags: {}", params.tags.join(", "))
             };
             println!("No files found matching {criteria}");
         }
@@ -402,16 +397,14 @@ fn handle_search_command(db: &Database, params: tagr::cli::SearchParams, quiet: 
         for file in files {
             if quiet {
                 println!("{}", file.display());
-            } else {
-                if let Ok(Some(tags)) = db.get_tags(&file) {
-                    if tags.is_empty() {
-                        println!("  {} (no tags)", file.display());
-                    } else {
-                        println!("  {} [{}]", file.display(), tags.join(", "));
-                    }
+            } else if let Ok(Some(tags)) = db.get_tags(&file) {
+                if tags.is_empty() {
+                    println!("  {} (no tags)", file.display());
                 } else {
-                    println!("  {}", file.display());
+                    println!("  {} [{}]", file.display(), tags.join(", "));
                 }
+            } else {
+                println!("  {}", file.display());
             }
         }
     }
@@ -558,12 +551,10 @@ fn handle_list_command(db: &Database, variant: ListVariant, quiet: bool) -> Resu
                 for pair in all_pairs {
                     if quiet {
                         println!("{}", pair.file.display());
+                    } else if pair.tags.is_empty() {
+                        println!("  {} (no tags)", pair.file.display());
                     } else {
-                        if pair.tags.is_empty() {
-                            println!("  {} (no tags)", pair.file.display());
-                        } else {
-                            println!("  {} [{}]", pair.file.display(), pair.tags.join(", "));
-                        }
+                        println!("  {} [{}]", pair.file.display(), pair.tags.join(", "));
                     }
                 }
             }
@@ -920,7 +911,7 @@ fn main() -> Result<()> {
         handle_config_command(config, command, quiet)?;
     } else {
         let db_name = command.get_db().or_else(|| {
-            config.get_default_database().map(|s| s.to_string())
+            config.get_default_database().cloned()
         }).ok_or_else(|| TagrError::InvalidInput(
             "No default database set. Use 'tagr db add <name> <path>' to create one, or specify --db <name>.".into()
         ))?;
@@ -945,7 +936,7 @@ fn main() -> Result<()> {
             Commands::Search { .. } => {
                 let params = command.get_search_params()
                     .ok_or_else(|| TagrError::InvalidInput("Failed to parse search parameters".into()))?;
-                handle_search_command(&db, params, quiet)?;
+                handle_search_command(&db, &params, quiet)?;
             }
             Commands::Untag { .. } => {
                 let file = command.get_file_from_untag();
