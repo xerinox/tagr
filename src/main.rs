@@ -42,7 +42,7 @@
 //! On first run, tagr will prompt for initial setup. Configuration is stored in
 //! the user's config directory (`~/.config/tagr/config.toml` on Linux).
 
-use tagr::{db::Database, cli::{Cli, Commands, ConfigCommands, DbCommands, execute_command_on_files}, config, search, TagrError};
+use tagr::{db::Database, cli::{Cli, Commands, ConfigCommands, DbCommands, ListVariant, execute_command_on_files}, config, search, TagrError};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -398,6 +398,69 @@ fn handle_tags_command(db: &Database, command: &tagr::cli::TagsCommands, quiet: 
                 println!("Removed tag '{tag}' from {} file(s).", files_before.len());
                 if files_removed > 0 {
                     println!("Cleaned up {files_removed} file(s) with no remaining tags.");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Handle the list command - list files or tags
+///
+/// Lists all files or all tags in the database based on the variant.
+///
+/// # Arguments
+/// * `db` - Database instance to query
+/// * `variant` - Whether to list files or tags
+/// * `quiet` - If true, suppress informational output
+///
+/// # Errors
+///
+/// Returns `TagrError` if database operations fail.
+fn handle_list_command(db: &Database, variant: ListVariant, quiet: bool) -> Result<()> {
+    match variant {
+        ListVariant::Files => {
+            let all_pairs = db.list_all()?;
+            
+            if all_pairs.is_empty() {
+                if !quiet {
+                    println!("No files found in database.");
+                }
+            } else {
+                if !quiet {
+                    println!("Files in database:");
+                }
+                for pair in all_pairs {
+                    if quiet {
+                        println!("{}", pair.file.display());
+                    } else {
+                        if pair.tags.is_empty() {
+                            println!("  {} (no tags)", pair.file.display());
+                        } else {
+                            println!("  {} [{}]", pair.file.display(), pair.tags.join(", "));
+                        }
+                    }
+                }
+            }
+        }
+        ListVariant::Tags => {
+            let tags = db.list_all_tags()?;
+            
+            if tags.is_empty() {
+                if !quiet {
+                    println!("No tags found in database.");
+                }
+            } else {
+                if !quiet {
+                    println!("Tags in database:");
+                }
+                for tag in tags {
+                    if quiet {
+                        println!("{tag}");
+                    } else {
+                        let files = db.find_by_tag(&tag)?;
+                        println!("  {} (used by {} file(s))", tag, files.len());
+                    }
                 }
             }
         }
@@ -769,6 +832,9 @@ fn main() -> Result<()> {
             }
             Commands::Cleanup => {
                 handle_cleanup_command(&db, quiet)?;
+            }
+            Commands::List { variant } => {
+                handle_list_command(&db, *variant, quiet)?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }

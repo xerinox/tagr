@@ -54,7 +54,7 @@ tagr browse
 tagr search rust
 
 # List all tags
-tagr list-tags
+tagr list tags
 
 # Remove tags from a file
 tagr untag README.md markdown
@@ -132,12 +132,12 @@ tagr search <tag>
 tagr s <tag>
 
 # List all tags
-tagr list-tags
-tagr lt
+tagr list tags
+tagr l tags
 
 # List all files
-tagr list-files
-tagr lf
+tagr list files
+tagr l files
 ```
 
 ### Database Management

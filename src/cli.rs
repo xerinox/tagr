@@ -38,8 +38,17 @@
 //! }
 //! ```
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
+
+/// List variant for the list command
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListVariant {
+    /// List all files in the database
+    Files,
+    /// List all tags in the database
+    Tags,
+}
 
 /// Execute a command template for each file in the list
 ///
@@ -271,6 +280,13 @@ pub enum Commands {
     /// Clean up database by removing missing files and files with no tags
     #[command(visible_alias = "c")]
     Cleanup,
+
+    /// List files or tags in the database
+    #[command(visible_alias = "l")]
+    List {
+        /// What to list (files or tags)
+        variant: ListVariant,
+    },
 }
 
 impl Commands {
