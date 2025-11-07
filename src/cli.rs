@@ -179,6 +179,14 @@ pub enum DbCommands {
     },
 }
 
+/// Shared arguments for commands that work with a database
+#[derive(Parser, Debug, Clone)]
+pub struct DbArgs {
+    /// Database name to use (overrides default)
+    #[arg(long = "db", value_name = "NAME")]
+    pub db: Option<String>,
+}
+
 /// Main CLI structure for parsing command-line arguments
 #[derive(Parser, Debug)]
 #[command(name = "tagr")]
@@ -201,6 +209,9 @@ pub enum Commands {
         /// Execute command for each selected file (use {} as placeholder for file path)
         #[arg(short = 'x', long = "exec", value_name = "COMMAND")]
         execute: Option<String>,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 
     /// Manage configuration settings
@@ -233,6 +244,9 @@ pub enum Commands {
         /// Tags to apply (positional)
         #[arg(value_name = "TAGS", conflicts_with = "tags_flag")]
         tags_pos: Vec<String>,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 
     /// Search files by tag
@@ -245,6 +259,9 @@ pub enum Commands {
         /// Tag to search for (positional)
         #[arg(value_name = "TAG", conflicts_with = "tag_flag")]
         tag_pos: Option<String>,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 
     /// Remove tags from a file
@@ -269,6 +286,9 @@ pub enum Commands {
         /// Tags to remove (positional)
         #[arg(value_name = "TAGS", conflicts_with = "tags_flag")]
         tags_pos: Vec<String>,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 
     /// Manage tags globally
@@ -279,13 +299,19 @@ pub enum Commands {
 
     /// Clean up database by removing missing files and files with no tags
     #[command(visible_alias = "c")]
-    Cleanup,
+    Cleanup {
+        #[command(flatten)]
+        db_args: DbArgs,
+    },
 
     /// List files or tags in the database
     #[command(visible_alias = "l")]
     List {
         /// What to list (files or tags)
         variant: ListVariant,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 }
 
@@ -320,7 +346,7 @@ impl Commands {
     #[must_use] 
     pub fn get_tag_from_search(&self) -> Option<String> {
         match self {
-            Self::Search { tag_flag, tag_pos } => {
+            Self::Search { tag_flag, tag_pos, .. } => {
                 tag_flag.clone().or_else(|| tag_pos.clone())
             }
             _ => None,
@@ -331,7 +357,7 @@ impl Commands {
     #[must_use] 
     pub fn get_execute_from_browse(&self) -> Option<String> {
         match self {
-            Self::Browse { execute } => execute.clone(),
+            Self::Browse { execute, .. } => execute.clone(),
             _ => None,
         }
     }
@@ -370,6 +396,20 @@ impl Commands {
             _ => false,
         }
     }
+
+    /// Helper method to get the database name override from commands
+    #[must_use]
+    pub fn get_db(&self) -> Option<String> {
+        match self {
+            Self::Browse { db_args, .. } |
+            Self::Tag { db_args, .. } |
+            Self::Search { db_args, .. } |
+            Self::Untag { db_args, .. } |
+            Self::Cleanup { db_args } |
+            Self::List { db_args, .. } => db_args.db.clone(),
+            _ => None,
+        }
+    }
 }
 
 impl Cli {
@@ -382,7 +422,10 @@ impl Cli {
     /// Get the command, defaulting to Browse if none specified
     #[must_use] 
     pub fn get_command(&self) -> Commands {
-        self.command.clone().unwrap_or(Commands::Browse { execute: None })
+        self.command.clone().unwrap_or(Commands::Browse {
+            execute: None,
+            db_args: DbArgs { db: None },
+        })
     }
 }
 

@@ -795,14 +795,16 @@ fn main() -> Result<()> {
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
     } else {
-        let default_db = config.get_default_database()
-            .ok_or_else(|| TagrError::InvalidInput(
-                "No default database set. Use 'tagr db add <name> <path>' to create one.".into()
-            ))?;
+        // Get database name from command --db flag or use default
+        let db_name = command.get_db().or_else(|| {
+            config.get_default_database().map(|s| s.to_string())
+        }).ok_or_else(|| TagrError::InvalidInput(
+            "No default database set. Use 'tagr db add <name> <path>' to create one, or specify --db <name>.".into()
+        ))?;
         
-        let db_path = config.get_database(default_db)
+        let db_path = config.get_database(&db_name)
             .ok_or_else(|| TagrError::InvalidInput(
-                format!("Default database '{default_db}' not found in configuration")
+                format!("Database '{db_name}' not found in configuration")
             ))?;
         
         let db = Database::open(db_path)?;
@@ -830,10 +832,10 @@ fn main() -> Result<()> {
             Commands::Tags { command } => {
                 handle_tags_command(&db, command, quiet)?;
             }
-            Commands::Cleanup => {
+            Commands::Cleanup { .. } => {
                 handle_cleanup_command(&db, quiet)?;
             }
-            Commands::List { variant } => {
+            Commands::List { variant, .. } => {
                 handle_list_command(&db, *variant, quiet)?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
