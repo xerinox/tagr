@@ -193,7 +193,7 @@ fn handle_browse_command(db: &Database, execute_cmd: Option<String>, quiet: bool
     match search::browse(db) {
         Ok(Some(result)) => {
             if !quiet {
-                println!("\n=== Selected Tags ===");
+                println!("=== Selected Tags ===");
                 for tag in &result.selected_tags {
                     println!("  - {tag}");
                 }

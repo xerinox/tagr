@@ -16,10 +16,10 @@ use colored::Colorize;
 /// Build skim options with common defaults
 ///
 /// Creates a configured `SkimOptions` instance with standardized settings
-/// for the fuzzy finder UI.
+/// for the fuzzy finder UI. Uses full-screen mode with alternate buffer
+/// to avoid leaving UI artifacts in the terminal.
 ///
 /// # Arguments
-/// * `height` - Height of the skim window (e.g., "50%")
 /// * `multi` - Whether multi-select is enabled
 /// * `prompt` - Prompt text to display
 /// * `ansi` - Whether to enable ANSI color support
@@ -29,14 +29,12 @@ use colored::Colorize;
 /// Returns `SearchError::BuildError` if the skim options cannot be constructed
 /// (this is rare and usually indicates an internal skim configuration issue).
 fn build_skim_options(
-    height: &str,
     multi: bool,
     prompt: &str,
     ansi: bool,
 ) -> Result<SkimOptions, SearchError> {
     let mut builder = SkimOptionsBuilder::default();
-    builder.height(height.to_string())
-        .multi(multi)
+    builder.multi(multi)
         .prompt(prompt.to_string())
         .reverse(true);
     
@@ -158,7 +156,6 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
     let items = item_reader.of_bufread(Cursor::new(tag_list));
     
     let options = build_skim_options(
-        "50%",
         true,
         "Select tags (TAB to select multiple, Enter to confirm): ",
         false,
@@ -239,7 +236,6 @@ fn select_files_from_list(db: &Database, files: &[PathBuf]) -> Result<Vec<PathBu
     drop(tx);
 
     let options = build_skim_options(
-        "50%",
         true,
         "Select files (TAB to select multiple, Enter to confirm): ",
         true,
@@ -335,7 +331,6 @@ fn select_search_mode() -> Result<bool, SearchError> {
     let items = item_reader.of_bufread(Cursor::new(options_text));
     
     let options = build_skim_options(
-        "30%",
         false,
         "Search mode: ",
         false,
