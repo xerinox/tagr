@@ -221,6 +221,7 @@ pub struct DbArgs {
 #[derive(Parser, Debug)]
 #[command(name = "tagr")]
 #[command(about = "A file tagging system", long_about = None)]
+#[command(version)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -236,6 +237,22 @@ pub enum Commands {
     /// Open interactive fuzzy finder (default)
     #[command(visible_alias = "b")]
     Browse {
+        /// General query (searches both filenames and tags when -t/-f not specified)
+        #[arg(value_name = "QUERY")]
+        query: Option<String>,
+
+        /// Tags to search for (can specify multiple: -t tag1 -t tag2)
+        #[arg(short = 't', long = "tag", value_name = "TAG", num_args = 0..)]
+        tags: Vec<String>,
+
+        /// File path patterns to filter results (glob syntax: *.rs, src/**/*)
+        #[arg(short = 'f', long = "file", value_name = "PATTERN", num_args = 0..)]
+        file_patterns: Vec<String>,
+
+        /// Exclude files with these tags
+        #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
+        exclude_tags: Vec<String>,
+
         /// Execute command for each selected file (use {} as placeholder for file path)
         #[arg(short = 'x', long = "exec", value_name = "COMMAND")]
         execute: Option<String>,
@@ -451,6 +468,37 @@ impl Commands {
         }
     }
 
+    /// Helper method to get search parameters from browse command
+    #[must_use] 
+    pub fn get_search_params_from_browse(&self) -> Option<SearchParams> {
+        match self {
+            Self::Browse {
+                query,
+                tags,
+                file_patterns,
+                exclude_tags,
+                ..
+            } => {
+                // Only return search params if at least one filter is specified
+                if query.is_some() || !tags.is_empty() || !file_patterns.is_empty() || !exclude_tags.is_empty() {
+                    Some(SearchParams {
+                        query: query.clone(),
+                        tags: tags.clone(),
+                        tag_mode: SearchMode::Any, // Browse uses OR logic by default
+                        file_patterns: file_patterns.clone(),
+                        file_mode: SearchMode::Any,
+                        exclude_tags: exclude_tags.clone(),
+                        regex_tag: false,
+                        regex_file: false,
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Helper method to get the file path from untag command
     #[must_use] 
     pub fn get_file_from_untag(&self) -> Option<PathBuf> {
@@ -512,6 +560,10 @@ impl Cli {
     #[must_use] 
     pub fn get_command(&self) -> Commands {
         self.command.clone().unwrap_or(Commands::Browse {
+            query: None,
+            tags: Vec::new(),
+            file_patterns: Vec::new(),
+            exclude_tags: Vec::new(),
             execute: None,
             db_args: DbArgs { db: None },
         })
@@ -600,6 +652,8 @@ mod tests {
     fn test_default_browse() {
         let cli = Cli::parse_from(&["tagr"]);
         assert!(cli.command.is_none());
+        let cmd = cli.get_command();
+        assert!(matches!(cmd, Commands::Browse { .. }));
     }
 
     #[test]
@@ -614,6 +668,34 @@ mod tests {
         if let Some(Commands::Browse { .. }) = cli.command {
             let exec_cmd = cli.command.as_ref().unwrap().get_execute_from_browse();
             assert_eq!(exec_cmd, Some("cat {}".to_string()));
+        } else {
+            panic!("Expected Browse command");
+        }
+    }
+
+    #[test]
+    fn test_browse_with_query() {
+        let cli = Cli::parse_from(&["tagr", "browse", "documents"]);
+        if let Some(Commands::Browse { .. }) = cli.command {
+            let params = cli.command.as_ref().unwrap().get_search_params_from_browse();
+            assert!(params.is_some());
+            let params = params.unwrap();
+            assert_eq!(params.query, Some("documents".to_string()));
+        } else {
+            panic!("Expected Browse command");
+        }
+    }
+
+    #[test]
+    fn test_browse_with_tags_and_patterns() {
+        let cli = Cli::parse_from(&["tagr", "browse", "-t", "documents", "-f", "*.txt", "-e", "*.md"]);
+        if let Some(Commands::Browse { .. }) = cli.command {
+            let params = cli.command.as_ref().unwrap().get_search_params_from_browse();
+            assert!(params.is_some());
+            let params = params.unwrap();
+            assert_eq!(params.tags, vec!["documents".to_string()]);
+            assert_eq!(params.file_patterns, vec!["*.txt".to_string()]);
+            assert_eq!(params.exclude_tags, vec!["*.md".to_string()]);
         } else {
             panic!("Expected Browse command");
         }
