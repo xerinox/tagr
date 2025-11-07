@@ -7,9 +7,10 @@
 use crate::db::Database;
 use super::error::SearchError;
 use skim::prelude::*;
-use std::borrow::Cow;
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
+use std::sync::Arc;
+use std::borrow::Cow;
 use colored::Colorize;
 
 /// Build skim options with common defaults
@@ -47,27 +48,40 @@ fn build_skim_options(
         .map_err(|e| SearchError::BuildError(format!("Failed to build skim options: {e}")))
 }
 
-/// Custom `SkimItem` implementation for displaying files with colored formatting
-/// 
-/// Holds both the actual file path and a display version with ANSI color codes
-/// for visual feedback (green for existing files, red for missing files)
+// File selection rendering & multi-select:
+// We use a custom `FileItem` so skim handles ANSI via `AnsiString::parse`.
+// Earlier issues with multi-select arose when the output string included tags
+// (making the logical selection key differ per file+tags). We now keep `output()`
+// strictly to the raw path while exposing tags only in `display()` and in the
+// searchable `text()` payload. This preserves multi-select correctness and ANSI colors.
+
 #[derive(Debug, Clone)]
 struct FileItem {
     path: String,
-    display_text: String,
+    tags: Vec<String>,
+    exists: bool,
+    index: usize,
 }
 
 impl SkimItem for FileItem {
     fn text(&self) -> Cow<'_, str> {
+        // Limit searchable text to just the path to avoid unintended bulk selection side-effects.
         Cow::Borrowed(&self.path)
     }
 
     fn display<'a>(&'a self, _context: DisplayContext<'a>) -> AnsiString<'a> {
-        AnsiString::parse(&self.display_text)
+        let file_colored = if self.exists { self.path.green() } else { self.path.red() };
+        let line = format!("{} [{}]", file_colored, self.tags.join(", "));
+        AnsiString::parse(&line)
     }
 
     fn output(&self) -> Cow<'_, str> {
+        // Raw path only for stable multi-select key.
         Cow::Borrowed(&self.path)
+    }
+
+    fn get_index(&self) -> usize {
+        self.index
     }
 }
 
@@ -209,51 +223,41 @@ fn select_files_from_list(db: &Database, files: &[PathBuf]) -> Result<Vec<PathBu
         eprintln!("No files found with the selected tags");
         return Ok(Vec::new());
     }
-    
-    let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
-    
-    for file in files {
-        if let Some(file_tags) = db.get_tags(file)? {
-            let file_str = file.to_string_lossy();
-            let tags_str = file_tags.join(", ");
-            let display_text = if file.exists() {
-                format!("{} [{}]", file_str.green(), tags_str)
-            } else {
-                format!("{} [{}]", file_str.red(), tags_str)
-            };
+
+    let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
+    for (idx, file) in files.iter().enumerate() {
+        if let Some(tags) = db.get_tags(file)? {
             let item = Arc::new(FileItem {
-                path: format!("{file_str} [{tags_str}]"),
-                display_text,
+                path: file.to_string_lossy().to_string(),
+                tags,
+                exists: Path::new(file).exists(),
+                index: idx,
             });
-            let _ = tx_item.send(item);
+            let _ = tx.send(item);
         }
     }
-    drop(tx_item);
-    
+    drop(tx);
+
     let options = build_skim_options(
         "50%",
         true,
         "Select files (TAB to select multiple, Enter to confirm): ",
         true,
     )?;
-    
-    let output = Skim::run_with(&options, Some(rx_item))
+
+    let output = Skim::run_with(&options, Some(rx))
         .ok_or(SearchError::InterruptedError)?;
-    
+
     if output.is_abort {
         return Ok(Vec::new());
     }
-    
+
     let selected_files: Vec<PathBuf> = output
         .selected_items
         .iter()
-        .map(|item| {
-            let text = item.output().to_string();
-            let path_str = text.find(" [").map_or(text.as_str(), |idx| &text[..idx]);
-            PathBuf::from(path_str)
-        })
+        .map(|it| PathBuf::from(it.output().to_string()))
         .collect();
-    
+
     Ok(selected_files)
 }
 
