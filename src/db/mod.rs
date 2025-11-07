@@ -11,6 +11,8 @@ use sled::{Db, Tree};
 use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use bincode;
+use regex::Regex;
+use glob::Pattern as GlobPattern;
 use crate::Pair;
 
 pub mod error;
@@ -26,8 +28,8 @@ pub use types::{PathKey, PathString};
 /// - `tags` tree: tag -> Vec<`file_path`>
 pub struct Database {
     db: Db,
-    files: Tree,  // file -> tags mapping
-    tags: Tree,   // tag -> files reverse index
+    files: Tree,
+    tags: Tree,
 }
 
 impl Database {
@@ -449,6 +451,211 @@ impl Database {
             files.push(file);
         }
         Ok(files)
+    }
+
+    /// Find files matching a regex pattern for tags
+    /// 
+    /// Searches for tags that match the regex pattern, then returns all files
+    /// that have ANY of the matching tags.
+    /// 
+    /// # Arguments
+    /// * `pattern` - Regex pattern to match against tag names
+    /// 
+    /// # Returns
+    /// Vector of file paths that contain tags matching the pattern
+    /// 
+    /// # Errors
+    /// 
+    /// Returns `DbError` if the regex pattern is invalid or database operations fail.
+    pub fn find_by_tag_regex(&self, pattern: &str) -> Result<Vec<PathBuf>, DbError> {
+        let regex = Regex::new(pattern)
+            .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern: {}", e)))?;
+        
+        let matching_tags: Vec<String> = self.list_all_tags()?
+            .into_iter()
+            .filter(|tag| regex.is_match(tag))
+            .collect();
+        
+        if matching_tags.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        self.find_by_any_tag(&matching_tags)
+    }
+
+    /// Find files excluding certain tags
+    /// 
+    /// Returns files that match the include criteria but don't have any of the excluded tags.
+    /// 
+    /// # Arguments
+    /// * `include_tags` - Tags that files must have (uses AND logic if multiple)
+    /// * `exclude_tags` - Tags that files must NOT have (uses OR logic)
+    /// 
+    /// # Returns
+    /// Vector of file paths matching the criteria
+    /// 
+    /// # Errors
+    /// 
+    /// Returns `DbError` if database operations fail.
+    pub fn find_excluding_tags(&self, include_tags: &[String], exclude_tags: &[String]) 
+        -> Result<Vec<PathBuf>, DbError> {
+        let included = if include_tags.is_empty() {
+            self.list_all_files()?
+        } else {
+            self.find_by_all_tags(include_tags)?
+        };
+        
+        if exclude_tags.is_empty() {
+            return Ok(included);
+        }
+        
+        let excluded: HashSet<_> = self.find_by_any_tag(exclude_tags)?
+            .into_iter()
+            .collect();
+        
+        Ok(included.into_iter()
+            .filter(|f| !excluded.contains(f))
+            .collect())
+    }
+
+    /// Filter files by glob patterns with AND logic
+    /// 
+    /// Returns files that match ALL of the specified glob patterns.
+    /// 
+    /// # Arguments
+    /// * `files` - Input files to filter
+    /// * `patterns` - Glob patterns to match against file paths
+    /// 
+    /// # Returns
+    /// Vector of file paths matching all patterns
+    /// 
+    /// # Errors
+    /// 
+    /// Returns `DbError` if any glob pattern is invalid.
+    pub fn filter_by_patterns_all(files: Vec<PathBuf>, patterns: &[String]) 
+        -> Result<Vec<PathBuf>, DbError> {
+        if patterns.is_empty() {
+            return Ok(files);
+        }
+        
+        let matchers: Result<Vec<GlobPattern>, _> = patterns.iter()
+            .map(|p| GlobPattern::new(p)
+                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{}': {}", p, e))))
+            .collect();
+        let matchers = matchers?;
+        
+        Ok(files.into_iter()
+            .filter(|f| {
+                f.to_str()
+                    .map(|s| matchers.iter().all(|m| m.matches(s)))
+                    .unwrap_or(false)
+            })
+            .collect())
+    }
+
+    /// Filter files by glob patterns with OR logic
+    /// 
+    /// Returns files that match ANY of the specified glob patterns.
+    /// 
+    /// # Arguments
+    /// * `files` - Input files to filter
+    /// * `patterns` - Glob patterns to match against file paths
+    /// 
+    /// # Returns
+    /// Vector of file paths matching any pattern
+    /// 
+    /// # Errors
+    /// 
+    /// Returns `DbError` if any glob pattern is invalid.
+    pub fn filter_by_patterns_any(files: Vec<PathBuf>, patterns: &[String]) 
+        -> Result<Vec<PathBuf>, DbError> {
+        if patterns.is_empty() {
+            return Ok(files);
+        }
+        
+        let matchers: Result<Vec<GlobPattern>, _> = patterns.iter()
+            .map(|p| GlobPattern::new(p)
+                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{}': {}", p, e))))
+            .collect();
+        let matchers = matchers?;
+        
+        Ok(files.into_iter()
+            .filter(|f| {
+                f.to_str()
+                    .map(|s| matchers.iter().any(|m| m.matches(s)))
+                    .unwrap_or(false)
+            })
+            .collect())
+    }
+
+    /// Filter files by regex patterns with AND logic
+    /// 
+    /// Returns files that match ALL of the specified regex patterns.
+    /// 
+    /// # Arguments
+    /// * `files` - Input files to filter
+    /// * `patterns` - Regex patterns to match against file paths
+    /// 
+    /// # Returns
+    /// Vector of file paths matching all patterns
+    /// 
+    /// # Errors
+    /// 
+    /// Returns `DbError` if any regex pattern is invalid.
+    pub fn filter_by_regex_all(files: Vec<PathBuf>, patterns: &[String]) 
+        -> Result<Vec<PathBuf>, DbError> {
+        if patterns.is_empty() {
+            return Ok(files);
+        }
+        
+        let matchers: Result<Vec<Regex>, _> = patterns.iter()
+            .map(|p| Regex::new(p)
+                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{}': {}", p, e))))
+            .collect();
+        let matchers = matchers?;
+        
+        Ok(files.into_iter()
+            .filter(|f| {
+                f.to_str()
+                    .map(|s| matchers.iter().all(|m| m.is_match(s)))
+                    .unwrap_or(false)
+            })
+            .collect())
+    }
+
+    /// Filter files by regex patterns with OR logic
+    /// 
+    /// Returns files that match ANY of the specified regex patterns.
+    /// 
+    /// # Arguments
+    /// * `files` - Input files to filter
+    /// * `patterns` - Regex patterns to match against file paths
+    /// 
+    /// # Returns
+    /// Vector of file paths matching any pattern
+    /// 
+    /// # Errors
+    /// 
+    /// Returns `DbError` if any regex pattern is invalid.
+    pub fn filter_by_regex_any(files: Vec<PathBuf>, patterns: &[String]) 
+        -> Result<Vec<PathBuf>, DbError> {
+        if patterns.is_empty() {
+            return Ok(files);
+        }
+        
+        let matchers: Result<Vec<Regex>, _> = patterns.iter()
+            .map(|p| Regex::new(p)
+                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{}': {}", p, e))))
+            .collect();
+        let matchers = matchers?;
+        
+        Ok(files.into_iter()
+            .filter(|f| {
+                f.to_str()
+                    .map(|s| matchers.iter().any(|m| m.is_match(s)))
+                    .unwrap_or(false)
+            })
+            .collect())
     }
 
     // Private helper methods for managing the tag index
