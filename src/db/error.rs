@@ -41,6 +41,10 @@ pub enum DbError {
     /// File does not exist on the filesystem
     #[error("Error while reading path{0}")]
     PathError(String),
+    
+    /// Invalid input provided (e.g., invalid regex or glob pattern)
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
 
 #[cfg(test)]

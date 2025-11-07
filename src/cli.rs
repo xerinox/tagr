@@ -50,6 +50,36 @@ pub enum ListVariant {
     Tags,
 }
 
+/// Search mode for combining multiple criteria
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMode {
+    /// Match ANY of the criteria (OR logic)
+    Any,
+    /// Match ALL of the criteria (AND logic)
+    All,
+}
+
+/// Parameters for search command
+#[derive(Debug, Clone)]
+pub struct SearchParams {
+    /// General query (for combined filename and tag search)
+    pub query: Option<String>,
+    /// Tags to search for
+    pub tags: Vec<String>,
+    /// How to combine multiple tags (AND/OR)
+    pub tag_mode: SearchMode,
+    /// File patterns to filter by
+    pub file_patterns: Vec<String>,
+    /// How to combine multiple file patterns (AND/OR)
+    pub file_mode: SearchMode,
+    /// Tags to exclude
+    pub exclude_tags: Vec<String>,
+    /// Use regex for tag matching
+    pub regex_tag: bool,
+    /// Use regex for file pattern matching
+    pub regex_file: bool,
+}
+
 /// Execute a command template for each file in the list
 ///
 /// Runs a shell command for each file, replacing the `{}` placeholder in the
@@ -252,13 +282,45 @@ pub enum Commands {
     /// Search files by tag
     #[command(visible_alias = "s")]
     Search {
-        /// Tag to search for
-        #[arg(short = 't', long = "tag", value_name = "TAG")]
-        tag_flag: Option<String>,
+        /// General query (searches both filenames and tags when -t/-f not specified)
+        #[arg(value_name = "QUERY")]
+        query: Option<String>,
 
-        /// Tag to search for (positional)
-        #[arg(value_name = "TAG", conflicts_with = "tag_flag")]
-        tag_pos: Option<String>,
+        /// Tags to search for (can specify multiple: -t tag1 -t tag2)
+        #[arg(short = 't', long = "tag", value_name = "TAG", num_args = 0..)]
+        tags: Vec<String>,
+
+        /// Match files with ANY of the specified tags (OR logic, default is AND)
+        #[arg(long = "any-tag", conflicts_with = "all_tags")]
+        any_tag: bool,
+
+        /// Match files with ALL of the specified tags (AND logic, explicit)
+        #[arg(long = "all-tags", conflicts_with = "any_tag")]
+        all_tags: bool,
+
+        /// File path patterns to filter results (glob syntax: *.rs, src/**/*)
+        #[arg(short = 'f', long = "file", value_name = "PATTERN", num_args = 0..)]
+        file_patterns: Vec<String>,
+
+        /// Match files with ANY of the file patterns (OR logic, default is AND)
+        #[arg(long = "any-file", conflicts_with = "all_files")]
+        any_file: bool,
+
+        /// Match files with ALL of the file patterns (AND logic, explicit)
+        #[arg(long = "all-files", conflicts_with = "any_file")]
+        all_files: bool,
+
+        /// Exclude files with these tags
+        #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
+        exclude_tags: Vec<String>,
+
+        /// Use regex matching for tags
+        #[arg(short = 'r', long = "regex-tag")]
+        regex_tag: bool,
+
+        /// Use regex matching for file patterns
+        #[arg(long = "regex-file")]
+        regex_file: bool,
 
         #[command(flatten)]
         db_args: DbArgs,
@@ -342,13 +404,40 @@ impl Commands {
         }
     }
 
-    /// Helper method to get the tag from search command
+    /// Helper method to get search parameters from search command
     #[must_use] 
-    pub fn get_tag_from_search(&self) -> Option<String> {
+    pub fn get_search_params(&self) -> Option<SearchParams> {
         match self {
-            Self::Search { tag_flag, tag_pos, .. } => {
-                tag_flag.clone().or_else(|| tag_pos.clone())
-            }
+            Self::Search {
+                query,
+                tags,
+                any_tag,
+                all_tags: _all_tags,
+                file_patterns,
+                any_file,
+                all_files: _all_files,
+                exclude_tags,
+                regex_tag,
+                regex_file,
+                ..
+            } => Some(SearchParams {
+                query: query.clone(),
+                tags: tags.clone(),
+                tag_mode: if *any_tag {
+                    SearchMode::Any
+                } else {
+                    SearchMode::All
+                },
+                file_patterns: file_patterns.clone(),
+                file_mode: if *any_file {
+                    SearchMode::Any
+                } else {
+                    SearchMode::All
+                },
+                exclude_tags: exclude_tags.clone(),
+                regex_tag: *regex_tag,
+                regex_file: *regex_file,
+            }),
             _ => None,
         }
     }
@@ -460,22 +549,48 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_search_with_flag() {
+    fn test_parse_search_with_single_tag() {
         let cli = Cli::parse_from(&["tagr", "search", "-t", "mytag"]);
         if let Some(Commands::Search { .. }) = cli.command {
-            let tag = cli.command.as_ref().unwrap().get_tag_from_search();
-            assert_eq!(tag, Some("mytag".to_string()));
+            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
+            assert_eq!(params.tags, vec!["mytag".to_string()]);
+            assert_eq!(params.tag_mode, SearchMode::All);
         } else {
             panic!("Expected Search command");
         }
     }
 
     #[test]
-    fn test_parse_search_with_positional() {
-        let cli = Cli::parse_from(&["tagr", "search", "mytag"]);
+    fn test_parse_search_with_multiple_tags() {
+        let cli = Cli::parse_from(&["tagr", "search", "-t", "tag1", "-t", "tag2", "--any-tag"]);
         if let Some(Commands::Search { .. }) = cli.command {
-            let tag = cli.command.as_ref().unwrap().get_tag_from_search();
-            assert_eq!(tag, Some("mytag".to_string()));
+            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
+            assert_eq!(params.tags, vec!["tag1".to_string(), "tag2".to_string()]);
+            assert_eq!(params.tag_mode, SearchMode::Any);
+        } else {
+            panic!("Expected Search command");
+        }
+    }
+
+    #[test]
+    fn test_parse_search_with_file_patterns() {
+        let cli = Cli::parse_from(&["tagr", "search", "-t", "rust", "-f", "*.rs", "-f", "main.*", "--any-file"]);
+        if let Some(Commands::Search { .. }) = cli.command {
+            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
+            assert_eq!(params.tags, vec!["rust".to_string()]);
+            assert_eq!(params.file_patterns, vec!["*.rs".to_string(), "main.*".to_string()]);
+            assert_eq!(params.file_mode, SearchMode::Any);
+        } else {
+            panic!("Expected Search command");
+        }
+    }
+
+    #[test]
+    fn test_parse_search_with_exclusions() {
+        let cli = Cli::parse_from(&["tagr", "search", "-t", "rust", "-e", "deprecated", "-e", "old"]);
+        if let Some(Commands::Search { .. }) = cli.command {
+            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
+            assert_eq!(params.exclude_tags, vec!["deprecated".to_string(), "old".to_string()]);
         } else {
             panic!("Expected Search command");
         }
@@ -501,6 +616,19 @@ mod tests {
             assert_eq!(exec_cmd, Some("cat {}".to_string()));
         } else {
             panic!("Expected Browse command");
+        }
+    }
+
+    #[test]
+    fn test_parse_search_with_general_query() {
+        let cli = Cli::parse_from(&["tagr", "search", "document"]);
+        if let Some(Commands::Search { .. }) = cli.command {
+            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
+            assert_eq!(params.query, Some("document".to_string()));
+            assert!(params.tags.is_empty());
+            assert!(params.file_patterns.is_empty());
+        } else {
+            panic!("Expected Search command");
         }
     }
 }

@@ -122,7 +122,7 @@ fn process_cleanup_files(
 ) -> Result<(usize, usize)> {
     let mut deleted_count = 0;
     let mut skipped_count = 0;
-    let mut delete_all = quiet; // Auto-delete if quiet mode
+    let mut delete_all = quiet;
     let mut skip_all = false;
     
     for file in files {
@@ -258,39 +258,164 @@ fn handle_tag_command(db: &Database, file: Option<PathBuf>, tags: &[String], qui
 
 /// Handle the search command - find files by tag
 ///
-/// Searches the database for all files associated with a given tag.
+/// Searches the database for files matching the specified criteria including:
+/// - Multiple tags with AND/OR logic
+/// - Multiple file patterns with AND/OR logic  
+/// - Tag exclusions
+/// - Regex matching for tags and file patterns
 ///
 /// # Arguments
 /// * `db` - Database instance to query
-/// * `tag` - Tag to search for
+/// * `params` - Search parameters from CLI
 /// * `quiet` - If true, suppress informational output
 ///
 /// # Errors
 ///
-/// Returns `TagrError` if no tag is provided or database query fails.
-fn handle_search_command(db: &Database, tag: Option<String>, quiet: bool) -> Result<()> {
-    if let Some(tag) = tag {
-        let files = db.find_by_tag(&tag)?;
+/// Returns `TagrError` if no search criteria provided or database query fails.
+fn handle_search_command(db: &Database, params: tagr::cli::SearchParams, quiet: bool) -> Result<()> {
+    use tagr::cli::SearchMode;
+    
+    // Handle general query mode (no -t or -f flags)
+    if let Some(query) = &params.query {
+        if !params.tags.is_empty() || !params.file_patterns.is_empty() {
+            return Err(TagrError::InvalidInput(
+                "Cannot use general query with -t or -f flags. Use either 'tagr search <query>' or 'tagr search -t <tag> -f <pattern>'.".into()
+            ));
+        }
+        
+        let mut files_by_tag = db.find_by_tag_regex(query)?;
+        
+        // Search for files by filename pattern (using glob with wildcards for substring matching)
+        let all_files = db.list_all_files()?;
+        let filename_pattern = format!("*{}*", query);
+        let files_by_name = Database::filter_by_patterns_any(all_files, &[filename_pattern])?;
+        
+        let mut files: std::collections::HashSet<_> = files_by_tag.drain(..).collect();
+        files.extend(files_by_name);
+        let mut files: Vec<_> = files.into_iter().collect();
+        files.sort();
         
         if files.is_empty() {
             if !quiet {
-                println!("No files found with tag '{tag}'");
+                println!("No files found matching query '{query}' (searched tags and filenames)");
             }
         } else {
             if !quiet {
-                println!("Files with tag '{tag}':");
+                println!("Found {} file(s) matching query '{}' (tags or filenames):", files.len(), query);
             }
+            
             for file in files {
                 if quiet {
                     println!("{}", file.display());
                 } else {
-                    println!("  - {}", file.display());
+                    if let Ok(Some(tags)) = db.get_tags(&file) {
+                        if tags.is_empty() {
+                            println!("  {} (no tags)", file.display());
+                        } else {
+                            println!("  {} [{}]", file.display(), tags.join(", "));
+                        }
+                    } else {
+                        println!("  {}", file.display());
+                    }
                 }
             }
         }
-    } else {
-        return Err(TagrError::InvalidInput("No tag provided".into()));
+        
+        return Ok(());
     }
+    
+    if params.tags.is_empty() && params.file_patterns.is_empty() {
+        return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags or -f for file patterns.".into()));
+    }
+    
+    let mut files = if params.tags.is_empty() {
+        db.list_all_files()?
+    } else if params.regex_tag && params.tags.len() == 1 {
+        db.find_by_tag_regex(&params.tags[0])?
+    } else if params.tag_mode == SearchMode::All {
+        db.find_by_all_tags(&params.tags)?
+    } else {
+        db.find_by_any_tag(&params.tags)?
+    };
+
+    if !params.exclude_tags.is_empty() {
+        let excluded: std::collections::HashSet<_> = db.find_by_any_tag(&params.exclude_tags)?
+            .into_iter()
+            .collect();
+        files.retain(|f| !excluded.contains(f));
+    }
+
+    if !params.file_patterns.is_empty() {
+        files = if params.regex_file {
+            if params.file_mode == SearchMode::All {
+                Database::filter_by_regex_all(files, &params.file_patterns)?
+            } else {
+                Database::filter_by_regex_any(files, &params.file_patterns)?
+            }
+        } else {
+            if params.file_mode == SearchMode::All {
+                Database::filter_by_patterns_all(files, &params.file_patterns)?
+            } else {
+                Database::filter_by_patterns_any(files, &params.file_patterns)?
+            }
+        };
+    }
+
+    if files.is_empty() {
+        if !quiet {
+            let criteria = if !params.tags.is_empty() {
+                format!("tags: {}", params.tags.join(", "))
+            } else {
+                format!("file patterns: {}", params.file_patterns.join(", "))
+            };
+            println!("No files found matching {criteria}");
+        }
+    } else {
+        if !quiet {
+            let tag_desc = if params.tags.is_empty() {
+                String::new()
+            } else if params.tag_mode == SearchMode::All {
+                format!("ALL tags [{}]", params.tags.join(", "))
+            } else {
+                format!("ANY tag [{}]", params.tags.join(", "))
+            };
+            
+            let file_desc = if params.file_patterns.is_empty() {
+                String::new()
+            } else if params.file_mode == SearchMode::All {
+                format!("ALL patterns [{}]", params.file_patterns.join(", "))
+            } else {
+                format!("ANY pattern [{}]", params.file_patterns.join(", "))
+            };
+            
+            let mut parts = Vec::new();
+            if !tag_desc.is_empty() {
+                parts.push(tag_desc);
+            }
+            if !file_desc.is_empty() {
+                parts.push(file_desc);
+            }
+            
+            println!("Found {} file(s) matching {}:", files.len(), parts.join(" and "));
+        }
+        
+        for file in files {
+            if quiet {
+                println!("{}", file.display());
+            } else {
+                if let Ok(Some(tags)) = db.get_tags(&file) {
+                    if tags.is_empty() {
+                        println!("  {} (no tags)", file.display());
+                    } else {
+                        println!("  {} [{}]", file.display(), tags.join(", "));
+                    }
+                } else {
+                    println!("  {}", file.display());
+                }
+            }
+        }
+    }
+    
     Ok(())
 }
 
@@ -785,7 +910,6 @@ fn main() -> Result<()> {
     
     let cli = Cli::parse_args();
     
-    // Determine if quiet mode is enabled (CLI flag overrides config)
     let quiet = cli.quiet || config.quiet;
     
     let command = cli.get_command();
@@ -795,7 +919,6 @@ fn main() -> Result<()> {
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
     } else {
-        // Get database name from command --db flag or use default
         let db_name = command.get_db().or_else(|| {
             config.get_default_database().map(|s| s.to_string())
         }).ok_or_else(|| TagrError::InvalidInput(
@@ -820,8 +943,9 @@ fn main() -> Result<()> {
                 handle_tag_command(&db, file, tags, quiet)?;
             }
             Commands::Search { .. } => {
-                let tag = command.get_tag_from_search();
-                handle_search_command(&db, tag, quiet)?;
+                let params = command.get_search_params()
+                    .ok_or_else(|| TagrError::InvalidInput("Failed to parse search parameters".into()))?;
+                handle_search_command(&db, params, quiet)?;
             }
             Commands::Untag { .. } => {
                 let file = command.get_file_from_untag();
