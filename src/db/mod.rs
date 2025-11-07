@@ -469,7 +469,7 @@ impl Database {
     /// Returns `DbError` if the regex pattern is invalid or database operations fail.
     pub fn find_by_tag_regex(&self, pattern: &str) -> Result<Vec<PathBuf>, DbError> {
         let regex = Regex::new(pattern)
-            .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern: {}", e)))?;
+            .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern: {e}")))?;
         
         let matching_tags: Vec<String> = self.list_all_tags()?
             .into_iter()
@@ -540,15 +540,14 @@ impl Database {
         
         let matchers: Result<Vec<GlobPattern>, _> = patterns.iter()
             .map(|p| GlobPattern::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{}': {}", p, e))))
+                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{p}': {e}"))))
             .collect();
         let matchers = matchers?;
         
         Ok(files.into_iter()
             .filter(|f| {
                 f.to_str()
-                    .map(|s| matchers.iter().all(|m| m.matches(s)))
-                    .unwrap_or(false)
+                    .is_some_and(|s| matchers.iter().all(|m| m.matches(s)))
             })
             .collect())
     }
@@ -575,15 +574,14 @@ impl Database {
         
         let matchers: Result<Vec<GlobPattern>, _> = patterns.iter()
             .map(|p| GlobPattern::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{}': {}", p, e))))
+                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{p}': {e}"))))
             .collect();
         let matchers = matchers?;
         
         Ok(files.into_iter()
             .filter(|f| {
                 f.to_str()
-                    .map(|s| matchers.iter().any(|m| m.matches(s)))
-                    .unwrap_or(false)
+                    .is_some_and(|s| matchers.iter().any(|m| m.matches(s)))
             })
             .collect())
     }
@@ -610,15 +608,14 @@ impl Database {
         
         let matchers: Result<Vec<Regex>, _> = patterns.iter()
             .map(|p| Regex::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{}': {}", p, e))))
+                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{p}': {e}"))))
             .collect();
         let matchers = matchers?;
         
         Ok(files.into_iter()
             .filter(|f| {
                 f.to_str()
-                    .map(|s| matchers.iter().all(|m| m.is_match(s)))
-                    .unwrap_or(false)
+                    .is_some_and(|s| matchers.iter().all(|m| m.is_match(s)))
             })
             .collect())
     }
@@ -645,15 +642,14 @@ impl Database {
         
         let matchers: Result<Vec<Regex>, _> = patterns.iter()
             .map(|p| Regex::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{}': {}", p, e))))
+                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{p}': {e}"))))
             .collect();
         let matchers = matchers?;
         
         Ok(files.into_iter()
             .filter(|f| {
                 f.to_str()
-                    .map(|s| matchers.iter().any(|m| m.is_match(s)))
-                    .unwrap_or(false)
+                    .is_some_and(|s| matchers.iter().any(|m| m.is_match(s)))
             })
             .collect())
     }
