@@ -8,4 +8,4 @@ pub mod error;
 pub mod browse;
 
 pub use error::SearchError;
-pub use browse::{browse, browse_advanced, BrowseResult};
+pub use browse::{browse, browse_with_params, browse_advanced, BrowseResult};

@@ -5,6 +5,7 @@
 //! 2. View and select files matching those tags (multi-select supported)
 
 use crate::db::Database;
+use crate::cli::SearchParams;
 use super::error::SearchError;
 use skim::prelude::*;
 use std::io::Cursor;
@@ -109,13 +110,54 @@ pub struct BrowseResult {
 /// Returns `SearchError` if database operations fail, UI interactions fail,
 /// or if skim selection is interrupted.
 pub fn browse(db: &Database) -> Result<Option<BrowseResult>, SearchError> {
-    let selected_tags = select_tags(db)?;
+    browse_with_params(db, None)
+}
+
+/// Run interactive browse mode with optional pre-populated search parameters
+/// 
+/// This function provides a two-stage fuzzy finder interface with optional
+/// pre-filtering based on search parameters:
+/// 1. If search params are provided, skip tag selection and use those filters
+/// 2. Otherwise, user selects one or more tags from all available tags
+/// 3. Then, user selects one or more files from files matching the criteria
+/// 
+/// # Arguments
+/// * `db` - The database to query
+/// * `search_params` - Optional search parameters to pre-populate the browse
+/// 
+/// # Returns
+/// * `Ok(Some(BrowseResult))` - User made selections and confirmed
+/// * `Ok(None)` - User cancelled the operation
+/// * `Err(SearchError)` - An error occurred during the operation
+/// 
+/// # Errors
+/// 
+/// Returns `SearchError` if database operations fail, UI interactions fail,
+/// or if skim selection is interrupted.
+pub fn browse_with_params(
+    db: &Database,
+    search_params: Option<SearchParams>,
+) -> Result<Option<BrowseResult>, SearchError> {
+    let (selected_tags, matching_files) = if let Some(params) = search_params {
+        let files = apply_search_params(db, &params)?;
+        (params.tags.clone(), files)
+    } else {
+        let selected_tags = select_tags(db)?;
+        
+        if selected_tags.is_empty() {
+            return Ok(None);
+        }
+        
+        let files = db.find_by_any_tag(&selected_tags)?;
+        (selected_tags, files)
+    };
     
-    if selected_tags.is_empty() {
+    if matching_files.is_empty() {
+        eprintln!("No files found matching the criteria");
         return Ok(None);
     }
     
-    let selected_files = select_files(db, &selected_tags)?;
+    let selected_files = select_files_from_list(db, &matching_files)?;
     
     if selected_files.is_empty() {
         return Ok(None);
@@ -125,6 +167,134 @@ pub fn browse(db: &Database) -> Result<Option<BrowseResult>, SearchError> {
         selected_tags,
         selected_files,
     }))
+}
+
+/// Apply search parameters to filter files from the database
+///
+/// Handles the complex logic of combining general query, tags, file patterns,
+/// and exclusions to produce a final list of matching files.
+///
+/// # Arguments
+/// * `db` - Database to query
+/// * `params` - Search parameters with tags, patterns, and exclusions
+///
+/// # Returns
+/// * Vector of file paths matching all criteria
+///
+/// # Errors
+///
+/// Returns `SearchError::DatabaseError` if database operations fail.
+fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<PathBuf>, SearchError> {
+    let mut files = if let Some(query) = &params.query {
+        // General query searches both tags and filenames
+        let mut by_tag = db.find_by_tag(query)?;
+        let all_files = db.list_all_files()?;
+        let by_name: Vec<PathBuf> = all_files
+            .into_iter()
+            .filter(|f| {
+                f.to_string_lossy()
+                    .to_lowercase()
+                    .contains(&query.to_lowercase())
+            })
+            .collect();
+        
+        // Combine and deduplicate
+        by_tag.extend(by_name);
+        by_tag.sort();
+        by_tag.dedup();
+        by_tag
+    } else if !params.tags.is_empty() {
+        use crate::cli::SearchMode;
+        match params.tag_mode {
+            SearchMode::Any => db.find_by_any_tag(&params.tags)?,
+            SearchMode::All => db.find_by_all_tags(&params.tags)?,
+        }
+    } else {
+        db.list_all_files()?
+    };
+    
+    if !params.file_patterns.is_empty() {
+        files = filter_by_patterns(&files, &params.file_patterns, params.regex_file);
+    }
+    
+    if !params.exclude_tags.is_empty() {
+        files = filter_out_tags(db, &files, &params.exclude_tags)?;
+    }
+    
+    Ok(files)
+}
+
+/// Filter files by glob or regex patterns
+///
+/// # Arguments
+/// * `files` - Files to filter
+/// * `patterns` - Patterns to match against
+/// * `use_regex` - Whether to use regex matching
+///
+/// # Returns
+/// * Filtered vector of files matching at least one pattern
+fn filter_by_patterns(files: &[PathBuf], patterns: &[String], use_regex: bool) -> Vec<PathBuf> {
+    if use_regex {
+        files
+            .iter()
+            .filter(|f| {
+                let path_str = f.to_string_lossy();
+                patterns.iter().any(|p| {
+                    regex::Regex::new(p)
+                        .map(|re| re.is_match(&path_str))
+                        .unwrap_or(false)
+                })
+            })
+            .cloned()
+            .collect()
+    } else {
+        files
+            .iter()
+            .filter(|f| {
+                let path_str = f.to_string_lossy();
+                patterns.iter().any(|p| {
+                    glob::Pattern::new(p)
+                        .map(|pattern| pattern.matches(&path_str))
+                        .unwrap_or(false)
+                })
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// Filter out files that have any of the excluded tags
+///
+/// # Arguments
+/// * `db` - Database to query for file tags
+/// * `files` - Files to filter
+/// * `exclude_tags` - Tags to exclude
+///
+/// # Returns
+/// * Filtered vector of files without any excluded tags
+///
+/// # Errors
+///
+/// Returns `SearchError::DatabaseError` if tag lookup fails.
+fn filter_out_tags(
+    db: &Database,
+    files: &[PathBuf],
+    exclude_tags: &[String],
+) -> Result<Vec<PathBuf>, SearchError> {
+    let mut result = Vec::new();
+    for file in files {
+        if let Some(file_tags) = db.get_tags(file)? {
+            let has_excluded = file_tags
+                .iter()
+                .any(|tag| exclude_tags.contains(tag));
+            if !has_excluded {
+                result.push(file.clone());
+            }
+        } else {
+            result.push(file.clone());
+        }
+    }
+    Ok(result)
 }
 
 /// Show fuzzy finder for tag selection (multi-select enabled)
@@ -175,27 +345,6 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
         .collect();
     
     Ok(selected_tags)
-}
-
-/// Show fuzzy finder for file selection based on tags (multi-select enabled)
-///
-/// Finds all files matching any of the specified tags and displays them
-/// in an interactive fuzzy finder.
-///
-/// # Arguments
-/// * `db` - Database to query for files
-/// * `tags` - Tags to filter files by (OR operation)
-///
-/// # Returns
-/// * Empty vector if no files match or user cancelled
-/// * Vector of selected file paths if user confirmed selection
-///
-/// # Errors
-///
-/// Returns `SearchError` if database query fails or fuzzy finder is interrupted.
-fn select_files(db: &Database, tags: &[String]) -> Result<Vec<PathBuf>, SearchError> {
-    let matching_files = db.find_by_any_tag(tags)?;
-    select_files_from_list(db, &matching_files)
 }
 
 /// Select files from a pre-filtered list (consolidated file selection logic)

@@ -65,20 +65,68 @@ tagr cleanup
 
 ## Interactive Browse Mode
 
-The browse command opens a two-stage fuzzy finder:
+The browse command opens an interactive fuzzy finder that can be used in two ways:
 
-### Stage 1: Tag Selection
+### 1. Traditional Two-Stage Browse
+
+```bash
+# Launch browse mode
+tagr
+# or
+tagr browse
+```
+
+**Stage 1: Tag Selection**
 - Displays all available tags in the database
 - **Multi-select enabled** via TAB key
 - Fuzzy matching for quick filtering
 - Press Enter to proceed to file selection
 
-### Stage 2: File Selection
+**Stage 2: File Selection**
 - Shows all files matching ANY of the selected tags
 - Files displayed with their tags inline: `file.txt [tag1, tag2, tag3]`
 - **Multi-select enabled** via TAB key
 - Fuzzy matching for filtering
 - Press Enter to confirm final selection
+
+### 2. Pre-Populated Browse with Query Arguments
+
+You can now pre-populate the browse mode with search criteria, skipping the tag selection stage:
+
+```bash
+# Browse with a general query (searches both filenames and tags)
+tagr browse documents
+
+# Browse files with specific tags
+tagr browse -t rust -t programming
+
+# Browse with file patterns (glob syntax)
+tagr browse -f "*.txt" -f "*.md"
+
+# Exclude specific tags
+tagr browse -t documents -e archived
+
+# Combine multiple criteria
+tagr browse -t rust -f "src/*.rs" -e test
+```
+
+This behaves exactly like `tagr search`, but instead of printing results directly, it opens the fuzzy finder pre-filtered with matching files. You can then:
+- Further filter with fuzzy matching
+- Multi-select files
+- Execute commands on selections
+
+### Execute Commands on Selections
+
+```bash
+# Open selected files in your editor
+tagr browse documents -x "nvim {}"
+
+# Copy selected files
+tagr browse -t images -x "cp {} /backup/"
+
+# Preview file content
+tagr browse -t config -x "cat {}"
+```
 
 ### Keyboard Controls
 
@@ -90,15 +138,20 @@ The browse command opens a two-stage fuzzy finder:
 | ESC / Ctrl+C | Cancel |
 | Type | Filter via fuzzy matching |
 
-### Example
+### Examples
 
 ```bash
-# Launch browse mode
+# Traditional browse
 tagr
 
-# Stage 1: Select tags (e.g., "rust" and "programming")
-# Stage 2: Select files from results
-# Files shown with inline tags: src/main.rs [rust, code, source]
+# Browse documents matching pattern
+tagr browse -f "*.txt"
+
+# Browse Rust files with specific tag, then edit
+tagr browse -t tutorial -f "*.rs" -x "nvim {}"
+
+# Browse any doc format, excluding archived
+tagr browse -t documentation -e archived
 ```
 
 ## Commands
@@ -126,6 +179,15 @@ tagr show <file>
 tagr
 tagr browse
 tagr b
+
+# Pre-populated browse with query
+tagr browse documents
+tagr browse -t rust -t programming
+tagr browse -f "*.txt" -f "*.md"
+tagr browse -t config -e archived
+
+# Browse with command execution
+tagr browse -t images -x "cp {} /backup/"
 
 # List all tags
 tagr list tags

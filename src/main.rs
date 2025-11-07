@@ -42,7 +42,13 @@
 //! On first run, tagr will prompt for initial setup. Configuration is stored in
 //! the user's config directory (`~/.config/tagr/config.toml` on Linux).
 
-use tagr::{db::Database, cli::{Cli, Commands, ConfigCommands, DbCommands, ListVariant, execute_command_on_files}, config, search, TagrError};
+use tagr::{
+    db::Database,
+    cli::{Cli, Commands, ConfigCommands, DbCommands, ListVariant, SearchParams, execute_command_on_files},
+    config,
+    search,
+    TagrError,
+};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -179,18 +185,24 @@ fn process_cleanup_files(
 /// Handle the browse command - interactive fuzzy finder for tags and files
 ///
 /// Presents an interactive UI for selecting tags and files, optionally executing
-/// a command on the selected files.
+/// a command on the selected files. Can be pre-populated with search parameters.
 ///
 /// # Arguments
 /// * `db` - Database instance to query
+/// * `search_params` - Optional search parameters to pre-populate the browse
 /// * `execute_cmd` - Optional command template to execute on selected files
 /// * `quiet` - If true, suppress informational output
 ///
 /// # Errors
 ///
 /// Returns `TagrError` if the browse operation fails or command execution fails.
-fn handle_browse_command(db: &Database, execute_cmd: Option<String>, quiet: bool) -> Result<()> {
-    match search::browse(db) {
+fn handle_browse_command(
+    db: &Database,
+    search_params: Option<SearchParams>,
+    execute_cmd: Option<String>,
+    quiet: bool,
+) -> Result<()> {
+    match search::browse_with_params(db, search_params) {
         Ok(Some(result)) => {
             if !quiet {
                 println!("=== Selected Tags ===");
@@ -925,8 +937,9 @@ fn main() -> Result<()> {
         
         match &command {
             Commands::Browse { .. } => {
+                let search_params = command.get_search_params_from_browse();
                 let execute_cmd = command.get_execute_from_browse();
-                handle_browse_command(&db, execute_cmd, quiet)?;
+                handle_browse_command(&db, search_params, execute_cmd, quiet)?;
             }
             Commands::Tag { .. } => {
                 let file = command.get_file_from_tag();
