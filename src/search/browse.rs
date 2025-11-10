@@ -6,6 +6,7 @@
 
 use crate::db::Database;
 use crate::cli::SearchParams;
+use crate::config::PathFormat;
 use super::error::SearchError;
 use skim::prelude::*;
 use std::io::Cursor;
@@ -47,6 +48,30 @@ fn build_skim_options(
         .map_err(|e| SearchError::BuildError(format!("Failed to build skim options: {e}")))
 }
 
+/// Format a path according to the specified format for display
+///
+/// # Arguments
+/// * `path` - The path to format
+/// * `format` - Whether to display as absolute or relative
+///
+/// # Returns
+/// A string representation of the path
+fn format_path_for_display(path: &Path, format: PathFormat) -> String {
+    match format {
+        PathFormat::Absolute => path.display().to_string(),
+        PathFormat::Relative => {
+            // Try to get relative path from current directory
+            if let Ok(cwd) = std::env::current_dir() {
+                if let Ok(rel_path) = path.strip_prefix(&cwd) {
+                    return rel_path.display().to_string();
+                }
+            }
+            // Fallback to absolute if relative path cannot be computed
+            path.display().to_string()
+        }
+    }
+}
+
 // File selection rendering & multi-select:
 // We use a custom `FileItem` so skim handles ANSI via `AnsiString::parse`.
 // Earlier issues with multi-select arose when the output string included tags
@@ -57,6 +82,7 @@ fn build_skim_options(
 #[derive(Debug, Clone)]
 struct FileItem {
     path: String,
+    display_path: String,
     tags: Vec<String>,
     exists: bool,
     index: usize,
@@ -64,18 +90,18 @@ struct FileItem {
 
 impl SkimItem for FileItem {
     fn text(&self) -> Cow<'_, str> {
-        // Limit searchable text to just the path to avoid unintended bulk selection side-effects.
-        Cow::Borrowed(&self.path)
+        // Limit searchable text to just the display path to avoid unintended bulk selection side-effects.
+        Cow::Borrowed(&self.display_path)
     }
 
     fn display<'a>(&'a self, _context: DisplayContext<'a>) -> AnsiString<'a> {
-        let file_colored = if self.exists { self.path.green() } else { self.path.red() };
+        let file_colored = if self.exists { self.display_path.green() } else { self.display_path.red() };
         let line = format!("{} [{}]", file_colored, self.tags.join(", "));
         AnsiString::parse(&line)
     }
 
     fn output(&self) -> Cow<'_, str> {
-        // Raw path only for stable multi-select key.
+        // Raw absolute path only for stable multi-select key.
         Cow::Borrowed(&self.path)
     }
 
@@ -99,6 +125,7 @@ pub struct BrowseResult {
 /// 
 /// # Arguments
 /// * `db` - The database to query
+/// * `path_format` - Format to use for displaying file paths
 /// 
 /// # Returns
 /// * `Ok(Some(BrowseResult))` - User made selections and confirmed
@@ -109,8 +136,8 @@ pub struct BrowseResult {
 /// 
 /// Returns `SearchError` if database operations fail, UI interactions fail,
 /// or if skim selection is interrupted.
-pub fn browse(db: &Database) -> Result<Option<BrowseResult>, SearchError> {
-    browse_with_params(db, None)
+pub fn browse(db: &Database, path_format: PathFormat) -> Result<Option<BrowseResult>, SearchError> {
+    browse_with_params(db, None, path_format)
 }
 
 /// Run interactive browse mode with optional pre-populated search parameters
@@ -124,6 +151,7 @@ pub fn browse(db: &Database) -> Result<Option<BrowseResult>, SearchError> {
 /// # Arguments
 /// * `db` - The database to query
 /// * `search_params` - Optional search parameters to pre-populate the browse
+/// * `path_format` - Format to use for displaying file paths
 /// 
 /// # Returns
 /// * `Ok(Some(BrowseResult))` - User made selections and confirmed
@@ -137,6 +165,7 @@ pub fn browse(db: &Database) -> Result<Option<BrowseResult>, SearchError> {
 pub fn browse_with_params(
     db: &Database,
     search_params: Option<SearchParams>,
+    path_format: PathFormat,
 ) -> Result<Option<BrowseResult>, SearchError> {
     let (selected_tags, matching_files) = if let Some(params) = search_params {
         let files = apply_search_params(db, &params)?;
@@ -157,7 +186,7 @@ pub fn browse_with_params(
         return Ok(None);
     }
     
-    let selected_files = select_files_from_list(db, &matching_files)?;
+    let selected_files = select_files_from_list(db, &matching_files, path_format)?;
     
     if selected_files.is_empty() {
         return Ok(None);
@@ -355,6 +384,7 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
 /// # Arguments
 /// * `db` - Database to query for file tags
 /// * `files` - Pre-filtered list of files to display
+/// * `path_format` - Format to use for displaying file paths
 ///
 /// # Returns
 /// * Empty vector if no files provided or user cancelled
@@ -364,7 +394,7 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
 ///
 /// Returns `SearchError::DatabaseError` if tag lookup fails or
 /// `SearchError::InterruptedError` if the fuzzy finder is interrupted.
-fn select_files_from_list(db: &Database, files: &[PathBuf]) -> Result<Vec<PathBuf>, SearchError> {
+fn select_files_from_list(db: &Database, files: &[PathBuf], path_format: PathFormat) -> Result<Vec<PathBuf>, SearchError> {
     if files.is_empty() {
         eprintln!("No files found with the selected tags");
         return Ok(Vec::new());
@@ -375,6 +405,7 @@ fn select_files_from_list(db: &Database, files: &[PathBuf]) -> Result<Vec<PathBu
         if let Some(tags) = db.get_tags(file)? {
             let item = Arc::new(FileItem {
                 path: file.to_string_lossy().to_string(),
+                display_path: format_path_for_display(file, path_format),
                 tags,
                 exists: Path::new(file).exists(),
                 index: idx,
@@ -414,6 +445,7 @@ fn select_files_from_list(db: &Database, files: &[PathBuf]) -> Result<Vec<PathBu
 /// 
 /// # Arguments
 /// * `db` - The database to query
+/// * `path_format` - Format to use for displaying file paths
 /// 
 /// # Returns
 /// * `Ok(Some(BrowseResult))` - User made selections and confirmed
@@ -424,7 +456,7 @@ fn select_files_from_list(db: &Database, files: &[PathBuf]) -> Result<Vec<PathBu
 /// 
 /// Returns `SearchError` if database operations fail, UI interactions fail,
 /// or if skim selection is interrupted.
-pub fn browse_advanced(db: &Database) -> Result<Option<BrowseResult>, SearchError> {
+pub fn browse_advanced(db: &Database, path_format: PathFormat) -> Result<Option<BrowseResult>, SearchError> {
     let selected_tags = select_tags(db)?;
     
     if selected_tags.is_empty() {
@@ -448,7 +480,7 @@ pub fn browse_advanced(db: &Database) -> Result<Option<BrowseResult>, SearchErro
         return Ok(None);
     }
     
-    let selected_files = select_files_from_list(db, &matching_files)?;
+    let selected_files = select_files_from_list(db, &matching_files, path_format)?;
     
     if selected_files.is_empty() {
         return Ok(None);

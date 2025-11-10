@@ -54,6 +54,30 @@ use std::path::PathBuf;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
+/// Format a path according to the specified format
+///
+/// # Arguments
+/// * `path` - The path to format
+/// * `format` - Whether to display as absolute or relative
+///
+/// # Returns
+/// A string representation of the path
+fn format_path(path: &PathBuf, format: config::PathFormat) -> String {
+    match format {
+        config::PathFormat::Absolute => path.display().to_string(),
+        config::PathFormat::Relative => {
+            // Try to get relative path from current directory
+            if let Ok(cwd) = std::env::current_dir() {
+                if let Ok(rel_path) = path.strip_prefix(&cwd) {
+                    return rel_path.display().to_string();
+                }
+            }
+            // Fallback to absolute if relative path cannot be computed
+            path.display().to_string()
+        }
+    }
+}
+
 /// Prompt user for yes/no confirmation
 ///
 /// # Arguments
@@ -112,6 +136,7 @@ fn parse_cleanup_response(response: &str) -> CleanupAction {
 /// * `db` - Database instance
 /// * `files` - List of files to process
 /// * `description` - Description of why these files are being cleaned (e.g., "File not found")
+/// * `path_format` - Format to use for displaying paths
 /// * `quiet` - If true, suppress prompts and auto-delete
 ///
 /// # Returns
@@ -123,6 +148,7 @@ fn process_cleanup_files(
     db: &Database,
     files: &[PathBuf],
     description: &str,
+    path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<(usize, usize)> {
     let mut deleted_count = 0;
@@ -135,7 +161,7 @@ fn process_cleanup_files(
             db.remove(file)?;
             deleted_count += 1;
             if !quiet {
-                println!("Deleted: {}", file.display());
+                println!("Deleted: {}", format_path(file, path_format));
             }
             continue;
         }
@@ -146,7 +172,7 @@ fn process_cleanup_files(
         }
         
         if !quiet {
-            println!("{description}: {}", file.display());
+            println!("{description}: {}", format_path(file, path_format));
             print!("Delete from database? [y/n/a/q] (yes/no/yes-to-all/no-to-all): ");
             io::stdout().flush()?;
             
@@ -158,22 +184,22 @@ fn process_cleanup_files(
                 CleanupAction::Delete => {
                     db.remove(file)?;
                     deleted_count += 1;
-                    println!("Deleted: {}", file.display());
+                    println!("Deleted: {}", format_path(file, path_format));
                 }
                 CleanupAction::DeleteAll => {
                     delete_all = true;
                     db.remove(file)?;
                     deleted_count += 1;
-                    println!("Deleted: {}", file.display());
+                    println!("Deleted: {}", format_path(file, path_format));
                 }
                 CleanupAction::SkipAll => {
                     skip_all = true;
                     skipped_count += 1;
-                    println!("Skipped: {}", file.display());
+                    println!("Skipped: {}", format_path(file, path_format));
                 }
                 CleanupAction::Skip => {
                     skipped_count += 1;
-                    println!("Skipped: {}", file.display());
+                    println!("Skipped: {}", format_path(file, path_format));
                 }
             }
         }
@@ -191,6 +217,7 @@ fn process_cleanup_files(
 /// * `db` - Database instance to query
 /// * `search_params` - Optional search parameters to pre-populate the browse
 /// * `execute_cmd` - Optional command template to execute on selected files
+/// * `path_format` - Format to use for displaying paths
 /// * `quiet` - If true, suppress informational output
 ///
 /// # Errors
@@ -200,9 +227,10 @@ fn handle_browse_command(
     db: &Database,
     search_params: Option<SearchParams>,
     execute_cmd: Option<String>,
+    path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
-    match search::browse_with_params(db, search_params) {
+    match search::browse_with_params(db, search_params, path_format) {
         Ok(Some(result)) => {
             if !quiet {
                 println!("=== Selected Tags ===");
@@ -214,9 +242,9 @@ fn handle_browse_command(
             }
             for file in &result.selected_files {
                 if quiet {
-                    println!("{}", file.display());
+                    println!("{}", format_path(file, path_format));
                 } else {
-                    println!("  - {}", file.display());
+                    println!("  - {}", format_path(file, path_format));
                 }
             }
             
@@ -278,12 +306,13 @@ fn handle_tag_command(db: &Database, file: Option<PathBuf>, tags: &[String], qui
 /// # Arguments
 /// * `db` - Database instance to query
 /// * `params` - Search parameters from CLI
+/// * `path_format` - Format to use for displaying paths
 /// * `quiet` - If true, suppress informational output
 ///
 /// # Errors
 ///
 /// Returns `TagrError` if no search criteria provided or database query fails.
-fn handle_search_command(db: &Database, params: &tagr::cli::SearchParams, quiet: bool) -> Result<()> {
+fn handle_search_command(db: &Database, params: &tagr::cli::SearchParams, path_format: config::PathFormat, quiet: bool) -> Result<()> {
     use tagr::cli::SearchMode;
     
     // Handle general query mode (no -t or -f flags)
@@ -317,15 +346,15 @@ fn handle_search_command(db: &Database, params: &tagr::cli::SearchParams, quiet:
             
             for file in files {
                 if quiet {
-                    println!("{}", file.display());
+                    println!("{}", format_path(&file, path_format));
                 } else if let Ok(Some(tags)) = db.get_tags(&file) {
                     if tags.is_empty() {
-                        println!("  {} (no tags)", file.display());
+                        println!("  {} (no tags)", format_path(&file, path_format));
                     } else {
-                        println!("  {} [{}]", file.display(), tags.join(", "));
+                        println!("  {} [{}]", format_path(&file, path_format), tags.join(", "));
                     }
                 } else {
-                    println!("  {}", file.display());
+                    println!("  {}", format_path(&file, path_format));
                 }
             }
         }
@@ -408,15 +437,15 @@ fn handle_search_command(db: &Database, params: &tagr::cli::SearchParams, quiet:
         
         for file in files {
             if quiet {
-                println!("{}", file.display());
+                println!("{}", format_path(&file, path_format));
             } else if let Ok(Some(tags)) = db.get_tags(&file) {
                 if tags.is_empty() {
-                    println!("  {} (no tags)", file.display());
+                    println!("  {} (no tags)", format_path(&file, path_format));
                 } else {
-                    println!("  {} [{}]", file.display(), tags.join(", "));
+                    println!("  {} [{}]", format_path(&file, path_format), tags.join(", "));
                 }
             } else {
-                println!("  {}", file.display());
+                println!("  {}", format_path(&file, path_format));
             }
         }
     }
@@ -544,12 +573,13 @@ fn handle_tags_command(db: &Database, command: &tagr::cli::TagsCommands, quiet: 
 /// # Arguments
 /// * `db` - Database instance to query
 /// * `variant` - Whether to list files or tags
+/// * `path_format` - Format to use for displaying paths
 /// * `quiet` - If true, suppress informational output
 ///
 /// # Errors
 ///
 /// Returns `TagrError` if database operations fail.
-fn handle_list_command(db: &Database, variant: ListVariant, quiet: bool) -> Result<()> {
+fn handle_list_command(db: &Database, variant: ListVariant, path_format: config::PathFormat, quiet: bool) -> Result<()> {
     match variant {
         ListVariant::Files => {
             let all_pairs = db.list_all()?;
@@ -564,11 +594,11 @@ fn handle_list_command(db: &Database, variant: ListVariant, quiet: bool) -> Resu
                 }
                 for pair in all_pairs {
                     if quiet {
-                        println!("{}", pair.file.display());
+                        println!("{}", format_path(&pair.file, path_format));
                     } else if pair.tags.is_empty() {
-                        println!("  {} (no tags)", pair.file.display());
+                        println!("  {} (no tags)", format_path(&pair.file, path_format));
                     } else {
-                        println!("  {} [{}]", pair.file.display(), pair.tags.join(", "));
+                        println!("  {} [{}]", format_path(&pair.file, path_format), pair.tags.join(", "));
                     }
                 }
             }
@@ -605,13 +635,14 @@ fn handle_list_command(db: &Database, variant: ListVariant, quiet: bool) -> Resu
 ///
 /// # Arguments
 /// * `db` - Database instance to clean up
+/// * `path_format` - Format to use for displaying paths
 /// * `quiet` - If true, suppress informational output and prompts
 ///
 /// # Errors
 ///
 /// Returns `TagrError` if database operations fail or I/O errors occur during
 /// interactive prompts.
-fn handle_cleanup_command(db: &Database, quiet: bool) -> Result<()> {
+fn handle_cleanup_command(db: &Database, path_format: config::PathFormat, quiet: bool) -> Result<()> {
     if !quiet {
         println!("Scanning database for issues...");
     }
@@ -645,7 +676,7 @@ fn handle_cleanup_command(db: &Database, quiet: bool) -> Result<()> {
             println!("\n=== Missing Files ===");
             println!("Found {} missing file(s):", missing_files.len());
             for file in &missing_files {
-                println!("  - {}", file.display());
+                println!("  - {}", format_path(file, path_format));
             }
             println!();
         }
@@ -654,6 +685,7 @@ fn handle_cleanup_command(db: &Database, quiet: bool) -> Result<()> {
             db,
             &missing_files,
             "File not found",
+            path_format,
             quiet,
         )?;
         deleted_count += deleted;
@@ -665,7 +697,7 @@ fn handle_cleanup_command(db: &Database, quiet: bool) -> Result<()> {
             println!("\n=== Files with No Tags ===");
             println!("Found {} file(s) with no tags:", untagged_files.len());
             for file in &untagged_files {
-                println!("  - {}", file.display());
+                println!("  - {}", format_path(file, path_format));
             }
             println!();
         }
@@ -674,6 +706,7 @@ fn handle_cleanup_command(db: &Database, quiet: bool) -> Result<()> {
             db,
             &untagged_files,
             "File has no tags",
+            path_format,
             quiet,
         )?;
         deleted_count += deleted;
@@ -878,9 +911,25 @@ fn handle_config_command(mut config: config::TagrConfig, command: &ConfigCommand
                         println!("Set quiet = {new_value}");
                     }
                 }
+                "path_format" | "path-format" => {
+                    let new_value = match value.to_lowercase().as_str() {
+                        "absolute" | "abs" => config::PathFormat::Absolute,
+                        "relative" | "rel" => config::PathFormat::Relative,
+                        _ => {
+                            return Err(TagrError::InvalidInput(
+                                format!("Invalid value for path_format: '{value}'. Use 'absolute' or 'relative'")
+                            ));
+                        }
+                    };
+                    config.path_format = new_value;
+                    config.save()?;
+                    if !quiet {
+                        println!("Set path_format = {:?}", new_value);
+                    }
+                }
                 _ => {
                     return Err(TagrError::InvalidInput(
-                        format!("Unknown configuration key: '{key}'. Available keys: quiet")
+                        format!("Unknown configuration key: '{key}'. Available keys: quiet, path_format")
                     ));
                 }
             }
@@ -890,9 +939,16 @@ fn handle_config_command(mut config: config::TagrConfig, command: &ConfigCommand
                 "quiet" => {
                     println!("{}", config.quiet);
                 }
+                "path_format" | "path-format" => {
+                    let value = match config.path_format {
+                        config::PathFormat::Absolute => "absolute",
+                        config::PathFormat::Relative => "relative",
+                    };
+                    println!("{value}");
+                }
                 _ => {
                     return Err(TagrError::InvalidInput(
-                        format!("Unknown configuration key: '{key}'. Available keys: quiet")
+                        format!("Unknown configuration key: '{key}'. Available keys: quiet, path_format")
                     ));
                 }
             }
@@ -937,11 +993,21 @@ fn main() -> Result<()> {
         
         let db = Database::open(db_path)?;
         
+        // Determine path format: CLI override > config default
+        let path_format = if let Some(cli_format) = cli.get_path_format() {
+            match cli_format {
+                tagr::cli::PathFormat::Absolute => config::PathFormat::Absolute,
+                tagr::cli::PathFormat::Relative => config::PathFormat::Relative,
+            }
+        } else {
+            config.path_format
+        };
+        
         match &command {
             Commands::Browse { .. } => {
                 let search_params = command.get_search_params_from_browse();
                 let execute_cmd = command.get_execute_from_browse();
-                handle_browse_command(&db, search_params, execute_cmd, quiet)?;
+                handle_browse_command(&db, search_params, execute_cmd, path_format, quiet)?;
             }
             Commands::Tag { .. } => {
                 let file = command.get_file_from_tag();
@@ -951,7 +1017,7 @@ fn main() -> Result<()> {
             Commands::Search { .. } => {
                 let params = command.get_search_params()
                     .ok_or_else(|| TagrError::InvalidInput("Failed to parse search parameters".into()))?;
-                handle_search_command(&db, &params, quiet)?;
+                handle_search_command(&db, &params, path_format, quiet)?;
             }
             Commands::Untag { .. } => {
                 let file = command.get_file_from_untag();
@@ -963,10 +1029,10 @@ fn main() -> Result<()> {
                 handle_tags_command(&db, command, quiet)?;
             }
             Commands::Cleanup { .. } => {
-                handle_cleanup_command(&db, quiet)?;
+                handle_cleanup_command(&db, path_format, quiet)?;
             }
             Commands::List { variant, .. } => {
-                handle_list_command(&db, *variant, quiet)?;
+                handle_list_command(&db, *variant, path_format, quiet)?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }

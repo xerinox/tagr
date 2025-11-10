@@ -10,6 +10,22 @@ use config::{Config, ConfigError, File, FileFormat};
 use dialoguer::{Input, theme::ColorfulTheme};
 use serde::{Deserialize, Serialize};
 
+/// Path display format
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PathFormat {
+    /// Display absolute paths
+    Absolute,
+    /// Display relative paths (relative to current directory)
+    Relative,
+}
+
+impl Default for PathFormat {
+    fn default() -> Self {
+        Self::Absolute
+    }
+}
+
 /// Application configuration structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[derive(Default)]
@@ -25,6 +41,10 @@ pub struct TagrConfig {
     /// Suppress informational output by default
     #[serde(default)]
     pub quiet: bool,
+    
+    /// Default format for displaying paths (absolute or relative)
+    #[serde(default)]
+    pub path_format: PathFormat,
 }
 
 
@@ -172,6 +192,7 @@ impl TagrConfig {
         config.databases.insert(db_name.clone(), db_path);
         config.default_database = Some(db_name);
         config.quiet = false;
+        config.path_format = PathFormat::Absolute;
         
         config.save()?;
         

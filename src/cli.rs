@@ -41,6 +41,15 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 
+/// Path display format
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathFormat {
+    /// Display absolute paths
+    Absolute,
+    /// Display relative paths (relative to current directory)
+    Relative,
+}
+
 /// List variant for the list command
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListVariant {
@@ -229,6 +238,14 @@ pub struct Cli {
     /// Suppress informational output (only print results)
     #[arg(short = 'q', long = "quiet", global = true)]
     pub quiet: bool,
+    
+    /// Display absolute paths (overrides config)
+    #[arg(long = "absolute", global = true, conflicts_with = "relative")]
+    pub absolute: bool,
+    
+    /// Display relative paths (overrides config)
+    #[arg(long = "relative", global = true, conflicts_with = "absolute")]
+    pub relative: bool,
 }
 
 /// Available CLI commands
@@ -567,6 +584,18 @@ impl Cli {
             execute: None,
             db_args: DbArgs { db: None },
         })
+    }
+    
+    /// Helper method to get the path format override from global flags
+    #[must_use]
+    pub fn get_path_format(&self) -> Option<PathFormat> {
+        if self.absolute {
+            Some(PathFormat::Absolute)
+        } else if self.relative {
+            Some(PathFormat::Relative)
+        } else {
+            None
+        }
     }
 }
 
