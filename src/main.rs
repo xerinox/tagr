@@ -441,13 +441,15 @@ fn handle_search_command(db: &Database, params: &tagr::cli::SearchParams, quiet:
 /// or database operations fail.
 fn handle_untag_command(db: &Database, file: Option<PathBuf>, tags: &[String], all: bool, quiet: bool) -> Result<()> {
     if let Some(file_path) = file {
+        let fullpath = file_path.canonicalize()
+            .map_err(|e| TagrError::InvalidInput(format!("Cannot access path '{}': {}", file_path.display(), e)))?;
         if all {
-            db.remove(&file_path)?;
+            db.remove(&fullpath)?;
             if !quiet {
                 println!("Removed all tags from {}", file_path.display());
             }
         } else if !tags.is_empty() {
-            db.remove_tags(&file_path, tags)?;
+            db.remove_tags(&fullpath, tags)?;
             if !quiet {
                 println!("Removed tags {} from {}", tags.join(", "), file_path.display());
             }

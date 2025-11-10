@@ -106,14 +106,30 @@ fn test_untag_command_specific_tags() {
     let (db, db_path) = setup_test_db("untag_specific");
     
     create_test_file("file_untag.txt", "content").unwrap();
+    let canonical_path = std::fs::canonicalize("file_untag.txt").unwrap();
     
-    db.insert("file_untag.txt", vec!["tag1".into(), "tag2".into(), "tag3".into()]).unwrap();
+    db.insert(&canonical_path, vec!["tag1".into(), "tag2".into(), "tag3".into()]).unwrap();
     
-    db.remove_tags("file_untag.txt", &["tag1".into(), "tag3".into()]).unwrap();
+    // Verify file is in database with 3 tags
+    assert!(db.contains(&canonical_path).unwrap());
+    let initial_tags = db.get_tags(&canonical_path).unwrap().unwrap();
+    assert_eq!(initial_tags.len(), 3);
     
-    let tags = db.get_tags("file_untag.txt").unwrap().unwrap();
-    assert_eq!(tags.len(), 1);
-    assert_eq!(tags[0], "tag2");
+    // Remove two tags, leaving one
+    db.remove_tags(&canonical_path, &["tag1".into(), "tag3".into()]).unwrap();
+    
+    // File should still be in database with remaining tag
+    assert!(db.contains(&canonical_path).unwrap());
+    let remaining_tags = db.get_tags(&canonical_path).unwrap().unwrap();
+    assert_eq!(remaining_tags.len(), 1);
+    assert_eq!(remaining_tags[0], "tag2");
+    
+    // Now remove the last tag - file should be removed from database
+    db.remove_tags(&canonical_path, &["tag2".into()]).unwrap();
+    
+    // Verify file is completely gone from database
+    assert!(!db.contains(&canonical_path).unwrap());
+    assert!(db.get_tags(&canonical_path).unwrap().is_none());
     
     let _ = fs::remove_file("file_untag.txt");
     cleanup_test_db(db, db_path);
@@ -124,12 +140,23 @@ fn test_untag_command_all_tags() {
     let (db, db_path) = setup_test_db("untag_all");
     
     create_test_file("file_untag_all.txt", "content").unwrap();
+    let canonical_path = std::fs::canonicalize("file_untag_all.txt").unwrap();
     
-    db.insert("file_untag_all.txt", vec!["tag1".into(), "tag2".into()]).unwrap();
+    db.insert(&canonical_path, vec!["tag1".into(), "tag2".into()]).unwrap();
     
-    db.remove("file_untag_all.txt").unwrap();
+    // Verify file is in database before removal
+    assert!(db.contains(&canonical_path).unwrap());
+    let tags_before = db.get_tags(&canonical_path).unwrap();
+    assert!(tags_before.is_some());
+    assert_eq!(tags_before.unwrap().len(), 2);
     
-    assert!(!db.contains("file_untag_all.txt").unwrap());
+    // Remove all tags (should remove file from database)
+    db.remove(&canonical_path).unwrap();
+    
+    // Verify file is completely gone from database
+    assert!(!db.contains(&canonical_path).unwrap());
+    let tags_after = db.get_tags(&canonical_path).unwrap();
+    assert!(tags_after.is_none());
     
     let _ = fs::remove_file("file_untag_all.txt");
     cleanup_test_db(db, db_path);
