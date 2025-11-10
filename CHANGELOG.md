@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Regex Tag and File Search
+- **Regex tag matching** with `--regex-tag` (or `-r` flag)
+- **Regex file pattern matching** with `--regex-file` flag
+- Support for matching all tags with pattern `.*`
+- Independent regex support for both tag and file pattern searches
+- Regex patterns work with both AND (--all-tags) and OR (--any-tag) modes
+- Multiple regex patterns in single query with proper intersection/union logic
+- Examples:
+  - `tagr search -t ".*down" -r` - Match tags ending with "down"
+  - `tagr search -t ".*" -r` - Match all files with any tag
+  - `tagr search -f ".*\.rs" --regex-file` - Match all Rust files
+  - `tagr search -t "py.*" -t "ru.*" -r --any-tag` - Match Python OR Rust tags
+
+#### Comprehensive Test Suite
+- **8 new unit tests** for regex search functionality:
+  - `test_regex_tag_search_any_mode` - Regex tag search with OR logic
+  - `test_regex_tag_search_all_mode` - Regex tag search with AND logic
+  - `test_regex_tag_match_all` - Match all tags with ".*" pattern
+  - `test_regex_file_pattern` - Regex file pattern matching
+  - `test_regex_tag_and_file_combined` - Combined regex tag and file search
+  - `test_regex_tag_no_matches` - Empty result handling
+  - `test_regex_tag_multiple_patterns_any` - Multiple regex patterns with OR
+- **Testing infrastructure improvements**:
+  - Reusable `TestDb` for temporary test databases with auto-cleanup
+  - `TempFile` utility for creating test files with automatic removal
+  - Parallel test execution with unique temporary directories
+- **Total test coverage**: 107+ unit tests, 20+ integration tests
+
+### Added (Previous)
+
 #### Interactive Browse Mode
 - Two-stage fuzzy finder for tag and file selection
 - Multi-select support via TAB key for both tags and files
@@ -82,6 +112,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic cleanup of reverse index when updating file tags
 - Removal of empty tag entries from reverse index
 - Prevention of duplicate tags when using `add_tags()`
+- **Regex tag search** now properly uses `find_by_tag_regex()` when `--regex-tag` flag is set
+- Query module correctly handles regex patterns with AND/OR logic modes
+
+### Technical Implementation
+
+#### Regex Search Architecture
+
+The regex search functionality is implemented in `src/db/query.rs` with smart pattern matching:
+
+**Tag Regex (ANY mode)**:
+```rust
+// For each tag pattern, find matching tags and collect files
+for tag_pattern in &params.tags {
+    let matching_files = db.find_by_tag_regex(tag_pattern)?;
+    file_set.extend(matching_files);
+}
+```
+
+**Tag Regex (ALL mode)**:
+```rust
+// Find files matching each pattern, then compute intersection
+let mut file_sets = Vec::new();
+for tag_pattern in &params.tags {
+    let matching_files = db.find_by_tag_regex(tag_pattern)?;
+    file_sets.push(matching_files.into_iter().collect());
+}
+// Return files present in all sets
+```
+
+**Performance**:
+- Regex compilation happens once per query
+- Tag list iteration: O(k) where k = number of unique tags
+- File set operations: O(m) where m = matching files
+- Combined complexity: O(k + m) for most queries
 
 ## Architecture Changes
 

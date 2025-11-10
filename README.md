@@ -260,16 +260,36 @@ tagr search -t rust -t python --any-tag -e beginner -e deprecated
 ### Regex Matching
 
 ```bash
-# Regex for tags
+# Regex for tags (-r is short for --regex-tag)
 tagr search -t "config.*" --regex-tag
-# Matches: config-dev, config-prod, config-test, etc.
+tagr search -t ".*down.*" -r
+# Matches: config-dev, config-prod, markdown, dropdown, etc.
+
+# Match all files with any tag
+tagr search -t ".*" -r
 
 # Regex for file patterns
 tagr search -t source -f "src/.*\\.rs$" --regex-file
+tagr search -f ".*\\.org" --regex-file
 
-# Regex for both
+# Regex for both tags and files
 tagr search -t "lang-.*" --regex-tag -f ".*\\.(rs|toml)$" --regex-file
+
+# Multiple regex patterns (ANY mode)
+tagr search -t "py.*" -t "ru.*" -r --any-tag
+# Matches files tagged with python, rust, etc.
+
+# Multiple regex patterns (ALL mode)
+tagr search -t "mark.*" -t ".*note" -r
+# Matches files that have tags matching BOTH patterns (e.g., markdown AND note)
 ```
+
+**Regex Features:**
+- Tag regex matches against all existing tags in the database
+- File regex matches against file paths
+- Independent AND/OR logic works with regex patterns
+- Short flag `-r` for `--regex-tag`
+- Combine with exclusions: `tagr search -t "doc.*" -r -e archived`
 
 ### Real-World Examples
 
@@ -545,12 +565,39 @@ This creates a test database with 10 files and 13+ tags, then launches browse mo
 ## Testing
 
 ```bash
-# Run tests
+# Run all tests (107+ tests)
 cargo test
 
-# Run with test data
-./test_browse.sh
+# Run specific module tests
+cargo test --lib db::query::tests        # Database query tests
+cargo test --lib search::filter::tests   # Search filter tests
+cargo test --lib config::tests           # Configuration tests
+
+# Run integration tests
+cargo test --test integration_test
+
+# Run with output
+cargo test -- --nocapture
 ```
+
+### Test Coverage
+
+The project includes comprehensive test coverage:
+
+- **Database Operations** - Insert, update, delete, reverse index maintenance
+- **Query System** - Tag search (exact and regex), file pattern matching
+- **Regex Functionality** - Tag regex (ANY/ALL), file regex, combined searches
+- **Search Filters** - Glob patterns, regex patterns, exclusions
+- **Configuration** - Database management, default settings
+- **Interactive Browse** - Result handling, fuzzy finder integration
+- **Error Handling** - All error types with proper propagation
+- **Testing Utilities** - TestDb, TempFile with automatic cleanup
+
+**Test Suite Statistics:**
+- 107+ unit tests
+- 20+ integration tests
+- All major features covered
+- Automatic test database cleanup
 
 ## Dependencies
 
