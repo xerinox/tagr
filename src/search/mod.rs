@@ -6,6 +6,7 @@
 
 pub mod error;
 pub mod browse;
+pub mod filter;
 
 pub use error::SearchError;
 pub use browse::{browse, browse_with_params, browse_advanced, BrowseResult};

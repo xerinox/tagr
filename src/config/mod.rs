@@ -3,28 +3,28 @@
 //! Manages application configuration including database paths.
 //! Configuration is stored in the user's config directory.
 
+mod setup;
+
+pub use setup::first_time_setup;
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use config::{Config, ConfigError, File, FileFormat};
-use dialoguer::{Input, theme::ColorfulTheme};
 use serde::{Deserialize, Serialize};
 
 /// Path display format
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PathFormat {
     /// Display absolute paths
+    #[default]
     Absolute,
     /// Display relative paths (relative to current directory)
     Relative,
 }
 
-impl Default for PathFormat {
-    fn default() -> Self {
-        Self::Absolute
-    }
-}
 
 /// Application configuration structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -46,7 +46,6 @@ pub struct TagrConfig {
     #[serde(default)]
     pub path_format: PathFormat,
 }
-
 
 impl TagrConfig {
     /// Get the path to the config file
@@ -161,45 +160,6 @@ impl TagrConfig {
         self.default_database.as_ref()
     }
 
-    /// Interactive first-time setup - prompts for database name and location
-    /// 
-    /// # Errors
-    /// 
-    /// Returns `ConfigError` if user input cannot be read or if saving the configuration fails.
-    pub fn first_time_setup() -> Result<Self, ConfigError> {
-        println!("Welcome to tagr! Let's set up your first database.\n");
-        
-        let default_data_dir = dirs::data_local_dir()
-            .ok_or_else(|| ConfigError::Message("Could not determine data directory".to_string()))?
-            .join("tagr");
-        
-        let db_name: String = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Database name")
-            .default("default".to_string())
-            .interact_text()
-            .map_err(|e| ConfigError::Message(format!("Failed to read input: {e}")))?;
-        
-        let default_path = default_data_dir.join(&db_name);
-        let db_path_str: String = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Database location")
-            .default(default_path.to_string_lossy().to_string())
-            .interact_text()
-            .map_err(|e| ConfigError::Message(format!("Failed to read input: {e}")))?;
-        
-        let db_path = PathBuf::from(db_path_str);
-        
-        let mut config = Self::default();
-        config.databases.insert(db_name.clone(), db_path);
-        config.default_database = Some(db_name);
-        config.quiet = false;
-        config.path_format = PathFormat::Absolute;
-        
-        config.save()?;
-        
-        println!("\nConfiguration saved successfully!");
-        Ok(config)
-    }
-
     /// Load configuration, running first-time setup if config doesn't exist
     /// 
     /// # Errors
@@ -211,7 +171,7 @@ impl TagrConfig {
         if config_path.exists() {
             Self::load()
         } else {
-            Self::first_time_setup()
+            first_time_setup()
         }
     }
 }

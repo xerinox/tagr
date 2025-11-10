@@ -4,7 +4,7 @@
 //! 1. Select tags using fuzzy finder (multi-select supported)
 //! 2. View and select files matching those tags (multi-select supported)
 
-use crate::db::Database;
+use crate::db::{Database, query};
 use crate::cli::SearchParams;
 use crate::config::PathFormat;
 use super::error::SearchError;
@@ -60,13 +60,10 @@ fn format_path_for_display(path: &Path, format: PathFormat) -> String {
     match format {
         PathFormat::Absolute => path.display().to_string(),
         PathFormat::Relative => {
-            // Try to get relative path from current directory
-            if let Ok(cwd) = std::env::current_dir() {
-                if let Ok(rel_path) = path.strip_prefix(&cwd) {
+            if let Ok(cwd) = std::env::current_dir()
+                && let Ok(rel_path) = path.strip_prefix(&cwd) {
                     return rel_path.display().to_string();
                 }
-            }
-            // Fallback to absolute if relative path cannot be computed
             path.display().to_string()
         }
     }
@@ -168,8 +165,9 @@ pub fn browse_with_params(
     path_format: PathFormat,
 ) -> Result<Option<BrowseResult>, SearchError> {
     let (selected_tags, matching_files) = if let Some(params) = search_params {
-        let files = apply_search_params(db, &params)?;
-        (params.tags.clone(), files)
+        let files = query::apply_search_params(db, &params)
+            .map_err(SearchError::DatabaseError)?;
+        (params.tags, files)
     } else {
         let selected_tags = select_tags(db)?;
         
@@ -212,120 +210,6 @@ pub fn browse_with_params(
 ///
 /// # Errors
 ///
-/// Returns `SearchError::DatabaseError` if database operations fail.
-fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<PathBuf>, SearchError> {
-    let mut files = if let Some(query) = &params.query {
-        // General query searches both tags and filenames
-        let mut by_tag = db.find_by_tag(query)?;
-        let all_files = db.list_all_files()?;
-        let by_name: Vec<PathBuf> = all_files
-            .into_iter()
-            .filter(|f| {
-                f.to_string_lossy()
-                    .to_lowercase()
-                    .contains(&query.to_lowercase())
-            })
-            .collect();
-        
-        // Combine and deduplicate
-        by_tag.extend(by_name);
-        by_tag.sort();
-        by_tag.dedup();
-        by_tag
-    } else if !params.tags.is_empty() {
-        use crate::cli::SearchMode;
-        match params.tag_mode {
-            SearchMode::Any => db.find_by_any_tag(&params.tags)?,
-            SearchMode::All => db.find_by_all_tags(&params.tags)?,
-        }
-    } else {
-        db.list_all_files()?
-    };
-    
-    if !params.file_patterns.is_empty() {
-        files = filter_by_patterns(&files, &params.file_patterns, params.regex_file);
-    }
-    
-    if !params.exclude_tags.is_empty() {
-        files = filter_out_tags(db, &files, &params.exclude_tags)?;
-    }
-    
-    Ok(files)
-}
-
-/// Filter files by glob or regex patterns
-///
-/// # Arguments
-/// * `files` - Files to filter
-/// * `patterns` - Patterns to match against
-/// * `use_regex` - Whether to use regex matching
-///
-/// # Returns
-/// * Filtered vector of files matching at least one pattern
-fn filter_by_patterns(files: &[PathBuf], patterns: &[String], use_regex: bool) -> Vec<PathBuf> {
-    if use_regex {
-        files
-            .iter()
-            .filter(|f| {
-                let path_str = f.to_string_lossy();
-                patterns.iter().any(|p| {
-                    regex::Regex::new(p)
-                        .map(|re| re.is_match(&path_str))
-                        .unwrap_or(false)
-                })
-            })
-            .cloned()
-            .collect()
-    } else {
-        files
-            .iter()
-            .filter(|f| {
-                let path_str = f.to_string_lossy();
-                patterns.iter().any(|p| {
-                    glob::Pattern::new(p)
-                        .map(|pattern| pattern.matches(&path_str))
-                        .unwrap_or(false)
-                })
-            })
-            .cloned()
-            .collect()
-    }
-}
-
-/// Filter out files that have any of the excluded tags
-///
-/// # Arguments
-/// * `db` - Database to query for file tags
-/// * `files` - Files to filter
-/// * `exclude_tags` - Tags to exclude
-///
-/// # Returns
-/// * Filtered vector of files without any excluded tags
-///
-/// # Errors
-///
-/// Returns `SearchError::DatabaseError` if tag lookup fails.
-fn filter_out_tags(
-    db: &Database,
-    files: &[PathBuf],
-    exclude_tags: &[String],
-) -> Result<Vec<PathBuf>, SearchError> {
-    let mut result = Vec::new();
-    for file in files {
-        if let Some(file_tags) = db.get_tags(file)? {
-            let has_excluded = file_tags
-                .iter()
-                .any(|tag| exclude_tags.contains(tag));
-            if !has_excluded {
-                result.push(file.clone());
-            }
-        } else {
-            result.push(file.clone());
-        }
-    }
-    Ok(result)
-}
-
 /// Show fuzzy finder for tag selection (multi-select enabled)
 ///
 /// Displays all available tags in an interactive fuzzy finder, allowing
@@ -531,15 +415,7 @@ fn select_search_mode() -> Result<bool, SearchError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::io::Write;
-    
-    // Helper function to create a test file
-    fn create_test_file(path: &str) -> std::io::Result<()> {
-        let mut file = fs::File::create(path)?;
-        file.write_all(b"test content")?;
-        Ok(())
-    }
+    use crate::testing::{TestDb, TempFile};
     
     #[test]
     fn test_browse_result_creation() {
@@ -554,30 +430,26 @@ mod tests {
     
     #[test]
     fn test_with_empty_database() {
-        let test_db_path = "test_db_search_empty";
-        let db = Database::open(test_db_path).unwrap();
-        db.clear().unwrap();
+        let test_db = TestDb::new("test_db_search_empty");
+        let db = test_db.db();
         
         let tags = db.list_all_tags().unwrap();
         assert!(tags.is_empty());
-        
-        drop(db);
-        let _ = fs::remove_dir_all(test_db_path);
+        // TestDb automatically cleaned up
     }
     
     #[test]
     fn test_with_populated_database() {
-        let test_db_path = "test_db_search_populated";
-        let db = Database::open(test_db_path).unwrap();
-        db.clear().unwrap();
+        let test_db = TestDb::new("test_db_search_populated");
+        let db = test_db.db();
         
-        create_test_file("file1.txt").unwrap();
-        create_test_file("file2.txt").unwrap();
-        create_test_file("file3.txt").unwrap();
+        let file1 = TempFile::create("file1.txt").unwrap();
+        let file2 = TempFile::create("file2.txt").unwrap();
+        let file3 = TempFile::create("file3.txt").unwrap();
         
-        db.insert("file1.txt", vec!["rust".into(), "programming".into()]).unwrap();
-        db.insert("file2.txt", vec!["rust".into(), "tutorial".into()]).unwrap();
-        db.insert("file3.txt", vec!["python".into()]).unwrap();
+        db.insert(file1.path(), vec!["rust".into(), "programming".into()]).unwrap();
+        db.insert(file2.path(), vec!["rust".into(), "tutorial".into()]).unwrap();
+        db.insert(file3.path(), vec!["python".into()]).unwrap();
         
         let tags = db.list_all_tags().unwrap();
         assert_eq!(tags.len(), 4); // rust, programming, tutorial, python
@@ -585,12 +457,6 @@ mod tests {
         
         let rust_files = db.find_by_tag("rust").unwrap();
         assert_eq!(rust_files.len(), 2);
-        
-        db.clear().unwrap();
-        drop(db);
-        let _ = fs::remove_dir_all(test_db_path);
-        let _ = fs::remove_file("file1.txt");
-        let _ = fs::remove_file("file2.txt");
-        let _ = fs::remove_file("file3.txt");
+        // TempFiles and TestDb automatically cleaned up
     }
 }
