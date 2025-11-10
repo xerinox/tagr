@@ -56,9 +56,47 @@ pub fn apply_search_params(
         files.sort();
         files
     } else if !params.tags.is_empty() {
-        match params.tag_mode {
-            SearchMode::All => db.find_by_all_tags(&params.tags)?,
-            SearchMode::Any => db.find_by_any_tag(&params.tags)?,
+        if params.regex_tag {
+            // Handle regex tag matching
+            match params.tag_mode {
+                SearchMode::All => {
+                    // For ALL mode with regex, we need to find files that match all patterns
+                    if params.tags.is_empty() {
+                        Vec::new()
+                    } else {
+                        // Get files matching each regex pattern
+                        let mut file_sets: Vec<HashSet<PathBuf>> = Vec::new();
+                        for tag_pattern in &params.tags {
+                            let matching_files = db.find_by_tag_regex(tag_pattern)?;
+                            file_sets.push(matching_files.into_iter().collect());
+                        }
+                        
+                        // Find intersection of all sets
+                        let first_set = file_sets.remove(0);
+                        let result: Vec<PathBuf> = first_set.into_iter()
+                            .filter(|file| file_sets.iter().all(|set| set.contains(file)))
+                            .collect();
+                        result
+                    }
+                },
+                SearchMode::Any => {
+                    // For ANY mode with regex, collect all files matching any pattern
+                    let mut file_set = HashSet::new();
+                    for tag_pattern in &params.tags {
+                        let matching_files = db.find_by_tag_regex(tag_pattern)?;
+                        file_set.extend(matching_files);
+                    }
+                    let mut files: Vec<_> = file_set.into_iter().collect();
+                    files.sort();
+                    files
+                }
+            }
+        } else {
+            // Handle exact tag matching
+            match params.tag_mode {
+                SearchMode::All => db.find_by_all_tags(&params.tags)?,
+                SearchMode::Any => db.find_by_any_tag(&params.tags)?,
+            }
         }
     } else {
         db.list_all_files()?
