@@ -32,10 +32,8 @@ pub fn execute(
         return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags or -f for file patterns.".into()));
     }
     
-    // Use shared query composition
     let files = query::apply_search_params(db, params)?;
 
-    // Print results
     if let Some(query) = &params.query {
         print_results(db, &files, query, path_format, quiet);
     } else if files.is_empty() {

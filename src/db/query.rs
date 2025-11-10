@@ -42,9 +42,7 @@ pub fn apply_search_params(
     db: &Database,
     params: &SearchParams,
 ) -> Result<Vec<PathBuf>, DbError> {
-    // Build initial file list based on query/tags
     let mut files = if let Some(query) = &params.query {
-        // General query: search both tags (regex) and filenames (glob)
         let files_by_tag = db.find_by_tag_regex(query)?;
         
         let all_files = db.list_all_files()?;
@@ -52,31 +50,26 @@ pub fn apply_search_params(
         let files_by_name = all_files.into_iter()
             .filter_glob_any(&[filename_pattern])?;
         
-        // Union and deduplicate
         let mut file_set: HashSet<_> = files_by_tag.into_iter().collect();
         file_set.extend(files_by_name);
         let mut files: Vec<_> = file_set.into_iter().collect();
         files.sort();
         files
     } else if !params.tags.is_empty() {
-        // Tag-based search with all/any logic
         match params.tag_mode {
             SearchMode::All => db.find_by_all_tags(&params.tags)?,
             SearchMode::Any => db.find_by_any_tag(&params.tags)?,
         }
     } else {
-        // No criteria: return all files
         db.list_all_files()?
     };
 
-    // Apply file pattern filters if specified
     if !params.file_patterns.is_empty() {
         let match_all = params.file_mode == SearchMode::All;
         files = files.into_iter()
             .filter_patterns(&params.file_patterns, params.regex_file, match_all)?;
     }
 
-    // Apply tag exclusions if specified
     if !params.exclude_tags.is_empty() {
         files = files.exclude_tags(db, &params.exclude_tags)?;
     }

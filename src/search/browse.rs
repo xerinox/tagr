@@ -60,12 +60,10 @@ fn format_path_for_display(path: &Path, format: PathFormat) -> String {
     match format {
         PathFormat::Absolute => path.display().to_string(),
         PathFormat::Relative => {
-            // Try to get relative path from current directory
             if let Ok(cwd) = std::env::current_dir()
                 && let Ok(rel_path) = path.strip_prefix(&cwd) {
                     return rel_path.display().to_string();
                 }
-            // Fallback to absolute if relative path cannot be computed
             path.display().to_string()
         }
     }
