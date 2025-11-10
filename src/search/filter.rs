@@ -88,11 +88,11 @@ pub fn by_patterns(
     }
 }
 
-/// Extension trait for filtering iterators of PathBuf by patterns
+/// Extension trait for filtering iterators of `PathBuf` by patterns
 ///
 /// This trait adds pattern filtering capabilities directly to iterators,
 /// enabling lazy evaluation and method chaining. Only available for
-/// PathBuf iterators since patterns specifically match file paths.
+/// `PathBuf` iterators since patterns specifically match file paths.
 pub trait PathFilterExt: IntoIterator<Item = PathBuf> + Sized {
     /// Filter paths by glob or regex patterns with AND/OR logic
     ///
@@ -127,6 +127,9 @@ pub trait PathFilterExt: IntoIterator<Item = PathBuf> + Sized {
     /// Filter paths by glob patterns with ANY logic (match at least one)
     ///
     /// Convenience method for the common case of OR-matching glob patterns.
+    ///
+    /// # Errors
+    /// Returns an error if any glob pattern is invalid
     fn filter_glob_any(self, patterns: &[String]) -> Result<Vec<PathBuf>, DbError> {
         by_patterns(self, patterns, false, false)
     }
@@ -134,6 +137,9 @@ pub trait PathFilterExt: IntoIterator<Item = PathBuf> + Sized {
     /// Filter paths by glob patterns with ALL logic (match every pattern)
     ///
     /// Convenience method for AND-matching glob patterns.
+    ///
+    /// # Errors
+    /// Returns an error if any glob pattern is invalid
     fn filter_glob_all(self, patterns: &[String]) -> Result<Vec<PathBuf>, DbError> {
         by_patterns(self, patterns, false, true)
     }
@@ -141,6 +147,9 @@ pub trait PathFilterExt: IntoIterator<Item = PathBuf> + Sized {
     /// Filter paths by regex patterns with ANY logic (match at least one)
     ///
     /// Convenience method for OR-matching regex patterns.
+    ///
+    /// # Errors
+    /// Returns an error if any regex pattern is invalid
     fn filter_regex_any(self, patterns: &[String]) -> Result<Vec<PathBuf>, DbError> {
         by_patterns(self, patterns, true, false)
     }
@@ -148,6 +157,9 @@ pub trait PathFilterExt: IntoIterator<Item = PathBuf> + Sized {
     /// Filter paths by regex patterns with ALL logic (match every pattern)
     ///
     /// Convenience method for AND-matching regex patterns.
+    ///
+    /// # Errors
+    /// Returns an error if any regex pattern is invalid
     fn filter_regex_all(self, patterns: &[String]) -> Result<Vec<PathBuf>, DbError> {
         by_patterns(self, patterns, true, true)
     }
@@ -156,7 +168,7 @@ pub trait PathFilterExt: IntoIterator<Item = PathBuf> + Sized {
 // Implement for any iterator that yields PathBuf
 impl<I> PathFilterExt for I where I: IntoIterator<Item = PathBuf> {}
 
-/// Extension trait for filtering PathBuf collections with database tag access
+/// Extension trait for filtering `PathBuf` collections with database tag access
 ///
 /// This trait adds tag-based filtering that requires database access.
 /// Scoped to Vec<PathBuf> since tag exclusion needs efficient random access.
@@ -192,7 +204,7 @@ impl PathTagFilterExt for Vec<PathBuf> {
             return Ok(self);
         }
 
-        let mut result = Vec::new();
+        let mut result = Self::new();
         for file in self {
             if let Some(file_tags) = db.get_tags(&file)? {
                 let has_excluded = file_tags

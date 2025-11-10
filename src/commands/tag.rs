@@ -9,6 +9,9 @@ use std::path::PathBuf;
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Execute the tag command - add tags to a file
+///
+/// # Errors
+/// Returns an error if the file cannot be accessed or database operations fail
 pub fn execute(
     db: &Database,
     file: Option<PathBuf>,
@@ -32,6 +35,9 @@ pub fn execute(
 }
 
 /// Execute the untag command - remove tags from a file
+///
+/// # Errors
+/// Returns an error if the file cannot be accessed or database operations fail
 pub fn untag(
     db: &Database,
     file: Option<PathBuf>,

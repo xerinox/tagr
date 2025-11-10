@@ -53,6 +53,7 @@ use tagr::{
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Handle the db command - manage multiple databases
+#[allow(clippy::too_many_lines)]
 fn handle_db_command(mut config: config::TagrConfig, command: &DbCommands, quiet: bool) -> Result<()> {
     match command {
         DbCommands::Add { name, path } => {
@@ -237,7 +238,7 @@ fn handle_config_command(mut config: config::TagrConfig, command: &ConfigCommand
                     config.path_format = new_value;
                     config.save()?;
                     if !quiet {
-                        println!("Set path_format = {:?}", new_value);
+                        println!("Set path_format = {new_value:?}");
                     }
                 }
                 _ => {

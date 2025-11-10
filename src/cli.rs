@@ -588,7 +588,7 @@ impl Cli {
     
     /// Helper method to get the path format override from global flags
     #[must_use]
-    pub fn get_path_format(&self) -> Option<PathFormat> {
+    pub const fn get_path_format(&self) -> Option<PathFormat> {
         if self.absolute {
             Some(PathFormat::Absolute)
         } else if self.relative {

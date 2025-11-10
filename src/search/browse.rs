@@ -169,7 +169,7 @@ pub fn browse_with_params(
     let (selected_tags, matching_files) = if let Some(params) = search_params {
         let files = query::apply_search_params(db, &params)
             .map_err(SearchError::DatabaseError)?;
-        (params.tags.clone(), files)
+        (params.tags, files)
     } else {
         let selected_tags = select_tags(db)?;
         

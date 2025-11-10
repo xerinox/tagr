@@ -11,6 +11,9 @@ use dialoguer::Confirm;
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Execute the tags management command
+///
+/// # Errors
+/// Returns an error if database operations fail or user interaction fails
 pub fn execute(db: &Database, command: &TagsCommands, quiet: bool) -> Result<()> {
     match command {
         TagsCommands::List => list_all_tags(db, quiet),
@@ -82,5 +85,5 @@ fn confirm(prompt: &str, quiet: bool) -> Result<bool> {
     Confirm::new()
         .with_prompt(prompt)
         .interact()
-        .map_err(|e| TagrError::InvalidInput(format!("Confirmation failed: {}", e)))
+        .map_err(|e| TagrError::InvalidInput(format!("Confirmation failed: {e}")))
 }

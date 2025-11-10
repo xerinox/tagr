@@ -12,6 +12,9 @@ use std::path::PathBuf;
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Execute the cleanup command
+///
+/// # Errors
+/// Returns an error if database operations fail or if user interaction fails
 pub fn execute(
     db: &Database,
     path_format: config::PathFormat,
@@ -142,7 +145,7 @@ fn process_cleanup_files(
                 .items(&options)
                 .default(0)
                 .interact()
-                .map_err(|e| TagrError::InvalidInput(format!("Selection failed: {}", e)))?;
+                .map_err(|e| TagrError::InvalidInput(format!("Selection failed: {e}")))?;
             
             match selection {
                 0 => {

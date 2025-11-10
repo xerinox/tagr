@@ -12,6 +12,9 @@ use crate::{
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Execute the browse command
+///
+/// # Errors
+/// Returns an error if database operations fail or if the browse operation encounters issues
 pub fn execute(
     db: &Database,
     search_params: Option<SearchParams>,
@@ -32,9 +35,9 @@ pub fn execute(
             for file in &result.selected_files {
                 let formatted_path = output::format_path(file, path_format);
                 if quiet {
-                    println!("{}", formatted_path);
+                    println!("{formatted_path}");
                 } else {
-                    println!("  - {}", formatted_path);
+                    println!("  - {formatted_path}");
                 }
             }
             

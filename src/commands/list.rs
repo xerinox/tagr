@@ -11,6 +11,9 @@ use crate::{
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Execute the list command
+///
+/// # Errors
+/// Returns an error if database operations fail
 pub fn execute(
     db: &Database,
     variant: ListVariant,

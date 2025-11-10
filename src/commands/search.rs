@@ -12,6 +12,9 @@ use std::path::PathBuf;
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Execute the search command
+///
+/// # Errors
+/// Returns an error if database operations fail or search parameters are invalid
 pub fn execute(
     db: &Database,
     params: &SearchParams,
@@ -34,7 +37,7 @@ pub fn execute(
 
     // Print results
     if let Some(query) = &params.query {
-        print_results(db, &files, query, path_format, quiet)?;
+        print_results(db, &files, query, path_format, quiet);
     } else if files.is_empty() {
         if !quiet {
             let criteria = build_criteria_description(params);
@@ -47,7 +50,7 @@ pub fn execute(
         }
         
         for file in files {
-            print_file_with_tags(db, &file, path_format, quiet)?;
+            print_file_with_tags(db, &file, path_format, quiet);
         }
     }
     
@@ -60,7 +63,7 @@ fn print_results(
     query: &str,
     path_format: config::PathFormat,
     quiet: bool,
-) -> Result<()> {
+) {
     if files.is_empty() {
         if !quiet {
             println!("No files found matching query '{query}' (searched tags and filenames)");
@@ -71,10 +74,9 @@ fn print_results(
         }
         
         for file in files {
-            print_file_with_tags(db, file, path_format, quiet)?;
+            print_file_with_tags(db, file, path_format, quiet);
         }
     }
-    Ok(())
 }
 
 fn print_file_with_tags(
@@ -82,18 +84,18 @@ fn print_file_with_tags(
     file: &PathBuf,
     path_format: config::PathFormat,
     quiet: bool,
-) -> Result<()> {
+) {
     if let Ok(Some(tags)) = db.get_tags(file) {
-        println!("{}", output::file_with_tags(file, &tags, path_format, quiet));
+        let formatted = output::file_with_tags(file, &tags, path_format, quiet);
+        println!("{formatted}");
     } else {
         let formatted = output::format_path(file, path_format);
         if quiet {
-            println!("{}", formatted);
+            println!("{formatted}");
         } else {
-            println!("  {}", formatted);
+            println!("  {formatted}");
         }
     }
-    Ok(())
 }
 
 fn build_criteria_description(params: &SearchParams) -> String {
