@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn test_parse_tag_with_flags() {
-        let cli = Cli::parse_from(&["tagr", "tag", "-f", "test.txt", "-t", "tag1", "tag2"]);
+        let cli = Cli::parse_from(["tagr", "tag", "-f", "test.txt", "-t", "tag1", "tag2"]);
         if let Some(Commands::Tag { .. }) = cli.command {
             let file = cli.command.as_ref().unwrap().get_file_from_tag();
             let tags = cli.command.as_ref().unwrap().get_tags_from_tag();
@@ -618,7 +618,7 @@ mod tests {
 
     #[test]
     fn test_parse_tag_with_positional() {
-        let cli = Cli::parse_from(&["tagr", "tag", "test.txt", "tag1", "tag2"]);
+        let cli = Cli::parse_from(["tagr", "tag", "test.txt", "tag1", "tag2"]);
         if let Some(Commands::Tag { .. }) = cli.command {
             let file = cli.command.as_ref().unwrap().get_file_from_tag();
             let tags = cli.command.as_ref().unwrap().get_tags_from_tag();
@@ -631,7 +631,7 @@ mod tests {
 
     #[test]
     fn test_parse_search_with_single_tag() {
-        let cli = Cli::parse_from(&["tagr", "search", "-t", "mytag"]);
+        let cli = Cli::parse_from(["tagr", "search", "-t", "mytag"]);
         if let Some(Commands::Search { .. }) = cli.command {
             let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
             assert_eq!(params.tags, vec!["mytag".to_string()]);
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_parse_search_with_multiple_tags() {
-        let cli = Cli::parse_from(&["tagr", "search", "-t", "tag1", "-t", "tag2", "--any-tag"]);
+        let cli = Cli::parse_from(["tagr", "search", "-t", "tag1", "-t", "tag2", "--any-tag"]);
         if let Some(Commands::Search { .. }) = cli.command {
             let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
             assert_eq!(params.tags, vec!["tag1".to_string(), "tag2".to_string()]);
@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_parse_search_with_file_patterns() {
-        let cli = Cli::parse_from(&["tagr", "search", "-t", "rust", "-f", "*.rs", "-f", "main.*", "--any-file"]);
+        let cli = Cli::parse_from(["tagr", "search", "-t", "rust", "-f", "*.rs", "-f", "main.*", "--any-file"]);
         if let Some(Commands::Search { .. }) = cli.command {
             let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
             assert_eq!(params.tags, vec!["rust".to_string()]);
@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn test_parse_search_with_exclusions() {
-        let cli = Cli::parse_from(&["tagr", "search", "-t", "rust", "-e", "deprecated", "-e", "old"]);
+        let cli = Cli::parse_from(["tagr", "search", "-t", "rust", "-e", "deprecated", "-e", "old"]);
         if let Some(Commands::Search { .. }) = cli.command {
             let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
             assert_eq!(params.exclude_tags, vec!["deprecated".to_string(), "old".to_string()]);
@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_default_browse() {
-        let cli = Cli::parse_from(&["tagr"]);
+        let cli = Cli::parse_from(["tagr"]);
         assert!(cli.command.is_none());
         let cmd = cli.get_command();
         assert!(matches!(cmd, Commands::Browse { .. }));
@@ -687,13 +687,13 @@ mod tests {
 
     #[test]
     fn test_explicit_browse() {
-        let cli = Cli::parse_from(&["tagr", "browse"]);
+        let cli = Cli::parse_from(["tagr", "browse"]);
         assert!(matches!(cli.command, Some(Commands::Browse { .. })));
     }
 
     #[test]
     fn test_browse_with_exec() {
-        let cli = Cli::parse_from(&["tagr", "browse", "-x", "cat {}"]);
+        let cli = Cli::parse_from(["tagr", "browse", "-x", "cat {}"]);
         if let Some(Commands::Browse { .. }) = cli.command {
             let exec_cmd = cli.command.as_ref().unwrap().get_execute_from_browse();
             assert_eq!(exec_cmd, Some("cat {}".to_string()));
@@ -704,7 +704,7 @@ mod tests {
 
     #[test]
     fn test_browse_with_query() {
-        let cli = Cli::parse_from(&["tagr", "browse", "documents"]);
+        let cli = Cli::parse_from(["tagr", "browse", "documents"]);
         if let Some(Commands::Browse { .. }) = cli.command {
             let params = cli.command.as_ref().unwrap().get_search_params_from_browse();
             assert!(params.is_some());
@@ -717,7 +717,7 @@ mod tests {
 
     #[test]
     fn test_browse_with_tags_and_patterns() {
-        let cli = Cli::parse_from(&["tagr", "browse", "-t", "documents", "-f", "*.txt", "-e", "*.md"]);
+        let cli = Cli::parse_from(["tagr", "browse", "-t", "documents", "-f", "*.txt", "-e", "*.md"]);
         if let Some(Commands::Browse { .. }) = cli.command {
             let params = cli.command.as_ref().unwrap().get_search_params_from_browse();
             assert!(params.is_some());
@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_parse_search_with_general_query() {
-        let cli = Cli::parse_from(&["tagr", "search", "document"]);
+        let cli = Cli::parse_from(["tagr", "search", "document"]);
         if let Some(Commands::Search { .. }) = cli.command {
             let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
             assert_eq!(params.query, Some("document".to_string()));

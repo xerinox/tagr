@@ -1,0 +1,133 @@
+//! Search command - find files by tags and patterns
+
+use crate::{
+    db::{Database, query},
+    cli::{SearchParams, SearchMode},
+    config,
+    output,
+    TagrError,
+};
+use std::path::PathBuf;
+
+type Result<T> = std::result::Result<T, TagrError>;
+
+/// Execute the search command
+pub fn execute(
+    db: &Database,
+    params: &SearchParams,
+    path_format: config::PathFormat,
+    quiet: bool,
+) -> Result<()> {
+    // Validate query mode doesn't mix with other flags
+    if params.query.is_some() && (!params.tags.is_empty() || !params.file_patterns.is_empty()) {
+        return Err(TagrError::InvalidInput(
+            "Cannot use general query with -t or -f flags. Use either 'tagr search <query>' or 'tagr search -t <tag> -f <pattern>'.".into()
+        ));
+    }
+    
+    if params.query.is_none() && params.tags.is_empty() && params.file_patterns.is_empty() {
+        return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags or -f for file patterns.".into()));
+    }
+    
+    // Use shared query composition
+    let files = query::apply_search_params(db, params)?;
+
+    // Print results
+    if let Some(query) = &params.query {
+        print_results(db, &files, query, path_format, quiet)?;
+    } else if files.is_empty() {
+        if !quiet {
+            let criteria = build_criteria_description(params);
+            println!("No files found matching {criteria}");
+        }
+    } else {
+        if !quiet {
+            let description = build_search_description(params);
+            println!("Found {} file(s) matching {}:", files.len(), description);
+        }
+        
+        for file in files {
+            print_file_with_tags(db, &file, path_format, quiet)?;
+        }
+    }
+    
+    Ok(())
+}
+
+fn print_results(
+    db: &Database,
+    files: &[PathBuf],
+    query: &str,
+    path_format: config::PathFormat,
+    quiet: bool,
+) -> Result<()> {
+    if files.is_empty() {
+        if !quiet {
+            println!("No files found matching query '{query}' (searched tags and filenames)");
+        }
+    } else {
+        if !quiet {
+            println!("Found {} file(s) matching query '{}' (tags or filenames):", files.len(), query);
+        }
+        
+        for file in files {
+            print_file_with_tags(db, file, path_format, quiet)?;
+        }
+    }
+    Ok(())
+}
+
+fn print_file_with_tags(
+    db: &Database,
+    file: &PathBuf,
+    path_format: config::PathFormat,
+    quiet: bool,
+) -> Result<()> {
+    if let Ok(Some(tags)) = db.get_tags(file) {
+        println!("{}", output::file_with_tags(file, &tags, path_format, quiet));
+    } else {
+        let formatted = output::format_path(file, path_format);
+        if quiet {
+            println!("{}", formatted);
+        } else {
+            println!("  {}", formatted);
+        }
+    }
+    Ok(())
+}
+
+fn build_criteria_description(params: &SearchParams) -> String {
+    if params.tags.is_empty() {
+        format!("file patterns: {}", params.file_patterns.join(", "))
+    } else {
+        format!("tags: {}", params.tags.join(", "))
+    }
+}
+
+fn build_search_description(params: &SearchParams) -> String {
+    let tag_desc = if params.tags.is_empty() {
+        String::new()
+    } else if params.tag_mode == SearchMode::All {
+        format!("ALL tags [{}]", params.tags.join(", "))
+    } else {
+        format!("ANY tag [{}]", params.tags.join(", "))
+    };
+    
+    let file_desc = if params.file_patterns.is_empty() {
+        String::new()
+    } else if params.file_mode == SearchMode::All {
+        format!("ALL patterns [{}]", params.file_patterns.join(", "))
+    } else {
+        format!("ANY pattern [{}]", params.file_patterns.join(", "))
+    };
+    
+    let mut parts = Vec::new();
+    if !tag_desc.is_empty() {
+        parts.push(tag_desc);
+    }
+    if !file_desc.is_empty() {
+        parts.push(file_desc);
+    }
+    
+    parts.join(" and ")
+}

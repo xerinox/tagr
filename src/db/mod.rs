@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use bincode;
 use regex::Regex;
-use glob::Pattern as GlobPattern;
 use crate::Pair;
 
 pub mod error;
 pub mod types;
+pub mod query;
 
 pub use error::DbError;
 pub use types::{PathKey, PathString};
@@ -518,142 +518,6 @@ impl Database {
             .collect())
     }
 
-    /// Filter files by glob patterns with AND logic
-    /// 
-    /// Returns files that match ALL of the specified glob patterns.
-    /// 
-    /// # Arguments
-    /// * `files` - Input files to filter
-    /// * `patterns` - Glob patterns to match against file paths
-    /// 
-    /// # Returns
-    /// Vector of file paths matching all patterns
-    /// 
-    /// # Errors
-    /// 
-    /// Returns `DbError` if any glob pattern is invalid.
-    pub fn filter_by_patterns_all(files: Vec<PathBuf>, patterns: &[String]) 
-        -> Result<Vec<PathBuf>, DbError> {
-        if patterns.is_empty() {
-            return Ok(files);
-        }
-        
-        let matchers: Result<Vec<GlobPattern>, _> = patterns.iter()
-            .map(|p| GlobPattern::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{p}': {e}"))))
-            .collect();
-        let matchers = matchers?;
-        
-        Ok(files.into_iter()
-            .filter(|f| {
-                f.to_str()
-                    .is_some_and(|s| matchers.iter().all(|m| m.matches(s)))
-            })
-            .collect())
-    }
-
-    /// Filter files by glob patterns with OR logic
-    /// 
-    /// Returns files that match ANY of the specified glob patterns.
-    /// 
-    /// # Arguments
-    /// * `files` - Input files to filter
-    /// * `patterns` - Glob patterns to match against file paths
-    /// 
-    /// # Returns
-    /// Vector of file paths matching any pattern
-    /// 
-    /// # Errors
-    /// 
-    /// Returns `DbError` if any glob pattern is invalid.
-    pub fn filter_by_patterns_any(files: Vec<PathBuf>, patterns: &[String]) 
-        -> Result<Vec<PathBuf>, DbError> {
-        if patterns.is_empty() {
-            return Ok(files);
-        }
-        
-        let matchers: Result<Vec<GlobPattern>, _> = patterns.iter()
-            .map(|p| GlobPattern::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{p}': {e}"))))
-            .collect();
-        let matchers = matchers?;
-        
-        Ok(files.into_iter()
-            .filter(|f| {
-                f.to_str()
-                    .is_some_and(|s| matchers.iter().any(|m| m.matches(s)))
-            })
-            .collect())
-    }
-
-    /// Filter files by regex patterns with AND logic
-    /// 
-    /// Returns files that match ALL of the specified regex patterns.
-    /// 
-    /// # Arguments
-    /// * `files` - Input files to filter
-    /// * `patterns` - Regex patterns to match against file paths
-    /// 
-    /// # Returns
-    /// Vector of file paths matching all patterns
-    /// 
-    /// # Errors
-    /// 
-    /// Returns `DbError` if any regex pattern is invalid.
-    pub fn filter_by_regex_all(files: Vec<PathBuf>, patterns: &[String]) 
-        -> Result<Vec<PathBuf>, DbError> {
-        if patterns.is_empty() {
-            return Ok(files);
-        }
-        
-        let matchers: Result<Vec<Regex>, _> = patterns.iter()
-            .map(|p| Regex::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{p}': {e}"))))
-            .collect();
-        let matchers = matchers?;
-        
-        Ok(files.into_iter()
-            .filter(|f| {
-                f.to_str()
-                    .is_some_and(|s| matchers.iter().all(|m| m.is_match(s)))
-            })
-            .collect())
-    }
-
-    /// Filter files by regex patterns with OR logic
-    /// 
-    /// Returns files that match ANY of the specified regex patterns.
-    /// 
-    /// # Arguments
-    /// * `files` - Input files to filter
-    /// * `patterns` - Regex patterns to match against file paths
-    /// 
-    /// # Returns
-    /// Vector of file paths matching any pattern
-    /// 
-    /// # Errors
-    /// 
-    /// Returns `DbError` if any regex pattern is invalid.
-    pub fn filter_by_regex_any(files: Vec<PathBuf>, patterns: &[String]) 
-        -> Result<Vec<PathBuf>, DbError> {
-        if patterns.is_empty() {
-            return Ok(files);
-        }
-        
-        let matchers: Result<Vec<Regex>, _> = patterns.iter()
-            .map(|p| Regex::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{p}': {e}"))))
-            .collect();
-        let matchers = matchers?;
-        
-        Ok(files.into_iter()
-            .filter(|f| {
-                f.to_str()
-                    .is_some_and(|s| matchers.iter().any(|m| m.is_match(s)))
-            })
-            .collect())
-    }
-
     // Private helper methods for managing the tag index
 
     /// Add file to tag index for all specified tags
@@ -737,124 +601,94 @@ impl Drop for Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{TestDb, TempFile};
     use std::fs;
-    use std::io::Write;
-
-    // Helper function to create a test file
-    fn create_test_file(path: &str) -> std::io::Result<()> {
-        let mut file = fs::File::create(path)?;
-        file.write_all(b"test content")?;
-        Ok(())
-    }
 
     #[test]
     fn test_create_database() {
-        let test_db_path = "test_db_create";
+        let test_db = TestDb::new("test_db_create");
+        let db = test_db.db();
         
-        let db = Database::open(test_db_path).unwrap();
-        
-        assert!(PathBuf::from(test_db_path).exists());
+        assert!(test_db.path().exists());
         assert_eq!(db.count(), 0);
-        
-        // Clean up
-        db.clear().unwrap();
-        drop(db);
-        let _ = fs::remove_dir_all(test_db_path);
+        // TestDb automatically cleaned up on drop
     }
 
     #[test]
     fn test_create_database_with_data() {
-        let test_db_path = "test_db_with_data";
+        let test_db = TestDb::new("test_db_with_data");
+        let db = test_db.db();
         
-        let db = Database::open(test_db_path).unwrap();
-        db.clear().unwrap();
+        let file1 = TempFile::create("file1.txt").unwrap();
+        let file2 = TempFile::create("file2.txt").unwrap();
         
-        create_test_file("file1.txt").unwrap();
-        create_test_file("file2.txt").unwrap();
-        
-        db.insert("file1.txt", vec!["tag1".into(), "tag2".into()]).unwrap();
-        db.insert("file2.txt", vec!["tag3".into()]).unwrap();
+        db.insert(file1.path(), vec!["tag1".into(), "tag2".into()]).unwrap();
+        db.insert(file2.path(), vec!["tag3".into()]).unwrap();
         
         assert_eq!(db.count(), 2);
-        assert!(db.contains("file1.txt").unwrap());
-        assert!(db.contains("file2.txt").unwrap());
-        
-        // Clean up
-        db.clear().unwrap();
-        drop(db);
-        let _ = fs::remove_dir_all(test_db_path);
-        let _ = fs::remove_file("file1.txt");
-        let _ = fs::remove_file("file2.txt");
+        assert!(db.contains(file1.path()).unwrap());
+        assert!(db.contains(file2.path()).unwrap());
+        // TestDb and TempFiles automatically cleaned up
     }
 
     #[test]
     fn test_remove_database_by_clearing() {
-        let test_db_path = "test_db_clear";
+        let test_db = TestDb::new("test_db_clear");
+        let db = test_db.db();
         
-        let db = Database::open(test_db_path).unwrap();
-        db.clear().unwrap();
+        let file1 = TempFile::create("file1.txt").unwrap();
+        let file2 = TempFile::create("file2.txt").unwrap();
+        let file3 = TempFile::create("file3.txt").unwrap();
         
-        create_test_file("file1.txt").unwrap();
-        create_test_file("file2.txt").unwrap();
-        create_test_file("file3.txt").unwrap();
-        
-        db.insert("file1.txt", vec!["tag1".into()]).unwrap();
-        db.insert("file2.txt", vec!["tag2".into()]).unwrap();
-        db.insert("file3.txt", vec!["tag3".into()]).unwrap();
+        db.insert(file1.path(), vec!["tag1".into()]).unwrap();
+        db.insert(file2.path(), vec!["tag2".into()]).unwrap();
+        db.insert(file3.path(), vec!["tag3".into()]).unwrap();
         
         assert_eq!(db.count(), 3);
         
         db.clear().unwrap();
         
         assert_eq!(db.count(), 0);
-        assert!(!db.contains("file1.txt").unwrap());
-        assert!(!db.contains("file2.txt").unwrap());
-        assert!(!db.contains("file3.txt").unwrap());
+        assert!(!db.contains(file1.path()).unwrap());
+        assert!(!db.contains(file2.path()).unwrap());
+        assert!(!db.contains(file3.path()).unwrap());
         assert_eq!(db.list_all_tags().unwrap().len(), 0);
-        
-        // Clean up
-        drop(db);
-        let _ = fs::remove_dir_all(test_db_path);
-        let _ = fs::remove_file("file1.txt");
-        let _ = fs::remove_file("file2.txt");
-        let _ = fs::remove_file("file3.txt");
     }
 
     #[test]
     fn test_remove_database_physically() {
         let test_db_path = "test_db_remove";
+        let file = TempFile::create("file.txt").unwrap();
         
         {
             let db = Database::open(test_db_path).unwrap();
             db.clear().unwrap();
-            create_test_file("file.txt").unwrap();
-            db.insert("file.txt", vec!["tag".into()]).unwrap();
+            db.insert(file.path(), vec!["tag".into()]).unwrap();
             assert!(PathBuf::from(test_db_path).exists());
         }
         
         fs::remove_dir_all(test_db_path).unwrap();
         
         assert!(!PathBuf::from(test_db_path).exists());
-        let _ = fs::remove_file("file.txt");
     }
 
     #[test]
     fn test_reopen_existing_database() {
         let test_db_path = "test_db_reopen";
+        let file = TempFile::create("persistent.txt").unwrap();
         
         {
             let db = Database::open(test_db_path).unwrap();
             db.clear().unwrap();
-            create_test_file("persistent.txt").unwrap();
-            db.insert("persistent.txt", vec!["saved".into()]).unwrap();
+            db.insert(file.path(), vec!["saved".into()]).unwrap();
             db.flush().unwrap();
         }
         
         {
             let db = Database::open(test_db_path).unwrap();
             assert_eq!(db.count(), 1);
-            assert!(db.contains("persistent.txt").unwrap());
-            let tags = db.get_tags("persistent.txt").unwrap();
+            assert!(db.contains(file.path()).unwrap());
+            let tags = db.get_tags(file.path()).unwrap();
             assert_eq!(tags, Some(vec!["saved".into()]));
             
             // Clean up
@@ -862,36 +696,26 @@ mod tests {
         }
         
         let _ = fs::remove_dir_all(test_db_path);
-        let _ = fs::remove_file("persistent.txt");
     }
 
     #[test]
     fn test_create_multiple_databases() {
-        let db_paths = vec!["test_db_multi_1", "test_db_multi_2", "test_db_multi_3"];
-        let mut databases = Vec::new();
+        let db_paths = ["test_db_multi_1", "test_db_multi_2", "test_db_multi_3"];
+        let mut test_dbs = Vec::new();
+        let mut temp_files = Vec::new();
         
         for (i, path) in db_paths.iter().enumerate() {
-            let db = Database::open(path).unwrap();
-            db.clear().unwrap();
+            let test_db = TestDb::new(path);
             let filename = format!("file{}.txt", i);
-            create_test_file(&filename).unwrap();
-            db.insert(&filename, vec![format!("tag{}", i)]).unwrap();
-            databases.push(db);
+            let temp_file = TempFile::create(&filename).unwrap();
+            test_db.db().insert(temp_file.path(), vec![format!("tag{}", i)]).unwrap();
+            temp_files.push(temp_file);
+            test_dbs.push(test_db);
         }
         
-        for (i, db) in databases.iter().enumerate() {
-            assert_eq!(db.count(), 1);
-            assert!(db.contains(format!("file{}.txt", i)).unwrap());
-        }
-        
-        // Clean up
-        for (db, path) in databases.into_iter().zip(db_paths.iter()) {
-            db.clear().unwrap();
-            drop(db);
-            let _ = fs::remove_dir_all(path);
-        }
-        for i in 0..3 {
-            let _ = fs::remove_file(format!("file{}.txt", i));
+        for (i, test_db) in test_dbs.iter().enumerate() {
+            assert_eq!(test_db.db().count(), 1);
+            assert!(test_db.db().contains(temp_files[i].path()).unwrap());
         }
     }
 
@@ -900,71 +724,66 @@ mod tests {
         let test_db_path = "test_db_recreate";
         
         {
+            let old_file = TempFile::create("old_file.txt").unwrap();
             let db = Database::open(test_db_path).unwrap();
             db.clear().unwrap();
-            create_test_file("old_file.txt").unwrap();
-            db.insert("old_file.txt", vec!["old_tag".into()]).unwrap();
+            db.insert(old_file.path(), vec!["old_tag".into()]).unwrap();
             assert_eq!(db.count(), 1);
         }
         
         fs::remove_dir_all(test_db_path).unwrap();
         assert!(!PathBuf::from(test_db_path).exists());
-        let _ = fs::remove_file("old_file.txt");
         
         {
+            let new_file = TempFile::create("new_file.txt").unwrap();
+            let old_file_path = PathBuf::from("old_file.txt");
             let db = Database::open(test_db_path).unwrap();
             assert_eq!(db.count(), 0);
             
-            create_test_file("new_file.txt").unwrap();
-            db.insert("new_file.txt", vec!["new_tag".into()]).unwrap();
+            db.insert(new_file.path(), vec!["new_tag".into()]).unwrap();
             assert_eq!(db.count(), 1);
-            assert!(db.contains("new_file.txt").unwrap());
-            assert!(!db.contains("old_file.txt").unwrap());
+            assert!(db.contains(new_file.path()).unwrap());
+            assert!(!db.contains(&old_file_path).unwrap());
             
             db.clear().unwrap();
         }
         
         let _ = fs::remove_dir_all(test_db_path);
-        let _ = fs::remove_file("new_file.txt");
     }
 
     #[test]
     fn test_database_flush_on_drop() {
         let test_db_path = "test_db_flush_drop";
+        let file = TempFile::create("file.txt").unwrap();
         
         {
             let db = Database::open(test_db_path).unwrap();
             db.clear().unwrap();
-            create_test_file("file.txt").unwrap();
-            db.insert("file.txt", vec!["tag".into()]).unwrap();
+            db.insert(file.path(), vec!["tag".into()]).unwrap();
         }
         
         {
             let db = Database::open(test_db_path).unwrap();
-            assert!(db.contains("file.txt").unwrap());
+            assert!(db.contains(file.path()).unwrap());
             db.clear().unwrap();
         }
         
         let _ = fs::remove_dir_all(test_db_path);
-        let _ = fs::remove_file("file.txt");
     }
 
     #[test]
     fn test_database_operations() {
-        let db = Database::open("test_db").unwrap();
-        db.clear().unwrap();
+        let test_db = TestDb::new("test_db");
+        let db = test_db.db();
 
-        create_test_file("test.txt").unwrap();
-        let pair = Pair::new(PathBuf::from("test.txt"), vec!["tag1".into(), "tag2".into()]);
+        let file = TempFile::create("test.txt").unwrap();
+        let pair = Pair::new(file.path().to_path_buf(), vec!["tag1".into(), "tag2".into()]);
         db.insert_pair(&pair).unwrap();
         
-        let tags = db.get_tags("test.txt").unwrap();
+        let tags = db.get_tags(file.path()).unwrap();
         assert_eq!(tags, Some(vec!["tag1".into(), "tag2".into()]));
 
         let files = db.find_by_tag("tag1").unwrap();
         assert_eq!(files.len(), 1);
-
-        db.clear().unwrap();
-        let _ = fs::remove_file("test.txt");
     }
 }

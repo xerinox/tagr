@@ -10,8 +10,13 @@ use thiserror::Error;
 
 pub mod db;
 pub mod cli;
+pub mod commands;
 pub mod config;
+pub mod output;
 pub mod search;
+
+#[cfg(test)]
+pub mod testing;
 
 /// Error enum, contains all failure states of the program
 #[derive(Debug, Error)]
