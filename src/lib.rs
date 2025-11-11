@@ -15,6 +15,7 @@ pub mod config;
 pub mod filters;
 pub mod output;
 pub mod search;
+pub mod vtags;
 
 #[cfg(test)]
 pub mod testing;
