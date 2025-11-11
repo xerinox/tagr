@@ -13,6 +13,23 @@ use crate::cli::SearchMode;
 /// Filter criteria representing search parameters
 ///
 /// This matches the search/browse command parameters and can be serialized to TOML.
+///
+/// # Future Enhancement
+///
+/// TODO: Consider refactoring to structured criteria for composable queries:
+/// - `TagCriterion { text: String, exclude: bool, regex: bool }`
+/// - `FileCriterion { pattern: String, exclude: bool, regex: bool }`
+/// - Support expression trees: `(tag1 AND tag2) OR (file1 AND NOT tag3)`
+///
+/// This would enable complex filter expressions like:
+/// ```text
+/// (tag matching regex ".*doc.*" excluding "doctor") AND
+/// (tag matching either "text" OR "code") OR
+/// (file name "*.md")
+/// ```
+///
+/// The current flat structure handles most use cases well. Consider this evolution
+/// when users request complex query expressions or when building a filter DSL.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FilterCriteria {
     /// Tags to search for
