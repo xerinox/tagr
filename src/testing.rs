@@ -5,10 +5,10 @@
 //!
 //! Only available when compiled with `cfg(test)`.
 
+use crate::db::Database;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use crate::db::Database;
 
 /// Wrapper for a temporary test database that cleans up on drop
 ///
@@ -20,7 +20,7 @@ use crate::db::Database;
 /// # use tagr::testing::TestDb;
 /// let test_db = TestDb::new("my_test_db");
 /// let db = test_db.db();
-/// 
+///
 /// db.insert("file.txt", vec!["tag1".into()]).unwrap();
 /// assert_eq!(db.count(), 1);
 /// // Database automatically cleaned up when test_db is dropped
@@ -41,7 +41,7 @@ impl TestDb {
         let path = PathBuf::from(path.as_ref());
         let db = Database::open(&path).expect("Failed to open test database");
         db.clear().expect("Failed to clear test database");
-        
+
         Self { path, db }
     }
 
@@ -62,7 +62,7 @@ impl Drop for TestDb {
     fn drop(&mut self) {
         // Clear the database first to ensure clean shutdown
         let _ = self.db.clear();
-        
+
         // Remove the database directory
         // Ignore errors during cleanup - best effort
         let _ = fs::remove_dir_all(&self.path);
@@ -103,7 +103,10 @@ pub fn create_test_file(path: impl AsRef<Path>) -> std::io::Result<()> {
 /// create_test_file_with_content("config.toml", b"key = value").unwrap();
 /// std::fs::remove_file("config.toml").unwrap();
 /// ```
-pub fn create_test_file_with_content(path: impl AsRef<Path>, content: &[u8]) -> std::io::Result<()> {
+pub fn create_test_file_with_content(
+    path: impl AsRef<Path>,
+    content: &[u8],
+) -> std::io::Result<()> {
     let mut file = fs::File::create(path)?;
     file.write_all(content)?;
     Ok(())
@@ -138,7 +141,7 @@ impl TempFile {
     /// Panics if the system time is before the Unix epoch.
     pub fn create(filename: impl AsRef<Path>) -> std::io::Result<Self> {
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         // Create unique temp dir using timestamp + thread id
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -147,10 +150,13 @@ impl TempFile {
         let thread_id = std::thread::current().id();
         let temp_dir = PathBuf::from(format!("test_tmp_{timestamp}_{thread_id:?}"));
         fs::create_dir_all(&temp_dir)?;
-        
+
         let path = temp_dir.join(filename.as_ref());
         create_test_file(&path)?;
-        Ok(Self { path, temp_dir: Some(temp_dir) })
+        Ok(Self {
+            path,
+            temp_dir: Some(temp_dir),
+        })
     }
 
     /// Create a new temporary file with custom content
@@ -161,9 +167,12 @@ impl TempFile {
     /// Returns an `io::Error` if the file cannot be created.
     /// # Panics
     /// Panics if the system time is before the Unix epoch.
-    pub fn create_with_content(filename: impl AsRef<Path>, content: &[u8]) -> std::io::Result<Self> {
+    pub fn create_with_content(
+        filename: impl AsRef<Path>,
+        content: &[u8],
+    ) -> std::io::Result<Self> {
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         // Create unique temp dir using timestamp + thread id
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -172,10 +181,13 @@ impl TempFile {
         let thread_id = std::thread::current().id();
         let temp_dir = PathBuf::from(format!("test_tmp_{timestamp}_{thread_id:?}"));
         fs::create_dir_all(&temp_dir)?;
-        
+
         let path = temp_dir.join(filename.as_ref());
         create_test_file_with_content(&path, content)?;
-        Ok(Self { path, temp_dir: Some(temp_dir) })
+        Ok(Self {
+            path,
+            temp_dir: Some(temp_dir),
+        })
     }
 
     /// Get the path to the temporary file
@@ -203,7 +215,7 @@ mod tests {
     fn test_db_basic() {
         let test_db = TestDb::new("test_testing_db_basic");
         let db = test_db.db();
-        
+
         assert_eq!(db.count(), 0);
         assert!(test_db.path().exists());
     }
@@ -211,13 +223,13 @@ mod tests {
     #[test]
     fn test_db_cleanup() {
         let path = PathBuf::from("test_testing_db_cleanup");
-        
+
         {
             let test_db = TestDb::new(&path);
             assert!(path.exists());
             let _ = test_db; // Use test_db to avoid unused variable warning
         }
-        
+
         // Database should be cleaned up after drop
         assert!(!path.exists());
     }
@@ -226,10 +238,11 @@ mod tests {
     fn test_db_with_data() {
         let test_db = TestDb::new("test_testing_db_with_data");
         let db = test_db.db();
-        
+
         let temp_file = TempFile::create("test_file_for_db.txt").unwrap();
-        db.insert(temp_file.path(), vec!["tag1".into(), "tag2".into()]).unwrap();
-        
+        db.insert(temp_file.path(), vec!["tag1".into(), "tag2".into()])
+            .unwrap();
+
         assert_eq!(db.count(), 1);
         assert!(db.contains(temp_file.path()).unwrap());
     }
@@ -238,12 +251,12 @@ mod tests {
     fn test_create_test_file_basic() {
         let path = "test_file_basic.txt";
         create_test_file(path).unwrap();
-        
+
         assert!(Path::new(path).exists());
-        
+
         let content = fs::read_to_string(path).unwrap();
         assert_eq!(content, "test content");
-        
+
         fs::remove_file(path).unwrap();
     }
 
@@ -251,24 +264,24 @@ mod tests {
     fn test_create_test_file_with_custom_content() {
         let path = "test_file_custom.txt";
         let custom_content = b"custom test data";
-        
+
         create_test_file_with_content(path, custom_content).unwrap();
-        
+
         let content = fs::read(path).unwrap();
         assert_eq!(content, custom_content);
-        
+
         fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn test_temp_file_auto_cleanup() {
         let path = PathBuf::from("test_temp_file_cleanup.txt");
-        
+
         {
             let temp = TempFile::create(&path).unwrap();
             assert!(temp.path().exists());
         }
-        
+
         // File should be cleaned up after drop
         assert!(!path.exists());
     }
@@ -277,10 +290,10 @@ mod tests {
     fn test_temp_file_with_content() {
         let content = b"temporary content";
         let temp = TempFile::create_with_content("test_temp_custom.txt", content).unwrap();
-        
+
         let read_content = fs::read(temp.path()).unwrap();
         assert_eq!(read_content, content);
-        
+
         // temp dropped here, file cleaned up
     }
 
@@ -289,11 +302,11 @@ mod tests {
         let temp1 = TempFile::create("test_temp_1.txt").unwrap();
         let temp2 = TempFile::create("test_temp_2.txt").unwrap();
         let temp3 = TempFile::create("test_temp_3.txt").unwrap();
-        
+
         assert!(temp1.path().exists());
         assert!(temp2.path().exists());
         assert!(temp3.path().exists());
-        
+
         // All cleaned up on drop
     }
 }

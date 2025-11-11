@@ -21,12 +21,10 @@ pub struct FileMetadata {
 }
 
 impl MetadataCache {
-    #[must_use] 
+    #[must_use]
     pub fn new(ttl: Duration) -> Self {
         Self {
-            cache: Cache::builder()
-                .time_to_idle(ttl)
-                .build(),
+            cache: Cache::builder().time_to_idle(ttl).build(),
         }
     }
 

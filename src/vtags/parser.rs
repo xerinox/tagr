@@ -25,7 +25,7 @@ impl TryFrom<&str> for VirtualTag {
     type Error = ParseError;
 
     /// Parse a virtual tag string like "modified:today" or "ext:.rs"
-    /// 
+    ///
     /// For size-based tags with byte values (e.g., "size:>1MB"), this uses default
     /// configuration. To use custom size category thresholds, use `VirtualTag::parse_with_config`.
     ///
@@ -44,7 +44,7 @@ impl TryFrom<&str> for VirtualTag {
 
 impl VirtualTag {
     /// Parse a virtual tag with a custom configuration.
-    /// 
+    ///
     /// This is useful when you need custom size category thresholds.
     ///
     /// # Errors
@@ -119,16 +119,15 @@ fn parse_size(value: &str, config: &VirtualTagConfig) -> Result<SizeCondition, P
 }
 
 fn parse_path_pattern(value: &str) -> Result<glob::Pattern, ParseError> {
-    glob::Pattern::new(value)
-        .map_err(|_| ParseError::InvalidPattern(value.to_string()))
+    glob::Pattern::new(value).map_err(|_| ParseError::InvalidPattern(value.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::vtags::types::{
-        ExtTypeCategory, GitCondition, PermissionCondition, RangeCondition, 
-        SizeCategory, SizeCondition, TimeCondition,
+        ExtTypeCategory, GitCondition, PermissionCondition, RangeCondition, SizeCategory,
+        SizeCondition, TimeCondition,
     };
 
     #[test]
@@ -146,13 +145,19 @@ mod tests {
     #[test]
     fn test_parse_accessed_last_7_days() {
         let tag: VirtualTag = "accessed:last-7-days".try_into().unwrap();
-        assert!(matches!(tag, VirtualTag::Accessed(TimeCondition::LastNDays(7))));
+        assert!(matches!(
+            tag,
+            VirtualTag::Accessed(TimeCondition::LastNDays(7))
+        ));
     }
 
     #[test]
     fn test_parse_size_greater_than() {
         let tag: VirtualTag = "size:>1MB".try_into().unwrap();
-        assert!(matches!(tag, VirtualTag::Size(SizeCondition::GreaterThan(_))));
+        assert!(matches!(
+            tag,
+            VirtualTag::Size(SizeCondition::GreaterThan(_))
+        ));
     }
 
     #[test]
@@ -194,7 +199,10 @@ mod tests {
     #[test]
     fn test_parse_depth_range() {
         let tag: VirtualTag = "depth:>3".try_into().unwrap();
-        assert!(matches!(tag, VirtualTag::Depth(RangeCondition::GreaterThan(3))));
+        assert!(matches!(
+            tag,
+            VirtualTag::Depth(RangeCondition::GreaterThan(3))
+        ));
     }
 
     #[test]
@@ -209,7 +217,10 @@ mod tests {
     #[test]
     fn test_parse_lines() {
         let tag: VirtualTag = "lines:100-500".try_into().unwrap();
-        assert!(matches!(tag, VirtualTag::Lines(RangeCondition::Range(100, 500))));
+        assert!(matches!(
+            tag,
+            VirtualTag::Lines(RangeCondition::Range(100, 500))
+        ));
     }
 
     #[test]

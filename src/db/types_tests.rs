@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::db::types::{PathKey, PathString};
     use crate::db::error::DbError;
+    use crate::db::types::{PathKey, PathString};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -39,7 +39,7 @@ mod tests {
         let key = PathKey::new("test.txt");
         let result: Result<Vec<u8>, DbError> = key.try_into();
         assert!(result.is_ok());
-        
+
         let bytes = result.unwrap();
         assert!(!bytes.is_empty());
     }
@@ -48,18 +48,14 @@ mod tests {
     fn test_path_key_from_bytes() {
         let original_key = PathKey::new("test.txt");
         let bytes: Vec<u8> = original_key.try_into().unwrap();
-        
+
         let restored_key = PathKey::from_bytes(&bytes).unwrap();
         assert_eq!(restored_key.as_path(), Path::new("test.txt"));
     }
 
     #[test]
     fn test_path_key_roundtrip() {
-        let paths = vec![
-            "simple.txt",
-            "dir/file.txt",
-            "deep/nested/path/file.txt",
-        ];
+        let paths = vec!["simple.txt", "dir/file.txt", "deep/nested/path/file.txt"];
 
         for path_str in paths {
             let original = PathKey::new(path_str);
@@ -74,7 +70,7 @@ mod tests {
         let key1 = PathKey::new("test.txt");
         let key2 = PathKey::new("test.txt");
         let key3 = PathKey::new("other.txt");
-        
+
         assert_eq!(key1, key2);
         assert_ne!(key1, key3);
     }
@@ -90,7 +86,7 @@ mod tests {
     fn test_path_string_new() {
         let result = PathString::new("test.txt");
         assert!(result.is_ok());
-        
+
         let path_str = result.unwrap();
         assert_eq!(path_str.as_str(), "test.txt");
     }
@@ -100,7 +96,7 @@ mod tests {
         let path = PathBuf::from("test.txt");
         let result: Result<PathString, DbError> = path.try_into();
         assert!(result.is_ok());
-        
+
         let path_str = result.unwrap();
         assert_eq!(path_str.as_str(), "test.txt");
     }
@@ -110,7 +106,7 @@ mod tests {
         let path = Path::new("test.txt");
         let result: Result<PathString, DbError> = path.try_into();
         assert!(result.is_ok());
-        
+
         let path_str = result.unwrap();
         assert_eq!(path_str.as_str(), "test.txt");
     }
@@ -147,7 +143,7 @@ mod tests {
         let ps1 = PathString::new("test.txt").unwrap();
         let ps2 = PathString::new("test.txt").unwrap();
         let ps3 = PathString::new("other.txt").unwrap();
-        
+
         assert_eq!(ps1, ps2);
         assert_ne!(ps1, ps3);
     }
@@ -213,10 +209,7 @@ mod tests {
             PathKey::new("file3.txt"),
         ];
 
-        let bytes_vec: Vec<Vec<u8>> = keys
-            .into_iter()
-            .map(|k| k.try_into().unwrap())
-            .collect();
+        let bytes_vec: Vec<Vec<u8>> = keys.into_iter().map(|k| k.try_into().unwrap()).collect();
 
         assert_ne!(bytes_vec[0], bytes_vec[1]);
         assert_ne!(bytes_vec[1], bytes_vec[2]);

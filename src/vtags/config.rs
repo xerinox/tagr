@@ -122,14 +122,14 @@ impl VirtualTagConfig {
     #[must_use]
     pub fn parse_size(&self, size_str: &str) -> Option<u64> {
         use byte_unit::Byte;
-        
+
         // Try parsing with byte-unit
         Byte::parse_str(size_str, true)
             .ok()
             .map(byte_unit::Byte::as_u64)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_size_threshold(&self, category: &str) -> Option<u64> {
         match category {
             "tiny" => self.parse_size(&self.size_categories.tiny),

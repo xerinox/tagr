@@ -1,8 +1,8 @@
 use crate::vtags::cache::MetadataCache;
 use crate::vtags::config::VirtualTagConfig;
 use crate::vtags::types::{
-    ExtTypeCategory, PermissionCondition, RangeCondition, SizeCategory,
-    SizeCondition, TimeCondition, VirtualTag,
+    ExtTypeCategory, PermissionCondition, RangeCondition, SizeCategory, SizeCondition,
+    TimeCondition, VirtualTag,
 };
 use chrono::{DateTime, Datelike, Local, Utc};
 use std::fs::File;
@@ -17,7 +17,7 @@ pub struct VirtualTagEvaluator {
 }
 
 impl VirtualTagEvaluator {
-    #[must_use] 
+    #[must_use]
     pub fn new(cache_ttl: Duration, config: VirtualTagConfig) -> Self {
         Self {
             cache: MetadataCache::new(cache_ttl),
@@ -70,12 +70,14 @@ impl VirtualTagEvaluator {
     }
 
     fn check_extension(path: &Path, ext: &str) -> bool {
-        path.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| {
-                let ext_with_dot = if ext.starts_with('.') { ext } else { &format!(".{ext}") };
-                format!(".{e}") == ext_with_dot
-            })
+        path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            let ext_with_dot = if ext.starts_with('.') {
+                ext
+            } else {
+                &format!(".{ext}")
+            };
+            format!(".{e}") == ext_with_dot
+        })
     }
 
     fn check_ext_type(&self, path: &Path, category: ExtTypeCategory) -> bool {
@@ -145,20 +147,33 @@ impl VirtualTagEvaluator {
             SizeCondition::Empty => size == 0,
             SizeCondition::Category(cat) => {
                 let (min, max) = match cat {
-                    SizeCategory::Tiny => (0, self.config.get_size_threshold("tiny").unwrap_or(1024)),
+                    SizeCategory::Tiny => {
+                        (0, self.config.get_size_threshold("tiny").unwrap_or(1024))
+                    }
                     SizeCategory::Small => (
                         self.config.get_size_threshold("tiny").unwrap_or(1024),
                         self.config.get_size_threshold("small").unwrap_or(102_400),
                     ),
                     SizeCategory::Medium => (
                         self.config.get_size_threshold("small").unwrap_or(102_400),
-                        self.config.get_size_threshold("medium").unwrap_or(1_048_576),
+                        self.config
+                            .get_size_threshold("medium")
+                            .unwrap_or(1_048_576),
                     ),
                     SizeCategory::Large => (
-                        self.config.get_size_threshold("medium").unwrap_or(1_048_576),
-                        self.config.get_size_threshold("large").unwrap_or(10_485_760),
+                        self.config
+                            .get_size_threshold("medium")
+                            .unwrap_or(1_048_576),
+                        self.config
+                            .get_size_threshold("large")
+                            .unwrap_or(10_485_760),
                     ),
-                    SizeCategory::Huge => (self.config.get_size_threshold("large").unwrap_or(10_485_760), u64::MAX),
+                    SizeCategory::Huge => (
+                        self.config
+                            .get_size_threshold("large")
+                            .unwrap_or(10_485_760),
+                        u64::MAX,
+                    ),
                 };
                 size >= min && size < max
             }
@@ -210,7 +225,10 @@ fn evaluate_time_condition(file_time: SystemTime, cond: &TimeCondition) -> bool 
             file_datetime >= yesterday_start && file_datetime < today_start
         }
         TimeCondition::ThisWeek => {
-            let week_start = local_now.date_naive().week(chrono::Weekday::Mon).first_day();
+            let week_start = local_now
+                .date_naive()
+                .week(chrono::Weekday::Mon)
+                .first_day();
             let week_start = week_start
                 .and_hms_opt(0, 0, 0)
                 .unwrap()

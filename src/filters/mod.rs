@@ -48,7 +48,7 @@ pub mod types;
 
 pub use error::FilterError;
 pub use operations::FilterManager;
-pub use types::{Filter, FilterCriteria, FilterStorage, TagMode, FileMode, validate_filter_name};
+pub use types::{FileMode, Filter, FilterCriteria, FilterStorage, TagMode, validate_filter_name};
 
 use std::path::PathBuf;
 
@@ -60,11 +60,12 @@ use std::path::PathBuf;
 ///
 /// Returns `FilterError` if the config directory cannot be determined
 pub fn default_filter_path() -> Result<PathBuf, FilterError> {
-    let config_dir = dirs::config_dir()
-        .ok_or_else(|| FilterError::Config(
-            config::ConfigError::Message("Could not determine config directory".to_string())
-        ))?;
-    
+    let config_dir = dirs::config_dir().ok_or_else(|| {
+        FilterError::Config(config::ConfigError::Message(
+            "Could not determine config directory".to_string(),
+        ))
+    })?;
+
     Ok(config_dir.join("tagr").join("filters.toml"))
 }
 

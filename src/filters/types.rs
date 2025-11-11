@@ -6,9 +6,9 @@
 //! - `Filter`: Complete filter with criteria and metadata
 //! - `FilterStorage`: Container for all filters
 
+use crate::cli::SearchMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::cli::SearchMode;
 
 /// Filter criteria representing search parameters
 ///
@@ -561,11 +561,17 @@ pub fn validate_filter_name(name: &str) -> Result<(), String> {
     }
 
     if name.len() > 64 {
-        return Err(format!("Filter name too long (max 64 chars): {}", name.len()));
+        return Err(format!(
+            "Filter name too long (max 64 chars): {}",
+            name.len()
+        ));
     }
 
     // Check for valid characters: alphanumeric, hyphen, underscore
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(format!(
             "Filter name '{name}' contains invalid characters (only alphanumeric, '-', and '_' allowed)"
         ));
@@ -583,7 +589,7 @@ mod tests {
         assert!(validate_filter_name("valid-name").is_ok());
         assert!(validate_filter_name("valid_name_123").is_ok());
         assert!(validate_filter_name("ValidName").is_ok());
-        
+
         assert!(validate_filter_name("").is_err());
         assert!(validate_filter_name("invalid name").is_err()); // space
         assert!(validate_filter_name("invalid.name").is_err()); // dot
@@ -639,7 +645,7 @@ mod tests {
     #[test]
     fn test_filter_storage() {
         let mut storage = FilterStorage::new();
-        
+
         let filter = Filter::new(
             "test-filter".to_string(),
             "Test filter".to_string(),
@@ -648,14 +654,14 @@ mod tests {
                 ..Default::default()
             },
         );
-        
+
         assert!(storage.add(filter.clone()).is_ok());
         assert!(storage.contains("test-filter"));
         assert_eq!(storage.filters.len(), 1);
-        
+
         // Try to add duplicate
         assert!(storage.add(filter).is_err());
-        
+
         // Remove filter
         let removed = storage.remove("test-filter");
         assert!(removed.is_some());
@@ -693,5 +699,95 @@ mod tests {
         let deserialized: FilterStorage = toml::from_str(&toml).unwrap();
         assert_eq!(deserialized.filters.len(), 1);
         assert_eq!(deserialized.filters[0].name, "rust-tutorials");
+    }
+}
+
+impl std::fmt::Display for Filter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Filter: {}", self.name)?;
+
+        if !self.description.is_empty() {
+            writeln!(f, "Description: {}", self.description)?;
+        }
+
+        writeln!(f)?;
+        write!(f, "{}", self.criteria)?;
+
+        writeln!(f)?;
+        writeln!(f, "Created: {}", self.created.format("%Y-%m-%d %H:%M:%S"))?;
+        writeln!(
+            f,
+            "Last Used: {}",
+            self.last_used.format("%Y-%m-%d %H:%M:%S")
+        )?;
+        writeln!(f, "Use Count: {}", self.use_count)?;
+
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for FilterCriteria {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Tags
+        if self.tags.is_empty() {
+            writeln!(f, "Tags: (none)")?;
+        } else {
+            writeln!(
+                f,
+                "Tags: {} ({})",
+                self.tags.join(", "),
+                match self.tag_mode {
+                    TagMode::All => "ALL",
+                    TagMode::Any => "ANY",
+                }
+            )?;
+        }
+
+        // File patterns
+        if self.file_patterns.is_empty() {
+            writeln!(f, "File Patterns: (none)")?;
+        } else {
+            writeln!(
+                f,
+                "File Patterns: {} ({})",
+                self.file_patterns.join(", "),
+                match self.file_mode {
+                    FileMode::All => "ALL",
+                    FileMode::Any => "ANY",
+                }
+            )?;
+        }
+
+        // Excludes
+        if !self.excludes.is_empty() {
+            writeln!(f, "Excludes: {}", self.excludes.join(", "))?;
+        }
+
+        // Virtual tags
+        if !self.virtual_tags.is_empty() {
+            writeln!(
+                f,
+                "Virtual Tags: {} ({})",
+                self.virtual_tags.join(", "),
+                match self.virtual_mode {
+                    TagMode::All => "ALL",
+                    TagMode::Any => "ANY",
+                }
+            )?;
+        }
+
+        // Regex modes
+        if self.regex_tag || self.regex_file {
+            let mut regex_modes = Vec::new();
+            if self.regex_tag {
+                regex_modes.push("tags");
+            }
+            if self.regex_file {
+                regex_modes.push("files");
+            }
+            writeln!(f, "Regex Mode: {}", regex_modes.join(", "))?;
+        }
+
+        Ok(())
     }
 }
