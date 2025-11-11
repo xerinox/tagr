@@ -195,6 +195,17 @@ fn show_filter(name: &str, quiet: bool) -> Result<()> {
         println!("Excludes: {}", filter.criteria.excludes.join(", "));
     }
     
+    if !filter.criteria.virtual_tags.is_empty() {
+        println!("Virtual Tags: {}", format!(
+            "{} ({})",
+            filter.criteria.virtual_tags.join(", "),
+            match filter.criteria.virtual_mode {
+                TagMode::All => "ALL",
+                TagMode::Any => "ANY",
+            }
+        ));
+    }
+    
     if filter.criteria.regex_tag || filter.criteria.regex_file {
         let mut regex_modes = Vec::new();
         if filter.criteria.regex_tag {
@@ -242,6 +253,8 @@ fn create_filter(
         excludes: excludes.to_vec(),
         regex_tag,
         regex_file,
+        virtual_tags: Vec::new(),
+        virtual_mode: TagMode::All,
     };
     
     let desc = description.unwrap_or("").to_string();

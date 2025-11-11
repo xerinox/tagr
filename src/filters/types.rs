@@ -59,35 +59,27 @@ pub struct FilterCriteria {
     /// Use regex for file pattern matching
     #[serde(default)]
     pub regex_file: bool,
+
+    /// Virtual tags to filter by (e.g., "size:>1MB", "modified:today")
+    #[serde(default)]
+    pub virtual_tags: Vec<String>,
+
+    /// How to combine multiple virtual tags ("all" = AND, "any" = OR)
+    #[serde(default)]
+    pub virtual_mode: TagMode,
 }
 
 impl FilterCriteria {
-    /// Create a new filter criteria
+    /// Create a new filter criteria builder
+    #[must_use]
+    pub fn builder() -> FilterCriteriaBuilder {
+        FilterCriteriaBuilder::default()
+    }
+
+    /// Create a new filter criteria (same as builder().build())
     #[must_use]
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Create from search mode parameters
-    #[must_use]
-    pub fn from_search_params(
-        tags: Vec<String>,
-        tag_mode: SearchMode,
-        file_patterns: Vec<String>,
-        file_mode: SearchMode,
-        excludes: Vec<String>,
-        regex_tag: bool,
-        regex_file: bool,
-    ) -> Self {
-        Self {
-            tags,
-            tag_mode: tag_mode.into(),
-            file_patterns,
-            file_mode: file_mode.into(),
-            excludes,
-            regex_tag,
-            regex_file,
-        }
     }
 
     /// Merge with additional criteria (for combining loaded filter with CLI args)
@@ -154,6 +146,129 @@ impl FilterCriteria {
     }
 }
 
+/// Builder for FilterCriteria
+#[derive(Debug, Clone, Default)]
+pub struct FilterCriteriaBuilder {
+    tags: Vec<String>,
+    tag_mode: Option<TagMode>,
+    file_patterns: Vec<String>,
+    file_mode: Option<FileMode>,
+    excludes: Vec<String>,
+    regex_tag: bool,
+    regex_file: bool,
+    virtual_tags: Vec<String>,
+    virtual_mode: Option<TagMode>,
+}
+
+impl FilterCriteriaBuilder {
+    /// Add tags to search for
+    #[must_use]
+    pub fn tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
+        self
+    }
+
+    /// Add a single tag
+    #[must_use]
+    pub fn tag(mut self, tag: String) -> Self {
+        self.tags.push(tag);
+        self
+    }
+
+    /// Set how to combine multiple tags
+    #[must_use]
+    pub fn tag_mode(mut self, mode: TagMode) -> Self {
+        self.tag_mode = Some(mode);
+        self
+    }
+
+    /// Add file patterns to filter by
+    #[must_use]
+    pub fn file_patterns(mut self, patterns: Vec<String>) -> Self {
+        self.file_patterns = patterns;
+        self
+    }
+
+    /// Add a single file pattern
+    #[must_use]
+    pub fn file_pattern(mut self, pattern: String) -> Self {
+        self.file_patterns.push(pattern);
+        self
+    }
+
+    /// Set how to combine multiple file patterns
+    #[must_use]
+    pub fn file_mode(mut self, mode: FileMode) -> Self {
+        self.file_mode = Some(mode);
+        self
+    }
+
+    /// Add tags to exclude
+    #[must_use]
+    pub fn excludes(mut self, excludes: Vec<String>) -> Self {
+        self.excludes = excludes;
+        self
+    }
+
+    /// Add a single exclusion tag
+    #[must_use]
+    pub fn exclude(mut self, tag: String) -> Self {
+        self.excludes.push(tag);
+        self
+    }
+
+    /// Enable regex matching for tags
+    #[must_use]
+    pub fn regex_tag(mut self, enabled: bool) -> Self {
+        self.regex_tag = enabled;
+        self
+    }
+
+    /// Enable regex matching for file patterns
+    #[must_use]
+    pub fn regex_file(mut self, enabled: bool) -> Self {
+        self.regex_file = enabled;
+        self
+    }
+
+    /// Add virtual tags to filter by
+    #[must_use]
+    pub fn virtual_tags(mut self, tags: Vec<String>) -> Self {
+        self.virtual_tags = tags;
+        self
+    }
+
+    /// Add a single virtual tag
+    #[must_use]
+    pub fn virtual_tag(mut self, tag: String) -> Self {
+        self.virtual_tags.push(tag);
+        self
+    }
+
+    /// Set how to combine multiple virtual tags
+    #[must_use]
+    pub fn virtual_mode(mut self, mode: TagMode) -> Self {
+        self.virtual_mode = Some(mode);
+        self
+    }
+
+    /// Build the FilterCriteria
+    #[must_use]
+    pub fn build(self) -> FilterCriteria {
+        FilterCriteria {
+            tags: self.tags,
+            tag_mode: self.tag_mode.unwrap_or(TagMode::All),
+            file_patterns: self.file_patterns,
+            file_mode: self.file_mode.unwrap_or(FileMode::Any),
+            excludes: self.excludes,
+            regex_tag: self.regex_tag,
+            regex_file: self.regex_file,
+            virtual_tags: self.virtual_tags,
+            virtual_mode: self.virtual_mode.unwrap_or(TagMode::All),
+        }
+    }
+}
+
 impl Default for FilterCriteria {
     fn default() -> Self {
         Self {
@@ -164,6 +279,8 @@ impl Default for FilterCriteria {
             excludes: Vec::new(),
             regex_tag: false,
             regex_file: false,
+            virtual_tags: Vec::new(),
+            virtual_mode: TagMode::All,
         }
     }
 }
@@ -492,6 +609,8 @@ mod tests {
             excludes: vec!["test".to_string()],
             regex_tag: false,
             regex_file: false,
+            virtual_tags: Vec::new(),
+            virtual_mode: TagMode::All,
         };
 
         let additional = FilterCriteria {
@@ -502,6 +621,8 @@ mod tests {
             excludes: vec!["deprecated".to_string()],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec!["size:>1MB".to_string()],
+            virtual_mode: TagMode::All,
         };
 
         base.merge(&additional);
@@ -554,6 +675,8 @@ mod tests {
                 excludes: vec![],
                 regex_tag: false,
                 regex_file: false,
+                virtual_tags: Vec::new(),
+                virtual_mode: TagMode::All,
             },
         );
 

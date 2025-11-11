@@ -139,6 +139,8 @@ impl From<SearchParams> for crate::filters::FilterCriteria {
             excludes: params.exclude_tags,
             regex_tag: params.regex_tag,
             regex_file: params.regex_file,
+            virtual_tags: params.virtual_tags,
+            virtual_mode: params.virtual_mode.into(),
         }
     }
 }
@@ -153,6 +155,8 @@ impl From<&SearchParams> for crate::filters::FilterCriteria {
             excludes: params.exclude_tags.clone(),
             regex_tag: params.regex_tag,
             regex_file: params.regex_file,
+            virtual_tags: params.virtual_tags.clone(),
+            virtual_mode: params.virtual_mode.into(),
         }
     }
 }
@@ -168,8 +172,8 @@ impl From<&crate::filters::FilterCriteria> for SearchParams {
             exclude_tags: criteria.excludes.clone(),
             regex_tag: criteria.regex_tag,
             regex_file: criteria.regex_file,
-            virtual_tags: Vec::new(),
-            virtual_mode: SearchMode::All,
+            virtual_tags: criteria.virtual_tags.clone(),
+            virtual_mode: criteria.virtual_mode.into(),
         }
     }
 }

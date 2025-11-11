@@ -46,8 +46,8 @@ pub fn execute(
         ));
     }
     
-    if params.query.is_none() && params.tags.is_empty() && params.file_patterns.is_empty() {
-        return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags or -f for file patterns.".into()));
+    if params.query.is_none() && params.tags.is_empty() && params.file_patterns.is_empty() && params.virtual_tags.is_empty() {
+        return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags, -f for file patterns, or -v for virtual tags.".into()));
     }
     
     let files = query::apply_search_params(db, &params)?;

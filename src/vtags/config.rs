@@ -120,22 +120,34 @@ impl Default for VirtualTagConfig {
 
 impl VirtualTagConfig {
     pub fn parse_size(&self, size_str: &str) -> Option<u64> {
-        let size_str = size_str.to_uppercase();
+        let size_str = size_str.trim().to_uppercase();
+        
         if let Ok(size) = size_str.parse::<u64>() {
             return Some(size);
         }
         
-        if size_str.ends_with("KB") {
-            size_str.trim_end_matches("KB").parse::<u64>().ok().map(|n| n * 1000)
-        } else if size_str.ends_with("MB") {
-            size_str.trim_end_matches("MB").parse::<u64>().ok().map(|n| n * 1_000_000)
-        } else if size_str.ends_with("GB") {
-            size_str.trim_end_matches("GB").parse::<u64>().ok().map(|n| n * 1_000_000_000)
-        } else if size_str.ends_with("B") {
-            size_str.trim_end_matches("B").parse::<u64>().ok()
+        let (num_part, unit) = if let Some(idx) = size_str.find(|c: char| c.is_alphabetic()) {
+            (&size_str[..idx], &size_str[idx..])
         } else {
-            None
-        }
+            return None;
+        };
+        
+        let num: f64 = num_part.trim().parse().ok()?;
+        
+        let multiplier: u64 = match unit {
+            "B" => 1,
+            "KB" => 1_000,
+            "MB" => 1_000_000,
+            "GB" => 1_000_000_000,
+            "TB" => 1_000_000_000_000,
+            "KIB" => 1_024,
+            "MIB" => 1_048_576,
+            "GIB" => 1_073_741_824,
+            "TIB" => 1_099_511_627_776,
+            _ => return None,
+        };
+        
+        Some((num * multiplier as f64) as u64)
     }
 
     pub fn get_size_threshold(&self, category: &str) -> Option<u64> {
