@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Saved Filters and Bookmarks (Foundation)
+- **Filter Storage Infrastructure** - Core types and operations for saved search filters
+- `FilterManager` API - Idiomatic Rust interface for filter management
+- `FilterCriteria` - Stores search parameters (tags, patterns, modes, exclusions, regex flags)
+- `Filter` - Complete filter with metadata (name, description, created, last_used, use_count)
+- `FilterStorage` - TOML-based persistent storage at `~/.config/tagr/filters.toml`
+- Filter CRUD operations: create, get, update, delete, rename, list
+- Filter validation - Name rules (alphanumeric, hyphens, underscores, max 64 chars)
+- Criteria validation - At least one tag or file pattern required
+- Filter export/import - Share filters with conflict resolution (overwrite/skip-existing)
+- Usage statistics tracking - Automatic use_count and last_used updates
+- Auto-backup functionality - Backup before saves (configurable)
+- Comprehensive error handling with `FilterError` type
+- 10 unit tests covering all CRUD operations and edge cases
+
 #### Interactive Browse Mode
 - Two-stage fuzzy finder for tag and file selection
 - Multi-select support via TAB key for both tags and files
@@ -159,6 +174,7 @@ for item in old_db.iter() {
 ## Dependencies
 
 ### Added
+- `chrono = "0.4"` - Date/time handling for filter timestamps
 - `skim = "0.20.5"` - Fuzzy finder library
 - `bincode = "2.0.0-rc.3"` - Binary serialization
 - `sled = "0.34"` - Embedded database
