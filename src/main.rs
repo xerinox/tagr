@@ -44,7 +44,7 @@
 
 use tagr::{
     db::Database,
-    cli::{Cli, Commands, ConfigCommands, DbCommands},
+    cli::{Cli, Commands, ConfigCommands, DbCommands, FilterCommands},
     commands,
     config,
     TagrError,
@@ -347,6 +347,10 @@ fn main() -> Result<()> {
             }
             Commands::List { variant, .. } => {
                 commands::list(&db, *variant, path_format, quiet)?;
+            }
+            Commands::Filter { command } => {
+                // Filter management doesn't need database access
+                commands::filter(command, quiet)?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }

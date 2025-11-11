@@ -218,6 +218,115 @@ pub enum DbCommands {
     },
 }
 
+/// Filter management subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum FilterCommands {
+    /// List all saved filters
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Show detailed information about a filter
+    Show {
+        /// Name of the filter to show
+        name: String,
+    },
+
+    /// Create a new filter
+    Create {
+        /// Name of the filter
+        name: String,
+
+        /// Description of the filter
+        #[arg(short = 'd', long = "description")]
+        description: Option<String>,
+
+        /// Tags to search for
+        #[arg(short = 't', long = "tag", value_name = "TAG", num_args = 0..)]
+        tags: Vec<String>,
+
+        /// Match files with ANY of the specified tags (OR logic, default is AND)
+        #[arg(long = "any-tag", conflicts_with = "all_tags")]
+        any_tag: bool,
+
+        /// Match files with ALL of the specified tags (AND logic, explicit)
+        #[arg(long = "all-tags", conflicts_with = "any_tag")]
+        all_tags: bool,
+
+        /// File path patterns to filter results (glob syntax: *.rs, src/**/*)
+        #[arg(short = 'f', long = "file", value_name = "PATTERN", num_args = 0..)]
+        file_patterns: Vec<String>,
+
+        /// Match files with ANY of the file patterns (OR logic, default is AND)
+        #[arg(long = "any-file", conflicts_with = "all_files")]
+        any_file: bool,
+
+        /// Match files with ALL of the file patterns (AND logic, explicit)
+        #[arg(long = "all-files", conflicts_with = "any_file")]
+        all_files: bool,
+
+        /// Exclude files with these tags
+        #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
+        excludes: Vec<String>,
+
+        /// Use regex matching for tags
+        #[arg(short = 'r', long = "regex-tag")]
+        regex_tag: bool,
+
+        /// Use regex matching for file patterns
+        #[arg(long = "regex-file")]
+        regex_file: bool,
+    },
+
+    /// Delete a filter
+    #[command(visible_alias = "rm")]
+    Delete {
+        /// Name of the filter to delete
+        name: String,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'f', long = "force")]
+        force: bool,
+    },
+
+    /// Rename a filter
+    #[command(visible_alias = "mv")]
+    Rename {
+        /// Current name of the filter
+        old_name: String,
+
+        /// New name for the filter
+        new_name: String,
+    },
+
+    /// Export filters to a file
+    Export {
+        /// Names of specific filters to export (exports all if not specified)
+        #[arg(value_name = "FILTER")]
+        filters: Vec<String>,
+
+        /// Output file path (prints to stdout if not specified)
+        #[arg(short = 'o', long = "output")]
+        output: Option<PathBuf>,
+    },
+
+    /// Import filters from a file
+    Import {
+        /// Path to the file to import from
+        path: PathBuf,
+
+        /// Overwrite existing filters with the same name
+        #[arg(long = "overwrite", conflicts_with = "skip_existing")]
+        overwrite: bool,
+
+        /// Skip filters that already exist
+        #[arg(long = "skip-existing", conflicts_with = "overwrite")]
+        skip_existing: bool,
+    },
+
+    /// Show filter usage statistics
+    Stats,
+}
+
 /// Shared arguments for commands that work with a database
 #[derive(Parser, Debug, Clone)]
 pub struct DbArgs {
@@ -288,6 +397,12 @@ pub enum Commands {
     Db {
         #[command(subcommand)]
         command: DbCommands,
+    },
+
+    /// Manage saved filters
+    Filter {
+        #[command(subcommand)]
+        command: FilterCommands,
     },
 
     /// Tag a file with one or more tags
