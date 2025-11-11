@@ -433,3 +433,480 @@ fn test_get_pair() {
     let _ = fs::remove_file("pair.txt");
     cleanup_test_db(db, db_path);
 }
+
+// ============================================================================
+// Filter Integration Tests
+// ============================================================================
+
+use tagr::filters::{FilterManager, FilterCriteria, TagMode, FileMode};
+
+/// RAII wrapper for FilterManager with automatic cleanup
+struct TestFilterManager {
+    manager: FilterManager,
+    path: PathBuf,
+}
+
+impl TestFilterManager {
+    fn new(test_name: &str) -> Self {
+        let path = PathBuf::from(format!("test_filters_{}.toml", test_name));
+        // Clean up any leftover files from previous test runs
+        let _ = fs::remove_file(&path);
+        let backup_path = path.with_extension("toml.backup");
+        let _ = fs::remove_file(&backup_path);
+        
+        let manager = FilterManager::new(path.clone());
+        Self { manager, path }
+    }
+    
+    fn manager(&self) -> &FilterManager {
+        &self.manager
+    }
+    
+    fn path(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+impl Drop for TestFilterManager {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+        let backup_path = self.path.with_extension("toml.backup");
+        let _ = fs::remove_file(&backup_path);
+    }
+}
+
+/// Helper to clean up exported filter files
+struct TempFilterFile(PathBuf);
+
+impl TempFilterFile {
+    fn new(name: &str) -> Self {
+        let path = PathBuf::from(name);
+        // Clean up any leftover from previous runs
+        let _ = fs::remove_file(&path);
+        Self(path)
+    }
+    
+    fn path(&self) -> &PathBuf {
+        &self.0
+    }
+}
+
+impl Drop for TempFilterFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+#[test]
+fn test_filter_create_and_list() {
+    let test_mgr = TestFilterManager::new("create_list");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["rust".into(), "tutorial".into()],
+        tagr::cli::SearchMode::All,
+        vec!["*.rs".into()],
+        tagr::cli::SearchMode::Any,
+        vec![],
+        false,
+        false,
+    );
+    
+    let result = manager.create("test-filter", "Test filter".into(), criteria);
+    assert!(result.is_ok());
+    
+    let filters = manager.list().unwrap();
+    assert_eq!(filters.len(), 1);
+    assert_eq!(filters[0].name, "test-filter");
+    assert_eq!(filters[0].description, "Test filter");
+}
+
+#[test]
+fn test_filter_create_with_all_options() {
+    let test_mgr = TestFilterManager::new("create_full");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["rust".into(), "tutorial".into(), "documentation".into()],
+        tagr::cli::SearchMode::All,
+        vec!["*.rs".into(), "*.toml".into()],
+        tagr::cli::SearchMode::Any,
+        vec!["deprecated".into(), "old".into()],
+        true,  // regex_tag
+        false, // regex_file
+    );
+    
+    let filter = manager.create(
+        "complex-filter",
+        "Complex filter with all options".into(),
+        criteria
+    ).unwrap();
+    
+    assert_eq!(filter.name, "complex-filter");
+    assert_eq!(filter.criteria.tags.len(), 3);
+    assert_eq!(filter.criteria.file_patterns.len(), 2);
+    assert_eq!(filter.criteria.excludes.len(), 2);
+    assert_eq!(filter.criteria.tag_mode, TagMode::All);
+    assert_eq!(filter.criteria.file_mode, FileMode::Any);
+    assert!(filter.criteria.regex_tag);
+    assert!(!filter.criteria.regex_file);
+}
+
+#[test]
+fn test_filter_get_and_show() {
+    let test_mgr = TestFilterManager::new("get_show");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["rust".into()],
+        tagr::cli::SearchMode::All,
+        vec!["src/*.rs".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    manager.create("get-test", "Get test filter".into(), criteria).unwrap();
+    
+    let filter = manager.get("get-test").unwrap();
+    assert_eq!(filter.name, "get-test");
+    assert_eq!(filter.description, "Get test filter");
+    assert_eq!(filter.criteria.tags, vec!["rust"]);
+    assert_eq!(filter.criteria.file_patterns, vec!["src/*.rs"]);
+}
+
+#[test]
+fn test_filter_get_nonexistent() {
+    let test_mgr = TestFilterManager::new("get_nonexistent");
+    let manager = test_mgr.manager();
+    
+    let result = manager.get("does-not-exist");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_filter_rename() {
+    let test_mgr = TestFilterManager::new("rename");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["test".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    manager.create("old-name", "Description".into(), criteria).unwrap();
+    
+    let result = manager.rename("old-name", "new-name".to_string());
+    assert!(result.is_ok());
+    
+    assert!(manager.get("old-name").is_err());
+    assert!(manager.get("new-name").is_ok());
+}
+
+#[test]
+fn test_filter_delete() {
+    let test_mgr = TestFilterManager::new("delete");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["test".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    manager.create("to-delete", "Will be deleted".into(), criteria).unwrap();
+    assert!(manager.get("to-delete").is_ok());
+    
+    let result = manager.delete("to-delete");
+    assert!(result.is_ok());
+    
+    assert!(manager.get("to-delete").is_err());
+}
+
+#[test]
+fn test_filter_duplicate_name() {
+    let test_mgr = TestFilterManager::new("duplicate");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["test".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    manager.create("duplicate", "First".into(), criteria.clone()).unwrap();
+    
+    let result = manager.create("duplicate", "Second".into(), criteria);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_filter_export_and_import() {
+    let test_mgr = TestFilterManager::new("export_import");
+    let manager = test_mgr.manager();
+    let temp_file = TempFilterFile::new("test_export.toml");
+    let export_path = temp_file.path();
+    
+    let criteria1 = FilterCriteria::from_search_params(
+        vec!["rust".into()],
+        tagr::cli::SearchMode::All,
+        vec!["*.rs".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    let criteria2 = FilterCriteria::from_search_params(
+        vec!["python".into()],
+        tagr::cli::SearchMode::All,
+        vec!["*.py".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    manager.create("filter1", "First filter".into(), criteria1).unwrap();
+    manager.create("filter2", "Second filter".into(), criteria2).unwrap();
+    
+    // Export
+    let result = manager.export(export_path, &[]);
+    assert!(result.is_ok());
+    assert!(export_path.exists());
+    
+    // Create new manager and import
+    let test_mgr2 = TestFilterManager::new("import_dest");
+    let manager2 = test_mgr2.manager();
+    
+    let result = manager2.import(export_path, false, false);
+    assert!(result.is_ok());
+    
+    let filters = manager2.list().unwrap();
+    assert_eq!(filters.len(), 2);
+}
+
+#[test]
+fn test_filter_export_selective() {
+    let test_mgr = TestFilterManager::new("export_selective");
+    let manager = test_mgr.manager();
+    let temp_file = TempFilterFile::new("test_export_selective.toml");
+    let export_path = temp_file.path();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["test".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    manager.create("filter-a", "A".into(), criteria.clone()).unwrap();
+    manager.create("filter-b", "B".into(), criteria.clone()).unwrap();
+    manager.create("filter-c", "C".into(), criteria).unwrap();
+    
+    // Export only filter-a and filter-c
+    let result = manager.export(
+        export_path,
+        &["filter-a".to_string(), "filter-c".to_string()]
+    );
+    assert!(result.is_ok());
+    
+    // Import to new manager
+    let test_mgr2 = TestFilterManager::new("import_selective");
+    let manager2 = test_mgr2.manager();
+    manager2.import(export_path, false, false).unwrap();
+    
+    let filters = manager2.list().unwrap();
+    assert_eq!(filters.len(), 2);
+    assert!(manager2.get("filter-a").is_ok());
+    assert!(manager2.get("filter-c").is_ok());
+    assert!(manager2.get("filter-b").is_err());
+}
+
+#[test]
+fn test_filter_import_conflict_skip() {
+    let test_mgr = TestFilterManager::new("import_skip");
+    let manager = test_mgr.manager();
+    let temp_file = TempFilterFile::new("test_import_skip.toml");
+    let export_path = temp_file.path();
+    
+    let criteria1 = FilterCriteria::from_search_params(
+        vec!["existing".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    let criteria2 = FilterCriteria::from_search_params(
+        vec!["new".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    // Create existing filter
+    manager.create("conflict", "Original".into(), criteria1.clone()).unwrap();
+    
+    // Export a filter with same name but different description
+    let test_mgr_temp = TestFilterManager::new("temp_export_skip");
+    let manager2 = test_mgr_temp.manager();
+    manager2.create("conflict", "Imported".into(), criteria1).unwrap();
+    manager2.create("new-filter", "New".into(), criteria2).unwrap();
+    manager2.export(export_path, &[]).unwrap();
+    
+    // Import with skip-existing
+    let result = manager.import(export_path, false, true);
+    assert!(result.is_ok());
+    
+    // Original should remain unchanged
+    let filter = manager.get("conflict").unwrap();
+    assert_eq!(filter.description, "Original");
+    
+    // New filter should be imported
+    assert!(manager.get("new-filter").is_ok());
+}
+
+#[test]
+fn test_filter_import_conflict_overwrite() {
+    let test_mgr = TestFilterManager::new("import_overwrite");
+    let manager = test_mgr.manager();
+    let temp_file = TempFilterFile::new("test_import_overwrite.toml");
+    let export_path = temp_file.path();
+    
+    let criteria1 = FilterCriteria::from_search_params(
+        vec!["original".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    let criteria2 = FilterCriteria::from_search_params(
+        vec!["updated".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    // Create existing filter
+    manager.create("overwrite-me", "Original".into(), criteria1).unwrap();
+    
+    // Export updated version
+    let test_mgr_temp = TestFilterManager::new("temp_export_overwrite");
+    let manager2 = test_mgr_temp.manager();
+    manager2.create("overwrite-me", "Updated".into(), criteria2).unwrap();
+    manager2.export(export_path, &[]).unwrap();
+    
+    // Import with overwrite
+    let result = manager.import(export_path, true, false);
+    assert!(result.is_ok());
+    
+    // Should be updated
+    let filter = manager.get("overwrite-me").unwrap();
+    assert_eq!(filter.description, "Updated");
+    assert_eq!(filter.criteria.tags, vec!["updated"]);
+}
+
+#[test]
+fn test_filter_usage_tracking() {
+    let test_mgr = TestFilterManager::new("usage_tracking");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["test".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    let filter = manager.create("track-usage", "Test".into(), criteria).unwrap();
+    assert_eq!(filter.use_count, 0);
+    
+    // Record usage
+    manager.record_use("track-usage").unwrap();
+    
+    let updated = manager.get("track-usage").unwrap();
+    assert_eq!(updated.use_count, 1);
+    
+    // Record again
+    manager.record_use("track-usage").unwrap();
+    let updated2 = manager.get("track-usage").unwrap();
+    assert_eq!(updated2.use_count, 2);
+}
+
+#[test]
+fn test_filter_criteria_validation() {
+    let test_mgr = TestFilterManager::new("validation");
+    let manager = test_mgr.manager();
+    
+    // Empty criteria should fail
+    let empty_criteria = FilterCriteria::from_search_params(
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    let result = manager.create("invalid", "Invalid".into(), empty_criteria);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_filter_name_validation() {
+    let test_mgr = TestFilterManager::new("name_validation");
+    let manager = test_mgr.manager();
+    
+    let criteria = FilterCriteria::from_search_params(
+        vec!["test".into()],
+        tagr::cli::SearchMode::All,
+        vec![],
+        tagr::cli::SearchMode::All,
+        vec![],
+        false,
+        false,
+    );
+    
+    // Invalid characters
+    let result = manager.create("invalid name!", "Invalid".into(), criteria.clone());
+    assert!(result.is_err());
+    
+    // Too long
+    let long_name = "a".repeat(100);
+    let result = manager.create(&long_name, "Too long".into(), criteria);
+    assert!(result.is_err());
+}
+
