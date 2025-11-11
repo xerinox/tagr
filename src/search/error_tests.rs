@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn test_error_display() {
         let error = SearchError::BuildError("test error".to_string());
-        let display = format!("{}", error);
+        let display = format!("{error}");
         assert!(display.contains("Failed to build UI options"));
         assert!(display.contains("test error"));
     }
@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn test_error_debug() {
         let error = SearchError::InterruptedError;
-        let debug = format!("{:?}", error);
+        let debug = format!("{error:?}");
         assert!(debug.contains("InterruptedError"));
     }
 
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(errors.len(), 3);
         
         // Each should have different error messages
-        let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        let messages: Vec<String> = errors.iter().map(std::string::ToString::to_string).collect();
         assert!(messages[0].contains("interrupted"));
         assert!(messages[1].contains("UI options"));
         assert!(messages[2].contains("Database error"));

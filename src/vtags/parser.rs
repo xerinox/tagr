@@ -30,7 +30,8 @@ pub struct VirtualTagParser {
 }
 
 impl VirtualTagParser {
-    pub fn new(config: VirtualTagConfig) -> Self {
+    #[must_use] 
+    pub const fn new(config: VirtualTagConfig) -> Self {
         Self { config }
     }
 
@@ -198,14 +199,12 @@ impl VirtualTagParser {
     }
 
     fn parse_range(&self, value: &str) -> Result<RangeCondition, ParseError> {
-        if value.starts_with('>') {
-            let num_str = &value[1..];
+        if let Some(num_str) = value.strip_prefix('>') {
             let num = num_str
                 .parse::<u64>()
                 .map_err(|_| ParseError::InvalidRange(value.to_string()))?;
             Ok(RangeCondition::GreaterThan(num))
-        } else if value.starts_with('<') {
-            let num_str = &value[1..];
+        } else if let Some(num_str) = value.strip_prefix('<') {
             let num = num_str
                 .parse::<u64>()
                 .map_err(|_| ParseError::InvalidRange(value.to_string()))?;

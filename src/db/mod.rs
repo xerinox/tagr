@@ -706,7 +706,7 @@ mod tests {
         
         for (i, path) in db_paths.iter().enumerate() {
             let test_db = TestDb::new(path);
-            let filename = format!("file{}.txt", i);
+            let filename = format!("file{i}.txt");
             let temp_file = TempFile::create(&filename).unwrap();
             test_db.db().insert(temp_file.path(), vec![format!("tag{}", i)]).unwrap();
             temp_files.push(temp_file);

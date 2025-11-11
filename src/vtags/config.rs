@@ -119,6 +119,8 @@ impl Default for VirtualTagConfig {
 }
 
 impl VirtualTagConfig {
+    #[must_use]
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn parse_size(&self, size_str: &str) -> Option<u64> {
         let size_str = size_str.trim().to_uppercase();
         
@@ -150,6 +152,7 @@ impl VirtualTagConfig {
         Some((num * multiplier as f64) as u64)
     }
 
+    #[must_use] 
     pub fn get_size_threshold(&self, category: &str) -> Option<u64> {
         match category {
             "tiny" => self.parse_size(&self.size_categories.tiny),

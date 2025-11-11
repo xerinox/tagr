@@ -10,7 +10,7 @@ use tagr::{db::Database, cli::execute_command_on_files, Pair};
 
 /// Helper function to create a temporary test database
 fn setup_test_db(name: &str) -> (Database, PathBuf) {
-    let db_path = PathBuf::from(format!("test_integration_{}", name));
+    let db_path = PathBuf::from(format!("test_integration_{name}"));
     let db = Database::open(&db_path).unwrap();
     db.clear().unwrap();
     (db, db_path)
@@ -440,7 +440,7 @@ fn test_get_pair() {
 
 use tagr::filters::{FilterManager, FilterCriteria, TagMode, FileMode};
 
-/// RAII wrapper for FilterManager with automatic cleanup
+/// RAII wrapper for `FilterManager` with automatic cleanup
 struct TestFilterManager {
     manager: FilterManager,
     path: PathBuf,
@@ -448,7 +448,7 @@ struct TestFilterManager {
 
 impl TestFilterManager {
     fn new(test_name: &str) -> Self {
-        let path = PathBuf::from(format!("test_filters_{}.toml", test_name));
+        let path = PathBuf::from(format!("test_filters_{test_name}.toml"));
         // Clean up any leftover files from previous test runs
         let _ = fs::remove_file(&path);
         let backup_path = path.with_extension("toml.backup");
@@ -458,12 +458,12 @@ impl TestFilterManager {
         Self { manager, path }
     }
     
-    fn manager(&self) -> &FilterManager {
+    const fn manager(&self) -> &FilterManager {
         &self.manager
     }
     
     #[allow(dead_code)]
-    fn path(&self) -> &PathBuf {
+    const fn path(&self) -> &PathBuf {
         &self.path
     }
 }
@@ -487,7 +487,7 @@ impl TempFilterFile {
         Self(path)
     }
     
-    fn path(&self) -> &PathBuf {
+    const fn path(&self) -> &PathBuf {
         &self.0
     }
 }

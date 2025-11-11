@@ -76,7 +76,7 @@ impl FilterCriteria {
         FilterCriteriaBuilder::default()
     }
 
-    /// Create a new filter criteria (same as builder().build())
+    /// Create a new filter criteria (same as `builder().build()`)
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -146,7 +146,7 @@ impl FilterCriteria {
     }
 }
 
-/// Builder for FilterCriteria
+/// Builder for `FilterCriteria`
 #[derive(Debug, Clone, Default)]
 pub struct FilterCriteriaBuilder {
     tags: Vec<String>,
@@ -177,7 +177,7 @@ impl FilterCriteriaBuilder {
 
     /// Set how to combine multiple tags
     #[must_use]
-    pub fn tag_mode(mut self, mode: TagMode) -> Self {
+    pub const fn tag_mode(mut self, mode: TagMode) -> Self {
         self.tag_mode = Some(mode);
         self
     }
@@ -198,7 +198,7 @@ impl FilterCriteriaBuilder {
 
     /// Set how to combine multiple file patterns
     #[must_use]
-    pub fn file_mode(mut self, mode: FileMode) -> Self {
+    pub const fn file_mode(mut self, mode: FileMode) -> Self {
         self.file_mode = Some(mode);
         self
     }
@@ -219,14 +219,14 @@ impl FilterCriteriaBuilder {
 
     /// Enable regex matching for tags
     #[must_use]
-    pub fn regex_tag(mut self, enabled: bool) -> Self {
+    pub const fn regex_tag(mut self, enabled: bool) -> Self {
         self.regex_tag = enabled;
         self
     }
 
     /// Enable regex matching for file patterns
     #[must_use]
-    pub fn regex_file(mut self, enabled: bool) -> Self {
+    pub const fn regex_file(mut self, enabled: bool) -> Self {
         self.regex_file = enabled;
         self
     }
@@ -247,12 +247,12 @@ impl FilterCriteriaBuilder {
 
     /// Set how to combine multiple virtual tags
     #[must_use]
-    pub fn virtual_mode(mut self, mode: TagMode) -> Self {
+    pub const fn virtual_mode(mut self, mode: TagMode) -> Self {
         self.virtual_mode = Some(mode);
         self
     }
 
-    /// Build the FilterCriteria
+    /// Build the `FilterCriteria`
     #[must_use]
     pub fn build(self) -> FilterCriteria {
         FilterCriteria {
@@ -633,7 +633,7 @@ mod tests {
         assert_eq!(base.tag_mode, TagMode::All); // Original mode preserved
         assert_eq!(base.file_patterns.len(), 2);
         assert_eq!(base.excludes.len(), 2);
-        assert_eq!(base.regex_tag, true); // OR'd
+        assert!(base.regex_tag); // OR'd
     }
 
     #[test]

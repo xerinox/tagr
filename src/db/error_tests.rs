@@ -20,7 +20,7 @@ mod tests {
     #[test]
     fn test_error_display() {
         let error = DbError::FileNotFound("/path/to/file.txt".to_string());
-        let display = format!("{}", error);
+        let display = format!("{error}");
         assert!(display.contains("File not found"));
         assert!(display.contains("/path/to/file.txt"));
     }
@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn test_error_debug() {
         let error = DbError::SerializeError("test error".to_string());
-        let debug = format!("{:?}", error);
+        let debug = format!("{error:?}");
         assert!(debug.contains("SerializeError"));
         assert!(debug.contains("test error"));
     }

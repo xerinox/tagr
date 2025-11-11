@@ -27,6 +27,7 @@ pub struct FileMetadata {
 }
 
 impl MetadataCache {
+    #[must_use] 
     pub fn new(ttl: Duration) -> Self {
         Self {
             cache: HashMap::new(),
@@ -37,11 +38,10 @@ impl MetadataCache {
     pub fn get(&mut self, path: &Path) -> io::Result<FileMetadata> {
         let now = Instant::now();
 
-        if let Some(entry) = self.cache.get(path) {
-            if now.duration_since(entry.cached_at) < self.ttl {
+        if let Some(entry) = self.cache.get(path)
+            && now.duration_since(entry.cached_at) < self.ttl {
                 return Ok(entry.metadata.clone());
             }
-        }
 
         let metadata = Self::fetch_metadata(path)?;
 

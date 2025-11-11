@@ -330,7 +330,7 @@ mod tests {
     use std::env;
 
     fn temp_path(name: &str) -> PathBuf {
-        env::temp_dir().join(format!("tagr_test_{}.toml", name))
+        env::temp_dir().join(format!("tagr_test_{name}.toml"))
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("to-delete", "".to_string(), criteria).unwrap();
+        manager.create("to-delete", String::new(), criteria).unwrap();
 
         let result = manager.delete("to-delete");
         assert!(result.is_ok());
@@ -385,7 +385,7 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("old-name", "".to_string(), criteria).unwrap();
+        manager.create("old-name", String::new(), criteria).unwrap();
 
         let result = manager.rename("old-name", "new-name".to_string());
         assert!(result.is_ok());
@@ -412,8 +412,8 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("filter1", "".to_string(), criteria.clone()).unwrap();
-        manager.create("filter2", "".to_string(), criteria).unwrap();
+        manager.create("filter1", String::new(), criteria.clone()).unwrap();
+        manager.create("filter2", String::new(), criteria).unwrap();
 
         manager.export(&export_path, &[]).unwrap();
 

@@ -236,8 +236,8 @@ mod tests {
         let mut config = TagrConfig::default();
         
         for i in 1..=5 {
-            let db_name = format!("db_{}", i);
-            let db_path = PathBuf::from(format!("/tmp/db_{}", i));
+            let db_name = format!("db_{i}");
+            let db_path = PathBuf::from(format!("/tmp/db_{i}"));
             config.databases.insert(db_name, db_path);
         }
         

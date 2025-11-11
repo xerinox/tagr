@@ -17,6 +17,7 @@ pub struct VirtualTagEvaluator {
 }
 
 impl VirtualTagEvaluator {
+    #[must_use] 
     pub fn new(cache_ttl: Duration, config: VirtualTagConfig) -> Self {
         Self {
             cache: MetadataCache::new(cache_ttl),
@@ -31,7 +32,7 @@ impl VirtualTagEvaluator {
             VirtualTag::Accessed(cond) => self.check_time(path, cond, TimeField::Accessed),
             VirtualTag::Size(cond) => self.check_size(path, cond),
             VirtualTag::Extension(ext) => Ok(self.check_extension(path, ext)),
-            VirtualTag::ExtensionType(category) => Ok(self.check_ext_type(path, category)),
+            VirtualTag::ExtensionType(category) => Ok(self.check_ext_type(path, *category)),
             VirtualTag::Directory(dir) => Ok(self.check_directory(path, dir)),
             VirtualTag::Path(pattern) => Ok(self.check_path_pattern(path, pattern)),
             VirtualTag::Depth(range) => Ok(self.check_depth(path, range)),
@@ -69,18 +70,17 @@ impl VirtualTagEvaluator {
     fn check_extension(&self, path: &Path, ext: &str) -> bool {
         path.extension()
             .and_then(|e| e.to_str())
-            .map(|e| {
-                let ext_with_dot = if ext.starts_with('.') { ext } else { &format!(".{}", ext) };
-                format!(".{}", e) == ext_with_dot
+            .is_some_and(|e| {
+                let ext_with_dot = if ext.starts_with('.') { ext } else { &format!(".{ext}") };
+                format!(".{e}") == ext_with_dot
             })
-            .unwrap_or(false)
     }
 
-    fn check_ext_type(&self, path: &Path, category: &ExtTypeCategory) -> bool {
+    fn check_ext_type(&self, path: &Path, category: ExtTypeCategory) -> bool {
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| format!(".{}", e));
+            .map(|e| format!(".{e}"));
 
         if let Some(ext) = ext {
             let category_name = match category {
@@ -100,11 +100,8 @@ impl VirtualTagEvaluator {
     }
 
     fn check_directory(&self, path: &Path, dir: &Path) -> bool {
-        if let Some(parent) = path.parent() {
-            parent == dir || parent.ends_with(dir)
-        } else {
-            false
-        }
+        path.parent()
+            .is_some_and(|parent| parent == dir || parent.ends_with(dir))
     }
 
     fn check_path_pattern(&self, path: &Path, pattern: &glob::Pattern) -> bool {
@@ -149,17 +146,17 @@ impl VirtualTagEvaluator {
                     SizeCategory::Tiny => (0, self.config.get_size_threshold("tiny").unwrap_or(1024)),
                     SizeCategory::Small => (
                         self.config.get_size_threshold("tiny").unwrap_or(1024),
-                        self.config.get_size_threshold("small").unwrap_or(102400),
+                        self.config.get_size_threshold("small").unwrap_or(102_400),
                     ),
                     SizeCategory::Medium => (
-                        self.config.get_size_threshold("small").unwrap_or(102400),
-                        self.config.get_size_threshold("medium").unwrap_or(1048576),
+                        self.config.get_size_threshold("small").unwrap_or(102_400),
+                        self.config.get_size_threshold("medium").unwrap_or(1_048_576),
                     ),
                     SizeCategory::Large => (
-                        self.config.get_size_threshold("medium").unwrap_or(1048576),
-                        self.config.get_size_threshold("large").unwrap_or(10485760),
+                        self.config.get_size_threshold("medium").unwrap_or(1_048_576),
+                        self.config.get_size_threshold("large").unwrap_or(10_485_760),
                     ),
-                    SizeCategory::Huge => (self.config.get_size_threshold("large").unwrap_or(10485760), u64::MAX),
+                    SizeCategory::Huge => (self.config.get_size_threshold("large").unwrap_or(10_485_760), u64::MAX),
                 };
                 size >= min && size < max
             }
@@ -255,13 +252,13 @@ fn evaluate_time_condition(file_time: SystemTime, cond: &TimeCondition) -> bool 
         }
         TimeCondition::LastNDays(n) => {
             let threshold = now
-                .checked_sub(std::time::Duration::from_secs(*n as u64 * 86400))
+                .checked_sub(std::time::Duration::from_secs(u64::from(*n) * 86400))
                 .unwrap();
             file_time >= threshold
         }
         TimeCondition::LastNHours(n) => {
             let threshold = now
-                .checked_sub(std::time::Duration::from_secs(*n as u64 * 3600))
+                .checked_sub(std::time::Duration::from_secs(u64::from(*n) * 3600))
                 .unwrap();
             file_time >= threshold
         }
@@ -280,7 +277,7 @@ fn evaluate_time_condition(file_time: SystemTime, cond: &TimeCondition) -> bool 
     }
 }
 
-fn evaluate_range_condition(value: u64, cond: &RangeCondition) -> bool {
+const fn evaluate_range_condition(value: u64, cond: &RangeCondition) -> bool {
     match cond {
         RangeCondition::Equals(target) => value == *target,
         RangeCondition::GreaterThan(threshold) => value > *threshold,

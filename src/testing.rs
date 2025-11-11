@@ -143,7 +143,7 @@ impl TempFile {
             .unwrap()
             .as_nanos();
         let thread_id = std::thread::current().id();
-        let temp_dir = PathBuf::from(format!("test_tmp_{}_{:?}", timestamp, thread_id));
+        let temp_dir = PathBuf::from(format!("test_tmp_{timestamp}_{thread_id:?}"));
         fs::create_dir_all(&temp_dir)?;
         
         let path = temp_dir.join(filename.as_ref());
@@ -166,7 +166,7 @@ impl TempFile {
             .unwrap()
             .as_nanos();
         let thread_id = std::thread::current().id();
-        let temp_dir = PathBuf::from(format!("test_tmp_{}_{:?}", timestamp, thread_id));
+        let temp_dir = PathBuf::from(format!("test_tmp_{timestamp}_{thread_id:?}"));
         fs::create_dir_all(&temp_dir)?;
         
         let path = temp_dir.join(filename.as_ref());

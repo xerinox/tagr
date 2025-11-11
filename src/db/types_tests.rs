@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn test_path_key_from_bytes() {
         let original_key = PathKey::new("test.txt");
-        let bytes: Vec<u8> = original_key.clone().try_into().unwrap();
+        let bytes: Vec<u8> = original_key.try_into().unwrap();
         
         let restored_key = PathKey::from_bytes(&bytes).unwrap();
         assert_eq!(restored_key.as_path(), Path::new("test.txt"));
@@ -171,7 +171,7 @@ mod tests {
 
         for path in valid_paths {
             let result = PathString::new(path);
-            assert!(result.is_ok(), "Failed for path: {}", path);
+            assert!(result.is_ok(), "Failed for path: {path}");
             assert_eq!(result.unwrap().as_str(), path);
         }
     }
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn test_path_string_debug() {
         let path_str = PathString::new("test.txt").unwrap();
-        let debug = format!("{:?}", path_str);
+        let debug = format!("{path_str:?}");
         assert!(debug.contains("PathString"));
         assert!(debug.contains("test.txt"));
     }
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn test_path_key_debug() {
         let key = PathKey::new("test.txt");
-        let debug = format!("{:?}", key);
+        let debug = format!("{key:?}");
         assert!(debug.contains("PathKey"));
         assert!(debug.contains("test.txt"));
     }

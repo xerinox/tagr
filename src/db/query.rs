@@ -135,7 +135,7 @@ fn apply_virtual_tags(
         .iter()
         .map(|s| parser.parse(s))
         .collect::<Result<_, _>>()
-        .map_err(|e| DbError::InvalidInput(format!("Invalid virtual tag: {}", e)))?;
+        .map_err(|e| DbError::InvalidInput(format!("Invalid virtual tag: {e}")))?;
     
     let cache_ttl = Duration::from_secs(config.cache_ttl_seconds);
     
