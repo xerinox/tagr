@@ -21,19 +21,19 @@ pub enum DbError {
     /// Represents a sled database error
     #[error("Database error: {0}")]
     SledError(#[from] sled::Error),
-    
+
     /// Represents a bincode decoding error
     #[error("Error while decoding data: {0}")]
     DecodeError(#[from] bincode::error::DecodeError),
-    
+
     /// Represents a bincode encoding error
     #[error("Error while encoding data: {0}")]
     EncodeError(#[from] bincode::error::EncodeError),
-    
+
     /// Generic serialization/deserialization error
     #[error("Error during serialization: {0}")]
     SerializeError(String),
-    
+
     /// File does not exist on the filesystem
     #[error("File not found: {0}")]
     FileNotFound(String),
@@ -41,7 +41,7 @@ pub enum DbError {
     /// File does not exist on the filesystem
     #[error("Error while reading path{0}")]
     PathError(String),
-    
+
     /// Invalid input provided (e.g., invalid regex or glob pattern)
     #[error("Invalid input: {0}")]
     InvalidInput(String),

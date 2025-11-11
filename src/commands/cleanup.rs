@@ -1,11 +1,6 @@
 //! Cleanup command - remove missing files and files with no tags
 
-use crate::{
-    db::Database,
-    config,
-    output,
-    TagrError,
-};
+use crate::{TagrError, config, db::Database, output};
 use dialoguer::Select;
 use std::path::PathBuf;
 
@@ -15,19 +10,15 @@ type Result<T> = std::result::Result<T, TagrError>;
 ///
 /// # Errors
 /// Returns an error if database operations fail or if user interaction fails
-pub fn execute(
-    db: &Database,
-    path_format: config::PathFormat,
-    quiet: bool,
-) -> Result<()> {
+pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> Result<()> {
     if !quiet {
         println!("Scanning database for issues...");
     }
-    
+
     let all_pairs = db.list_all()?;
     let mut missing_files = Vec::new();
     let mut untagged_files = Vec::new();
-    
+
     for pair in all_pairs {
         if !pair.file.exists() {
             missing_files.push(pair.file);
@@ -35,19 +26,19 @@ pub fn execute(
             untagged_files.push(pair.file);
         }
     }
-    
+
     let total_issues = missing_files.len() + untagged_files.len();
-    
+
     if total_issues == 0 {
         if !quiet {
             println!("No issues found. Database is clean.");
         }
         return Ok(());
     }
-    
+
     let mut deleted_count = 0;
     let mut skipped_count = 0;
-    
+
     if !missing_files.is_empty() {
         if !quiet {
             println!("\n=== Missing Files ===");
@@ -57,18 +48,13 @@ pub fn execute(
             }
             println!();
         }
-        
-        let (deleted, skipped) = process_cleanup_files(
-            db,
-            &missing_files,
-            "File not found",
-            path_format,
-            quiet,
-        )?;
+
+        let (deleted, skipped) =
+            process_cleanup_files(db, &missing_files, "File not found", path_format, quiet)?;
         deleted_count += deleted;
         skipped_count += skipped;
     }
-    
+
     if !untagged_files.is_empty() {
         if !quiet {
             println!("\n=== Files with No Tags ===");
@@ -78,18 +64,13 @@ pub fn execute(
             }
             println!();
         }
-        
-        let (deleted, skipped) = process_cleanup_files(
-            db,
-            &untagged_files,
-            "File has no tags",
-            path_format,
-            quiet,
-        )?;
+
+        let (deleted, skipped) =
+            process_cleanup_files(db, &untagged_files, "File has no tags", path_format, quiet)?;
         deleted_count += deleted;
         skipped_count += skipped;
     }
-    
+
     if !quiet {
         println!("\n=== Cleanup Summary ===");
         println!("Total issues found: {total_issues}");
@@ -98,7 +79,7 @@ pub fn execute(
         println!("Deleted: {deleted_count}");
         println!("Skipped: {skipped_count}");
     }
-    
+
     Ok(())
 }
 
@@ -114,7 +95,7 @@ fn process_cleanup_files(
     let mut skipped_count = 0;
     let mut delete_all = quiet;
     let mut skip_all = false;
-    
+
     for file in files {
         if delete_all {
             db.remove(file)?;
@@ -124,29 +105,32 @@ fn process_cleanup_files(
             }
             continue;
         }
-        
+
         if skip_all {
             skipped_count += 1;
             continue;
         }
-        
+
         if !quiet {
-            println!("\n{description}: {}", output::format_path(file, path_format));
-            
+            println!(
+                "\n{description}: {}",
+                output::format_path(file, path_format)
+            );
+
             let options = vec![
                 "Delete this file",
                 "Delete all remaining",
                 "Skip this file",
                 "Skip all remaining",
             ];
-            
+
             let selection = Select::new()
                 .with_prompt("Action")
                 .items(&options)
                 .default(0)
                 .interact()
                 .map_err(|e| TagrError::InvalidInput(format!("Selection failed: {e}")))?;
-            
+
             match selection {
                 0 => {
                     db.remove(file)?;
@@ -172,6 +156,6 @@ fn process_cleanup_files(
             }
         }
     }
-    
+
     Ok((deleted_count, skipped_count))
 }

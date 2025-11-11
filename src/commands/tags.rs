@@ -1,11 +1,6 @@
 //! Tags command - global tag management
 
-use crate::{
-    db::Database,
-    cli::TagsCommands,
-    output,
-    TagrError,
-};
+use crate::{TagrError, cli::TagsCommands, db::Database, output};
 use dialoguer::Confirm;
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -23,7 +18,7 @@ pub fn execute(db: &Database, command: &TagsCommands, quiet: bool) -> Result<()>
 
 fn list_all_tags(db: &Database, quiet: bool) -> Result<()> {
     let tags = db.list_all_tags()?;
-    
+
     if tags.is_empty() {
         if !quiet {
             println!("No tags found in database.");
@@ -42,14 +37,14 @@ fn list_all_tags(db: &Database, quiet: bool) -> Result<()> {
 
 fn remove_tag_globally(db: &Database, tag: &str, quiet: bool) -> Result<()> {
     let files_before = db.find_by_tag(tag)?;
-    
+
     if files_before.is_empty() {
         if !quiet {
             println!("Tag '{tag}' not found in database.");
         }
         return Ok(());
     }
-    
+
     if !quiet {
         println!("Found tag '{tag}' in {} file(s):", files_before.len());
         for file in &files_before {
@@ -57,16 +52,16 @@ fn remove_tag_globally(db: &Database, tag: &str, quiet: bool) -> Result<()> {
         }
         println!();
     }
-    
+
     if !confirm("Remove tag from all files?", quiet)? {
         if !quiet {
             println!("Cancelled.");
         }
         return Ok(());
     }
-    
+
     let files_removed = db.remove_tag_globally(tag)?;
-    
+
     if !quiet {
         println!("Removed tag '{tag}' from {} file(s).", files_before.len());
         if files_removed > 0 {
@@ -81,7 +76,7 @@ fn confirm(prompt: &str, quiet: bool) -> Result<bool> {
     if quiet {
         return Ok(true);
     }
-    
+
     Confirm::new()
         .with_prompt(prompt)
         .interact()

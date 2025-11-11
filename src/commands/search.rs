@@ -1,12 +1,12 @@
 //! Search command - find files by tags and patterns
 
 use crate::{
-    db::{Database, query},
-    cli::{SearchParams, SearchMode},
-    config,
-    filters::{FilterManager, FilterCriteria},
-    output,
     TagrError,
+    cli::{SearchMode, SearchParams},
+    config,
+    db::{Database, query},
+    filters::{FilterCriteria, FilterManager},
+    output,
 };
 use std::path::PathBuf;
 
@@ -28,28 +28,32 @@ pub fn execute(
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
-        
+
         let filter_params = SearchParams::from(&filter.criteria);
         params.merge(&filter_params);
-        
+
         manager.record_use(name)?;
-        
+
         if !quiet {
             println!("Using filter '{name}'");
         }
     }
-    
+
     // Validate query mode doesn't mix with other flags
     if params.query.is_some() && (!params.tags.is_empty() || !params.file_patterns.is_empty()) {
         return Err(TagrError::InvalidInput(
             "Cannot use general query with -t or -f flags. Use either 'tagr search <query>' or 'tagr search -t <tag> -f <pattern>'.".into()
         ));
     }
-    
-    if params.query.is_none() && params.tags.is_empty() && params.file_patterns.is_empty() && params.virtual_tags.is_empty() {
+
+    if params.query.is_none()
+        && params.tags.is_empty()
+        && params.file_patterns.is_empty()
+        && params.virtual_tags.is_empty()
+    {
         return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags, -f for file patterns, or -v for virtual tags.".into()));
     }
-    
+
     let files = query::apply_search_params(db, &params)?;
 
     if let Some(query) = &params.query {
@@ -64,25 +68,25 @@ pub fn execute(
             let description = build_search_description(&params);
             println!("Found {} file(s) matching {}:", files.len(), description);
         }
-        
+
         for file in files {
             print_file_with_tags(db, &file, path_format, quiet);
         }
     }
-    
+
     if let Some((name, desc)) = save_filter {
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
         let criteria = FilterCriteria::from(params);
         let description = desc.unwrap_or("Saved search filter");
-        
+
         manager.create(name, description.to_string(), criteria)?;
-        
+
         if !quiet {
             println!("\nSaved filter '{name}'");
         }
     }
-    
+
     Ok(())
 }
 
@@ -99,9 +103,13 @@ fn print_results(
         }
     } else {
         if !quiet {
-            println!("Found {} file(s) matching query '{}' (tags or filenames):", files.len(), query);
+            println!(
+                "Found {} file(s) matching query '{}' (tags or filenames):",
+                files.len(),
+                query
+            );
         }
-        
+
         for file in files {
             print_file_with_tags(db, file, path_format, quiet);
         }
@@ -143,7 +151,7 @@ fn build_search_description(params: &SearchParams) -> String {
     } else {
         format!("ANY tag [{}]", params.tags.join(", "))
     };
-    
+
     let file_desc = if params.file_patterns.is_empty() {
         String::new()
     } else if params.file_mode == SearchMode::All {
@@ -151,7 +159,7 @@ fn build_search_description(params: &SearchParams) -> String {
     } else {
         format!("ANY pattern [{}]", params.file_patterns.join(", "))
     };
-    
+
     let mut parts = Vec::new();
     if !tag_desc.is_empty() {
         parts.push(tag_desc);
@@ -159,6 +167,6 @@ fn build_search_description(params: &SearchParams) -> String {
     if !file_desc.is_empty() {
         parts.push(file_desc);
     }
-    
+
     parts.join(" and ")
 }

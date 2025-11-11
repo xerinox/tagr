@@ -1,28 +1,28 @@
 //! Database wrapper module for tagr
-//! 
+//!
 //! Provides a clean API for storing and retrieving file-tag pairings
 //! using sled as the embedded database backend.
-//! 
+//!
 //! Uses multiple sled trees for efficient indexing:
 //! - `files`: Main tree mapping file paths to tags
 //! - `tags`: Reverse index mapping tags to file paths
 
-use sled::{Db, Tree};
-use std::path::{Path, PathBuf};
-use std::collections::HashSet;
+use crate::Pair;
 use bincode;
 use regex::Regex;
-use crate::Pair;
+use sled::{Db, Tree};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 pub mod error;
-pub mod types;
 pub mod query;
+pub mod types;
 
 pub use error::DbError;
 pub use types::{PathKey, PathString};
 
 /// Database wrapper that encapsulates all database operations
-/// 
+///
 /// Uses two trees for efficient bidirectional lookups:
 /// - `files` tree: `file_path` -> `Vec<tag>`
 /// - `tags` tree: tag -> Vec<`file_path`>
@@ -34,18 +34,18 @@ pub struct Database {
 
 impl Database {
     /// Opens or creates a database at the specified path
-    /// 
+    ///
     /// # Arguments
     /// * `path` - Path to the database directory
-    /// 
+    ///
     /// # Examples
     /// ```no_run
     /// use tagr::db::Database;
     /// let db = Database::open("my_db").unwrap();
     /// ```
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the database cannot be opened or if the internal trees cannot be created.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
         let db = sled::open(path)?;
@@ -55,166 +55,170 @@ impl Database {
     }
 
     /// Insert or update a file-tags pairing
-    /// 
+    ///
     /// # Arguments
     /// * `pair` - The Pair struct containing file path and tags
-    /// 
+    ///
     /// # Examples
     /// ```no_run
     /// use tagr::{db::Database, Pair};
     /// use std::path::PathBuf;
-    /// 
+    ///
     /// let db = Database::open("my_db").unwrap();
     /// let pair = Pair::new(PathBuf::from("file.txt"), vec!["tag1".into()]);
     /// db.insert_pair(&pair).unwrap();
     /// ```
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the file does not exist, the path contains invalid UTF-8,
     /// database operations fail, or serialization errors occur.
     pub fn insert_pair(&self, pair: &Pair) -> Result<(), DbError> {
         if !pair.file.exists() {
             return Err(DbError::FileNotFound(pair.file.display().to_string()));
         }
-        
+
         let file_path = PathString::new(&pair.file)?;
-        
+
         if let Some(old_tags) = self.get_tags(&pair.file)? {
             self.remove_from_tag_index(file_path.as_str(), &old_tags)?;
         }
-        
+
         let key = bincode::encode_to_vec(&pair.file, bincode::config::standard())?;
         let value = bincode::encode_to_vec(&pair.tags, bincode::config::standard())?;
         self.files.insert(key, value)?;
-        
+
         self.add_to_tag_index(file_path.as_str(), &pair.tags)?;
-        
+
         Ok(())
     }
 
     /// Insert or update tags for a specific file
-    /// 
+    ///
     /// # Arguments
     /// * `file` - Path to the file
     /// * `tags` - Vector of tag strings
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the file does not exist, the path contains invalid UTF-8,
     /// database operations fail, or serialization errors occur.
     pub fn insert<P: AsRef<Path>>(&self, file: P, tags: Vec<String>) -> Result<(), DbError> {
         if !file.as_ref().exists() {
             return Err(DbError::FileNotFound(file.as_ref().display().to_string()));
         }
-        
+
         let pair = Pair::new(file.as_ref().to_path_buf(), tags);
         self.insert_pair(&pair)
     }
 
     /// Get tags for a specific file
-    /// 
+    ///
     /// # Arguments
     /// * `file` - Path to the file
-    /// 
+    ///
     /// # Returns
     /// * `Some(Vec<String>)` if the file exists in the database
     /// * `None` if the file is not found
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail or deserialization errors occur.
     pub fn get_tags<P: AsRef<Path>>(&self, file: P) -> Result<Option<Vec<String>>, DbError> {
         let key: Vec<u8> = PathKey::new(file).try_into()?;
-        
+
         match self.files.get(key.as_slice())? {
             Some(value) => {
-                let (tags, _): (Vec<String>, usize) = 
+                let (tags, _): (Vec<String>, usize) =
                     bincode::decode_from_slice(&value, bincode::config::standard())?;
                 Ok(Some(tags))
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
     /// Get the complete Pair (file and tags) for a specific file
-    /// 
+    ///
     /// # Arguments
     /// * `file` - Path to the file
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail or deserialization errors occur.
     pub fn get_pair<P: AsRef<Path>>(&self, file: P) -> Result<Option<Pair>, DbError> {
         let key: Vec<u8> = PathKey::new(&file).try_into()?;
-        
+
         match self.files.get(key.as_slice())? {
             Some(value) => {
-                let (file_path, _): (PathBuf, usize) = 
+                let (file_path, _): (PathBuf, usize) =
                     bincode::decode_from_slice(&key, bincode::config::standard())?;
-                let (tags, _): (Vec<String>, usize) = 
+                let (tags, _): (Vec<String>, usize) =
                     bincode::decode_from_slice(&value, bincode::config::standard())?;
                 Ok(Some(Pair::new(file_path, tags)))
             }
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
     /// Remove a file and its tags from the database
-    /// 
+    ///
     /// # Arguments
     /// * `file` - Path to the file to remove
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the path contains invalid UTF-8, database operations fail,
     /// or tag index cleanup fails.
     pub fn remove<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
         let file_path = PathString::new(file.as_ref())?;
-        
+
         let key: Vec<u8> = PathKey::new(file.as_ref()).try_into()?;
-        
+
         if let Some(tags) = self.get_tags(file.as_ref())? {
             self.remove_from_tag_index(file_path.as_str(), &tags)?;
         }
-        
+
         Ok(self.files.remove(key.as_slice())?.is_some())
     }
 
     /// Add tags to an existing file (merges with existing tags)
-    /// 
+    ///
     /// # Arguments
     /// * `file` - Path to the file
     /// * `new_tags` - Tags to add
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail or if insertion fails.
     pub fn add_tags<P: AsRef<Path>>(&self, file: P, new_tags: Vec<String>) -> Result<(), DbError> {
         let path = file.as_ref();
         let existing = self.get_tags(path)?.unwrap_or_default();
-        
+
         // Use HashSet for efficient deduplication
         let mut tag_set: HashSet<String> = existing.into_iter().collect();
         tag_set.extend(new_tags);
-        
+
         self.insert(path, tag_set.into_iter().collect())
     }
 
     /// Remove specific tags from a file
-    /// 
+    ///
     /// # Arguments
     /// * `file` - Path to the file
     /// * `tags_to_remove` - Tags to remove
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail or if updating the file entry fails.
-    pub fn remove_tags<P: AsRef<Path>>(&self, file: P, tags_to_remove: &[String]) -> Result<(), DbError> {
+    pub fn remove_tags<P: AsRef<Path>>(
+        &self,
+        file: P,
+        tags_to_remove: &[String],
+    ) -> Result<(), DbError> {
         let path = file.as_ref();
         if let Some(mut tags) = self.get_tags(path)? {
             tags.retain(|tag| !tags_to_remove.contains(tag));
-            
+
             if tags.is_empty() {
                 self.remove(path)?;
             } else {
@@ -225,20 +229,20 @@ impl Database {
     }
 
     /// List all file-tag pairings in the database
-    /// 
+    ///
     /// # Returns
     /// Vector of all Pair structs in the database
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database iteration fails or deserialization errors occur.
     pub fn list_all(&self) -> Result<Vec<Pair>, DbError> {
         let mut pairs = Vec::new();
         for result in &self.files {
             let (key, value) = result?;
-            let (file, _): (PathBuf, usize) = 
+            let (file, _): (PathBuf, usize) =
                 bincode::decode_from_slice(&key, bincode::config::standard())?;
-            let (tags, _): (Vec<String>, usize) = 
+            let (tags, _): (Vec<String>, usize) =
                 bincode::decode_from_slice(&value, bincode::config::standard())?;
             pairs.push(Pair::new(file, tags));
         }
@@ -246,86 +250,89 @@ impl Database {
     }
 
     /// Find all files that have a specific tag (optimized with reverse index)
-    /// 
+    ///
     /// # Arguments
     /// * `tag` - The tag to search for
-    /// 
+    ///
     /// # Returns
     /// Vector of file paths that contain the specified tag
-    /// 
+    ///
     /// # Performance
     /// O(1) lookup using the reverse tag index instead of O(n) full scan
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail or deserialization errors occur.
     pub fn find_by_tag(&self, tag: &str) -> Result<Vec<PathBuf>, DbError> {
         let key = tag.as_bytes();
-        
+
         match self.tags.get(key)? {
             Some(value) => {
-                let (files, _): (Vec<String>, usize) = 
+                let (files, _): (Vec<String>, usize) =
                     bincode::decode_from_slice(&value, bincode::config::standard())?;
                 Ok(files.into_iter().map(PathBuf::from).collect())
             }
-            None => Ok(Vec::new())
+            None => Ok(Vec::new()),
         }
     }
 
     /// Find all files that have all of the specified tags (optimized)
-    /// 
+    ///
     /// # Arguments
     /// * `tags` - The tags to search for (AND operation)
-    /// 
+    ///
     /// # Returns
     /// Vector of file paths that contain all specified tags
-    /// 
+    ///
     /// # Performance
     /// Uses reverse index to find intersection of file sets
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if any tag lookup fails or database operations fail.
     pub fn find_by_all_tags(&self, tags: &[String]) -> Result<Vec<PathBuf>, DbError> {
         if tags.is_empty() {
             return Ok(Vec::new());
         }
-        
-        let mut file_sets: Vec<HashSet<String>> = tags.iter()
+
+        let mut file_sets: Vec<HashSet<String>> = tags
+            .iter()
             .map(|tag| {
                 self.find_by_tag(tag).map(|files| {
-                    files.into_iter()
+                    files
+                        .into_iter()
                         .filter_map(|p| p.to_str().map(String::from))
                         .collect()
                 })
             })
             .collect::<Result<_, _>>()?;
-        
+
         let first_set = file_sets.remove(0);
-        let result: HashSet<_> = first_set.into_iter()
+        let result: HashSet<_> = first_set
+            .into_iter()
             .filter(|file| file_sets.iter().all(|set| set.contains(file)))
             .collect();
-        
+
         Ok(result.into_iter().map(PathBuf::from).collect())
     }
 
     /// Find all files that have any of the specified tags (optimized)
-    /// 
+    ///
     /// # Arguments
     /// * `tags` - The tags to search for (OR operation)
-    /// 
+    ///
     /// # Returns
     /// Vector of file paths that contain at least one of the specified tags
-    /// 
+    ///
     /// # Performance
     /// Uses reverse index to find union of file sets
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if any tag lookup fails or database operations fail.
     pub fn find_by_any_tag(&self, tags: &[String]) -> Result<Vec<PathBuf>, DbError> {
         let mut file_set = HashSet::new();
-        
+
         for tag in tags {
             let files = self.find_by_tag(tag)?;
             for file in files {
@@ -334,27 +341,29 @@ impl Database {
                 }
             }
         }
-        
+
         Ok(file_set.into_iter().map(PathBuf::from).collect())
     }
 
     /// Get all unique tags in the database (optimized)
-    /// 
+    ///
     /// # Returns
     /// Vector of all unique tags across all files
-    /// 
+    ///
     /// # Performance
     /// O(k) where k is number of unique tags, using the tags tree
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database iteration fails or if tag keys contain invalid UTF-8.
     pub fn list_all_tags(&self) -> Result<Vec<String>, DbError> {
-        let mut tag_vec: Vec<String> = self.tags.iter()
+        let mut tag_vec: Vec<String> = self
+            .tags
+            .iter()
             .filter_map(|result| {
-                result.ok().and_then(|(key, _)| {
-                    String::from_utf8(key.to_vec()).ok()
-                })
+                result
+                    .ok()
+                    .and_then(|(key, _)| String::from_utf8(key.to_vec()).ok())
             })
             .collect();
         tag_vec.sort();
@@ -362,28 +371,28 @@ impl Database {
     }
 
     /// Get the number of entries in the database
-    #[must_use] 
+    #[must_use]
     pub fn count(&self) -> usize {
         self.files.len()
     }
 
     /// Check if a file exists in the database
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail or serialization errors occur.
     pub fn contains<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
         let key: Vec<u8> = PathKey::new(file).try_into()?;
-        
+
         Ok(self.files.contains_key(key.as_slice())?)
     }
 
     /// Flush all pending writes to disk
-    /// 
+    ///
     /// This ensures data durability by forcing a write to disk
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the flush operation fails.
     pub fn flush(&self) -> Result<(), DbError> {
         self.db.flush()?;
@@ -391,42 +400,43 @@ impl Database {
     }
 
     /// Remove a specific tag from all files in the database
-    /// 
+    ///
     /// This method removes the tag from all files and then cleans up
     /// any files that have no remaining tags.
-    /// 
+    ///
     /// # Arguments
     /// * `tag` - The tag to remove from all files
-    /// 
+    ///
     /// # Returns
     /// Number of files that were removed from the database (files with no remaining tags)
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail.
     pub fn remove_tag_globally(&self, tag: &str) -> Result<usize, DbError> {
         let files_with_tag = self.find_by_tag(tag)?;
         let mut files_removed = 0;
-        
+
         for file in files_with_tag {
             self.remove_tags(&file, &[tag.to_string()])?;
-            
+
             if let Some(remaining_tags) = self.get_tags(&file)?
-                && remaining_tags.is_empty() {
-                    files_removed += 1;
-                }
+                && remaining_tags.is_empty()
+            {
+                files_removed += 1;
+            }
         }
-        
+
         Ok(files_removed)
     }
 
     /// Clear all entries from the database
-    /// 
+    ///
     /// # Warning
     /// This operation is irreversible!
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if clearing either the files or tags tree fails.
     pub fn clear(&self) -> Result<(), DbError> {
         self.files.clear()?;
@@ -435,18 +445,18 @@ impl Database {
     }
 
     /// Get all file paths stored in the database
-    /// 
+    ///
     /// # Returns
     /// Vector of all file paths in the database
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database iteration fails or deserialization errors occur.
     pub fn list_all_files(&self) -> Result<Vec<PathBuf>, DbError> {
         let mut files = Vec::new();
         for result in &self.files {
             let (key, _) = result?;
-            let (file, _): (PathBuf, usize) = 
+            let (file, _): (PathBuf, usize) =
                 bincode::decode_from_slice(&key, bincode::config::standard())?;
             files.push(file);
         }
@@ -454,66 +464,69 @@ impl Database {
     }
 
     /// Find files matching a regex pattern for tags
-    /// 
+    ///
     /// Searches for tags that match the regex pattern, then returns all files
     /// that have ANY of the matching tags.
-    /// 
+    ///
     /// # Arguments
     /// * `pattern` - Regex pattern to match against tag names
-    /// 
+    ///
     /// # Returns
     /// Vector of file paths that contain tags matching the pattern
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the regex pattern is invalid or database operations fail.
     pub fn find_by_tag_regex(&self, pattern: &str) -> Result<Vec<PathBuf>, DbError> {
         let regex = Regex::new(pattern)
             .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern: {e}")))?;
-        
-        let matching_tags: Vec<String> = self.list_all_tags()?
+
+        let matching_tags: Vec<String> = self
+            .list_all_tags()?
             .into_iter()
             .filter(|tag| regex.is_match(tag))
             .collect();
-        
+
         if matching_tags.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         self.find_by_any_tag(&matching_tags)
     }
 
     /// Find files excluding certain tags
-    /// 
+    ///
     /// Returns files that match the include criteria but don't have any of the excluded tags.
-    /// 
+    ///
     /// # Arguments
     /// * `include_tags` - Tags that files must have (uses AND logic if multiple)
     /// * `exclude_tags` - Tags that files must NOT have (uses OR logic)
-    /// 
+    ///
     /// # Returns
     /// Vector of file paths matching the criteria
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if database operations fail.
-    pub fn find_excluding_tags(&self, include_tags: &[String], exclude_tags: &[String]) 
-        -> Result<Vec<PathBuf>, DbError> {
+    pub fn find_excluding_tags(
+        &self,
+        include_tags: &[String],
+        exclude_tags: &[String],
+    ) -> Result<Vec<PathBuf>, DbError> {
         let included = if include_tags.is_empty() {
             self.list_all_files()?
         } else {
             self.find_by_all_tags(include_tags)?
         };
-        
+
         if exclude_tags.is_empty() {
             return Ok(included);
         }
-        
-        let excluded: HashSet<_> = self.find_by_any_tag(exclude_tags)?
+
+        let excluded: HashSet<_> = self.find_by_any_tag(exclude_tags)?.into_iter().collect();
+
+        Ok(included
             .into_iter()
-            .collect();
-        
-        Ok(included.into_iter()
             .filter(|f| !excluded.contains(f))
             .collect())
     }
@@ -535,20 +548,20 @@ impl Database {
     fn add_to_tag_index(&self, file_path: &str, tags: &[String]) -> Result<(), DbError> {
         for tag in tags {
             let tag_key = tag.as_bytes();
-            
+
             let mut files: Vec<String> = match self.tags.get(tag_key)? {
                 Some(value) => {
-                    let (files, _): (Vec<String>, usize) = 
+                    let (files, _): (Vec<String>, usize) =
                         bincode::decode_from_slice(&value, bincode::config::standard())?;
                     files
                 }
-                None => Vec::new()
+                None => Vec::new(),
             };
-            
+
             if !files.contains(&file_path.to_string()) {
                 files.push(file_path.to_string());
             }
-            
+
             let encoded = bincode::encode_to_vec(&files, bincode::config::standard())?;
             self.tags.insert(tag_key, encoded)?;
         }
@@ -570,13 +583,13 @@ impl Database {
     fn remove_from_tag_index(&self, file_path: &str, tags: &[String]) -> Result<(), DbError> {
         for tag in tags {
             let tag_key = tag.as_bytes();
-            
+
             if let Some(value) = self.tags.get(tag_key)? {
-                let (mut files, _): (Vec<String>, usize) = 
+                let (mut files, _): (Vec<String>, usize) =
                     bincode::decode_from_slice(&value, bincode::config::standard())?;
-                
+
                 files.retain(|f| f != file_path);
-                
+
                 if files.is_empty() {
                     self.tags.remove(tag_key)?;
                 } else {
@@ -601,14 +614,14 @@ impl Drop for Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{TestDb, TempFile};
+    use crate::testing::{TempFile, TestDb};
     use std::fs;
 
     #[test]
     fn test_create_database() {
         let test_db = TestDb::new("test_db_create");
         let db = test_db.db();
-        
+
         assert!(test_db.path().exists());
         assert_eq!(db.count(), 0);
         // TestDb automatically cleaned up on drop
@@ -618,13 +631,14 @@ mod tests {
     fn test_create_database_with_data() {
         let test_db = TestDb::new("test_db_with_data");
         let db = test_db.db();
-        
+
         let file1 = TempFile::create("file1.txt").unwrap();
         let file2 = TempFile::create("file2.txt").unwrap();
-        
-        db.insert(file1.path(), vec!["tag1".into(), "tag2".into()]).unwrap();
+
+        db.insert(file1.path(), vec!["tag1".into(), "tag2".into()])
+            .unwrap();
         db.insert(file2.path(), vec!["tag3".into()]).unwrap();
-        
+
         assert_eq!(db.count(), 2);
         assert!(db.contains(file1.path()).unwrap());
         assert!(db.contains(file2.path()).unwrap());
@@ -635,19 +649,19 @@ mod tests {
     fn test_remove_database_by_clearing() {
         let test_db = TestDb::new("test_db_clear");
         let db = test_db.db();
-        
+
         let file1 = TempFile::create("file1.txt").unwrap();
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
-        
+
         db.insert(file1.path(), vec!["tag1".into()]).unwrap();
         db.insert(file2.path(), vec!["tag2".into()]).unwrap();
         db.insert(file3.path(), vec!["tag3".into()]).unwrap();
-        
+
         assert_eq!(db.count(), 3);
-        
+
         db.clear().unwrap();
-        
+
         assert_eq!(db.count(), 0);
         assert!(!db.contains(file1.path()).unwrap());
         assert!(!db.contains(file2.path()).unwrap());
@@ -659,16 +673,16 @@ mod tests {
     fn test_remove_database_physically() {
         let test_db_path = "test_db_remove";
         let file = TempFile::create("file.txt").unwrap();
-        
+
         {
             let db = Database::open(test_db_path).unwrap();
             db.clear().unwrap();
             db.insert(file.path(), vec!["tag".into()]).unwrap();
             assert!(PathBuf::from(test_db_path).exists());
         }
-        
+
         fs::remove_dir_all(test_db_path).unwrap();
-        
+
         assert!(!PathBuf::from(test_db_path).exists());
     }
 
@@ -676,25 +690,25 @@ mod tests {
     fn test_reopen_existing_database() {
         let test_db_path = "test_db_reopen";
         let file = TempFile::create("persistent.txt").unwrap();
-        
+
         {
             let db = Database::open(test_db_path).unwrap();
             db.clear().unwrap();
             db.insert(file.path(), vec!["saved".into()]).unwrap();
             db.flush().unwrap();
         }
-        
+
         {
             let db = Database::open(test_db_path).unwrap();
             assert_eq!(db.count(), 1);
             assert!(db.contains(file.path()).unwrap());
             let tags = db.get_tags(file.path()).unwrap();
             assert_eq!(tags, Some(vec!["saved".into()]));
-            
+
             // Clean up
             db.clear().unwrap();
         }
-        
+
         let _ = fs::remove_dir_all(test_db_path);
     }
 
@@ -703,16 +717,19 @@ mod tests {
         let db_paths = ["test_db_multi_1", "test_db_multi_2", "test_db_multi_3"];
         let mut test_dbs = Vec::new();
         let mut temp_files = Vec::new();
-        
+
         for (i, path) in db_paths.iter().enumerate() {
             let test_db = TestDb::new(path);
             let filename = format!("file{i}.txt");
             let temp_file = TempFile::create(&filename).unwrap();
-            test_db.db().insert(temp_file.path(), vec![format!("tag{}", i)]).unwrap();
+            test_db
+                .db()
+                .insert(temp_file.path(), vec![format!("tag{}", i)])
+                .unwrap();
             temp_files.push(temp_file);
             test_dbs.push(test_db);
         }
-        
+
         for (i, test_db) in test_dbs.iter().enumerate() {
             assert_eq!(test_db.db().count(), 1);
             assert!(test_db.db().contains(temp_files[i].path()).unwrap());
@@ -722,7 +739,7 @@ mod tests {
     #[test]
     fn test_remove_and_recreate_database() {
         let test_db_path = "test_db_recreate";
-        
+
         {
             let old_file = TempFile::create("old_file.txt").unwrap();
             let db = Database::open(test_db_path).unwrap();
@@ -730,24 +747,24 @@ mod tests {
             db.insert(old_file.path(), vec!["old_tag".into()]).unwrap();
             assert_eq!(db.count(), 1);
         }
-        
+
         fs::remove_dir_all(test_db_path).unwrap();
         assert!(!PathBuf::from(test_db_path).exists());
-        
+
         {
             let new_file = TempFile::create("new_file.txt").unwrap();
             let old_file_path = PathBuf::from("old_file.txt");
             let db = Database::open(test_db_path).unwrap();
             assert_eq!(db.count(), 0);
-            
+
             db.insert(new_file.path(), vec!["new_tag".into()]).unwrap();
             assert_eq!(db.count(), 1);
             assert!(db.contains(new_file.path()).unwrap());
             assert!(!db.contains(&old_file_path).unwrap());
-            
+
             db.clear().unwrap();
         }
-        
+
         let _ = fs::remove_dir_all(test_db_path);
     }
 
@@ -755,19 +772,19 @@ mod tests {
     fn test_database_flush_on_drop() {
         let test_db_path = "test_db_flush_drop";
         let file = TempFile::create("file.txt").unwrap();
-        
+
         {
             let db = Database::open(test_db_path).unwrap();
             db.clear().unwrap();
             db.insert(file.path(), vec!["tag".into()]).unwrap();
         }
-        
+
         {
             let db = Database::open(test_db_path).unwrap();
             assert!(db.contains(file.path()).unwrap());
             db.clear().unwrap();
         }
-        
+
         let _ = fs::remove_dir_all(test_db_path);
     }
 
@@ -777,9 +794,12 @@ mod tests {
         let db = test_db.db();
 
         let file = TempFile::create("test.txt").unwrap();
-        let pair = Pair::new(file.path().to_path_buf(), vec!["tag1".into(), "tag2".into()]);
+        let pair = Pair::new(
+            file.path().to_path_buf(),
+            vec!["tag1".into(), "tag2".into()],
+        );
         db.insert_pair(&pair).unwrap();
-        
+
         let tags = db.get_tags(file.path()).unwrap();
         assert_eq!(tags, Some(vec!["tag1".into(), "tag2".into()]));
 
