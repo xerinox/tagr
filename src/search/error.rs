@@ -20,11 +20,11 @@ pub enum SearchError {
     /// Database error occurred during search
     #[error("Database error: {0}")]
     DatabaseError(#[from] crate::db::DbError),
-    
+
     /// Skim fuzzy finder was interrupted
     #[error("Interactive selection was interrupted")]
     InterruptedError,
-    
+
     /// Failed to build skim options
     #[error("Failed to build UI options: {0}")]
     BuildError(String),

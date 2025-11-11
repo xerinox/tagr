@@ -1,13 +1,12 @@
 //! Browse command - interactive fuzzy finder for tags and files
 
 use crate::{
-    db::Database,
+    TagrError,
     cli::SearchParams,
     config,
-    filters::{FilterManager, FilterCriteria},
-    output,
-    search,
-    TagrError,
+    db::Database,
+    filters::{FilterCriteria, FilterManager},
+    output, search,
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -29,22 +28,22 @@ pub fn execute(
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
-        
+
         let filter_params = SearchParams::from(&filter.criteria);
-        
+
         if let Some(ref mut params) = search_params {
             params.merge(&filter_params);
         } else {
             search_params = Some(filter_params);
         }
-        
+
         manager.record_use(name)?;
-        
+
         if !quiet {
             println!("Using filter '{name}'");
         }
     }
-    
+
     match search::browse_with_params(db, search_params.clone(), path_format) {
         Ok(Some(result)) => {
             if !quiet {
@@ -52,7 +51,7 @@ pub fn execute(
                 for tag in &result.selected_tags {
                     println!("  - {tag}");
                 }
-                
+
                 println!("\n=== Selected Files ===");
             }
             for file in &result.selected_files {
@@ -63,23 +62,23 @@ pub fn execute(
                     println!("  - {formatted_path}");
                 }
             }
-            
+
             if let Some(cmd_template) = execute_cmd {
                 if !quiet {
                     println!("\n=== Executing Command ===");
                 }
                 crate::cli::execute_command_on_files(&result.selected_files, &cmd_template, quiet);
             }
-            
+
             if let Some((name, desc)) = save_filter {
                 if let Some(params) = search_params {
                     let filter_path = crate::filters::get_filter_path()?;
                     let manager = FilterManager::new(filter_path);
                     let criteria = FilterCriteria::from(params);
                     let description = desc.unwrap_or("Saved browse filter");
-                    
+
                     manager.create(name, description.to_string(), criteria)?;
-                    
+
                     if !quiet {
                         println!("\nSaved filter '{name}'");
                     }

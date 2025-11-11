@@ -1,0 +1,107 @@
+# Example tagr configuration file
+# Copy this to ~/.config/tagr/config.toml and customize as needed
+
+# Default database configuration
+[default_db]
+# Name of the default database
+name = "default"
+
+# Path to the default database (platform-specific defaults used if not specified)
+# Linux: ~/.local/share/tagr/default
+# macOS: ~/Library/Application Support/tagr/default
+# Windows: %APPDATA%\tagr\default
+# path = "/path/to/your/database"
+
+# Virtual tags configuration
+[virtual_tags]
+# Enable/disable virtual tags globally
+enabled = true
+
+# Cache file metadata for performance
+cache_metadata = true
+
+# Metadata cache TTL in seconds (default: 300 = 5 minutes)
+cache_ttl_seconds = 300
+
+# Size category thresholds
+[virtual_tags.size_categories]
+tiny = "1KB"      # Files smaller than 1KB
+small = "100KB"   # Files between 1KB and 100KB
+medium = "1MB"    # Files between 100KB and 1MB
+large = "10MB"    # Files between 1MB and 10MB
+huge = "100MB"    # Files larger than 10MB
+
+# Extension type mappings
+# Customize which extensions belong to which categories
+[virtual_tags.extension_types]
+source = [
+    ".rs",    # Rust
+    ".py",    # Python
+    ".js",    # JavaScript
+    ".ts",    # TypeScript
+    ".go",    # Go
+    ".cpp",   # C++
+    ".c",     # C
+    ".java",  # Java
+    ".rb",    # Ruby
+    ".php",   # PHP
+]
+
+document = [
+    ".md",    # Markdown
+    ".txt",   # Text
+    ".pdf",   # PDF
+    ".doc",   # Word (old)
+    ".docx",  # Word (new)
+    ".org",   # Org-mode
+    ".tex",   # LaTeX
+    ".rst",   # reStructuredText
+]
+
+config = [
+    ".toml",  # TOML
+    ".yaml",  # YAML
+    ".yml",   # YAML (alt)
+    ".json",  # JSON
+    ".ini",   # INI
+    ".conf",  # Config
+    ".xml",   # XML
+    ".env",   # Environment
+]
+
+image = [
+    ".png",   # PNG
+    ".jpg",   # JPEG
+    ".jpeg",  # JPEG (alt)
+    ".gif",   # GIF
+    ".svg",   # SVG
+    ".webp",  # WebP
+    ".bmp",   # Bitmap
+    ".ico",   # Icon
+]
+
+archive = [
+    ".zip",   # ZIP
+    ".tar",   # TAR
+    ".gz",    # Gzip
+    ".bz2",   # Bzip2
+    ".xz",    # XZ
+    ".7z",    # 7-Zip
+    ".rar",   # RAR
+]
+
+# Time-based defaults
+[virtual_tags.time]
+# Number of days to consider a file "recent"
+recent = 7
+
+# Number of days before a file is considered "stale"
+stale = 180
+
+# Git integration settings
+[virtual_tags.git]
+# Enable Git virtual tags (requires file to be in a Git repository)
+enabled = true
+
+# Automatically detect Git repositories
+detect_repo = true

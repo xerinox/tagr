@@ -9,6 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Virtual Tags Feature (Complete)
+- **Dynamic Metadata Queries** - Query files by filesystem metadata without database storage
+  - Time-based queries: modified, created, accessed timestamps
+  - Size-based queries: size categories (tiny/small/medium/large/huge), ranges, specific sizes
+  - Extension queries: specific extensions (.rs, .md) and type categories (source, document, config, image, archive)
+  - Location queries: directory path, glob patterns, depth levels
+  - Permission queries: executable, readable, writable, read-only
+  - Content queries: line count ranges
+  - Git queries: tracked, modified, staged, untracked, stale files
+- **Virtual Tag CLI** - Seamless integration with search and browse commands
+  - `-v` / `--virtual-tag <VTAG>` - Add virtual tag filter
+  - `--any-virtual` - Match ANY virtual tag (OR logic)
+  - `--all-virtual` - Match ALL virtual tags (AND logic, default)
+  - Combine virtual tags with regular tags seamlessly
+- **Virtual Tag Parser** - Parse human-friendly virtual tag syntax
+  - Time formats: `modified:today`, `created:this-week`, `accessed:last-7-days`
+  - Size formats: `size:>1MB`, `size:<100KB`, `size:empty`, `size:large`
+  - Extension formats: `ext:.rs`, `ext-type:source`
+  - Path formats: `dir:src`, `path:src/**/*.rs`, `depth:3`
+  - Permission formats: `perm:executable`, `perm:readonly`
+  - Content formats: `lines:>100`, `lines:10-50`
+  - Git formats: `git:tracked`, `git:modified`, `git:stale`
+- **Virtual Tag Evaluator** - Efficient metadata evaluation with caching
+  - Metadata cache with configurable TTL (default 300s)
+  - Parallel evaluation using rayon for performance
+  - Lazy evaluation (only checks files already in database)
+  - Graceful error handling for missing files or unsupported metadata
+- **Filter Integration** - Virtual tags fully integrated with saved filters
+  - Save filters containing virtual tags
+  - Load and apply virtual tag filters
+  - Display virtual tags in `filter show` command
+  - Combine saved filters with additional virtual tags
+- **FilterCriteria Builder Pattern** - Clean, fluent API for filter construction
+  - `FilterCriteria::builder()` - Create new builder
+  - Chainable methods: `.tags()`, `.file_patterns()`, `.virtual_tags()`, etc.
+  - Type-safe construction with compile-time guarantees
+  - Simplified test code and improved maintainability
+- **Configuration** - Customizable virtual tag behavior
+  - Size category thresholds (tiny, small, medium, large, huge)
+  - Extension type mappings (source, document, config, image, archive)
+  - Time thresholds (recent, stale)
+  - Git integration toggle
+  - Metadata cache TTL
+- **12 Virtual Tag Types** - Comprehensive metadata coverage
+  - Modified, Created, Accessed (time conditions)
+  - Size (categories, ranges, comparisons)
+  - Extension (specific extensions)
+  - ExtensionType (type categories)
+  - Directory (parent directory path)
+  - Path (glob pattern matching)
+  - Depth (directory depth)
+  - Permission (file permissions)
+  - Lines (line count ranges)
+  - Git (Git status, tracked/untracked/modified/staged/stale)
+  - Empty (zero-byte files)
+- **Documentation** - Comprehensive virtual tags documentation
+  - README.md section with examples for all virtual tag types
+  - Configuration examples
+  - Usage patterns and best practices
+  - Integration with saved filters
+  - Performance characteristics
+
 #### Saved Filters Feature (Complete)
 - **Filter Management CLI** - Complete command-line interface for filter operations
   - `tagr filter create <name>` - Create new filter with tags, patterns, exclusions

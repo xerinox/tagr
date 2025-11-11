@@ -30,9 +30,9 @@
 //! assert_eq!(path_str.as_str(), "file.txt");
 //! ```
 
-use std::path::{Path, PathBuf};
-use bincode;
 use super::error::DbError;
+use bincode;
+use std::path::{Path, PathBuf};
 
 /// Wrapper for `PathBuf` that can be converted to `Vec<u8>` for database keys
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +40,7 @@ pub struct PathKey(pub PathBuf);
 
 impl TryFrom<PathKey> for Vec<u8> {
     type Error = DbError;
-    
+
     fn try_from(key: PathKey) -> Result<Self, Self::Error> {
         Ok(bincode::encode_to_vec(&key.0, bincode::config::standard())?)
     }
@@ -50,22 +50,22 @@ impl PathKey {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         Self(path.as_ref().to_path_buf())
     }
-    
+
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the bytes cannot be deserialized into a `PathBuf`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DbError> {
-        let (path, _): (PathBuf, usize) = 
+        let (path, _): (PathBuf, usize) =
             bincode::decode_from_slice(bytes, bincode::config::standard())?;
         Ok(Self(path))
     }
-    
-    #[must_use] 
+
+    #[must_use]
     pub fn into_inner(self) -> PathBuf {
         self.0
     }
-    
-    #[must_use] 
+
+    #[must_use]
     pub fn as_path(&self) -> &Path {
         &self.0
     }
@@ -77,7 +77,7 @@ pub struct PathString(String);
 
 impl TryFrom<PathBuf> for PathString {
     type Error = DbError;
-    
+
     fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
         path.to_str()
             .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))
@@ -87,7 +87,7 @@ impl TryFrom<PathBuf> for PathString {
 
 impl TryFrom<&Path> for PathString {
     type Error = DbError;
-    
+
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         path.to_str()
             .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))
@@ -97,7 +97,7 @@ impl TryFrom<&Path> for PathString {
 
 impl PathString {
     /// # Errors
-    /// 
+    ///
     /// Returns `DbError` if the path contains invalid UTF-8 characters.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
         path.as_ref()
@@ -105,13 +105,13 @@ impl PathString {
             .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))
             .map(|s| Self(s.to_string()))
     }
-    
-    #[must_use] 
+
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    
-    #[must_use] 
+
+    #[must_use]
     pub fn into_string(self) -> String {
         self.0
     }
@@ -125,7 +125,7 @@ impl AsRef<str> for PathString {
 
 impl std::ops::Deref for PathString {
     type Target = str;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }

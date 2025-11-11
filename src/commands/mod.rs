@@ -1,5 +1,5 @@
 //! Command implementations
-//! 
+//!
 //! Each command is a module with an execute function that takes parsed CLI args
 //! and executes the operation against the database.
 

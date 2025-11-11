@@ -21,10 +21,10 @@
 //!     .exclude_tags(db, &["deprecated".to_string()])?;
 //! ```
 
-use std::path::PathBuf;
+use crate::db::{Database, DbError};
 use glob::Pattern as GlobPattern;
 use regex::Regex;
-use crate::db::{Database, DbError};
+use std::path::PathBuf;
 
 /// Filter files by patterns (glob or regex) with AND/OR logic
 ///
@@ -48,15 +48,19 @@ pub fn by_patterns(
     if patterns.is_empty() {
         return Ok(files.into_iter().collect());
     }
-    
+
     if use_regex {
-        let matchers: Result<Vec<Regex>, _> = patterns.iter()
-            .map(|p| Regex::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{p}': {e}"))))
+        let matchers: Result<Vec<Regex>, _> = patterns
+            .iter()
+            .map(|p| {
+                Regex::new(p)
+                    .map_err(|e| DbError::InvalidInput(format!("Invalid regex pattern '{p}': {e}")))
+            })
             .collect();
         let matchers = matchers?;
-        
-        Ok(files.into_iter()
+
+        Ok(files
+            .into_iter()
             .filter(|f| {
                 f.to_str().is_some_and(|s| {
                     if match_all {
@@ -68,13 +72,17 @@ pub fn by_patterns(
             })
             .collect())
     } else {
-        let matchers: Result<Vec<GlobPattern>, _> = patterns.iter()
-            .map(|p| GlobPattern::new(p)
-                .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{p}': {e}"))))
+        let matchers: Result<Vec<GlobPattern>, _> = patterns
+            .iter()
+            .map(|p| {
+                GlobPattern::new(p)
+                    .map_err(|e| DbError::InvalidInput(format!("Invalid glob pattern '{p}': {e}")))
+            })
             .collect();
         let matchers = matchers?;
-        
-        Ok(files.into_iter()
+
+        Ok(files
+            .into_iter()
             .filter(|f| {
                 f.to_str().is_some_and(|s| {
                     if match_all {
@@ -207,9 +215,7 @@ impl PathTagFilterExt for Vec<PathBuf> {
         let mut result = Self::new();
         for file in self {
             if let Some(file_tags) = db.get_tags(&file)? {
-                let has_excluded = file_tags
-                    .iter()
-                    .any(|tag| exclude_tags.contains(tag));
+                let has_excluded = file_tags.iter().any(|tag| exclude_tags.contains(tag));
                 if !has_excluded {
                     result.push(file);
                 }
@@ -226,18 +232,15 @@ impl PathTagFilterExt for Vec<PathBuf> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    
+
     #[test]
     fn test_filter_empty_patterns() {
-        let files = vec![
-            PathBuf::from("test.rs"),
-            PathBuf::from("main.rs"),
-        ];
-        
+        let files = vec![PathBuf::from("test.rs"), PathBuf::from("main.rs")];
+
         let result = by_patterns(files.clone(), &[], false, false).unwrap();
         assert_eq!(result, files);
     }
-    
+
     #[test]
     fn test_filter_glob_any() {
         let files = vec![
@@ -245,13 +248,13 @@ mod tests {
             PathBuf::from("main.rs"),
             PathBuf::from("test.txt"),
         ];
-        
+
         let result = by_patterns(files, &["*.rs".to_string()], false, false).unwrap();
         assert_eq!(result.len(), 2);
         assert!(result.contains(&PathBuf::from("test.rs")));
         assert!(result.contains(&PathBuf::from("main.rs")));
     }
-    
+
     #[test]
     fn test_filter_glob_all() {
         let files = vec![
@@ -259,12 +262,18 @@ mod tests {
             PathBuf::from("src/main.rs"),
             PathBuf::from("test.txt"),
         ];
-        
-        let result = by_patterns(files, &["src/*".to_string(), "*.rs".to_string()], false, true).unwrap();
+
+        let result = by_patterns(
+            files,
+            &["src/*".to_string(), "*.rs".to_string()],
+            false,
+            true,
+        )
+        .unwrap();
         assert_eq!(result.len(), 2);
         assert!(result.contains(&PathBuf::from("src/test.rs")));
     }
-    
+
     #[test]
     fn test_filter_regex_any() {
         let files = vec![
@@ -272,19 +281,19 @@ mod tests {
             PathBuf::from("main.rs"),
             PathBuf::from("test.txt"),
         ];
-        
+
         let result = by_patterns(files, &[r"test\d+\.rs".to_string()], true, false).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], PathBuf::from("test123.rs"));
     }
-    
+
     #[test]
     fn test_invalid_regex() {
         let files = vec![PathBuf::from("test.rs")];
         let result = by_patterns(files, &["[invalid".to_string()], true, false);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_invalid_glob() {
         let files = vec![PathBuf::from("test.rs")];
@@ -300,11 +309,12 @@ mod tests {
             PathBuf::from("main.rs"),
             PathBuf::from("test.txt"),
         ];
-        
-        let result = files.into_iter()
+
+        let result = files
+            .into_iter()
             .filter_glob_any(&["*.rs".to_string()])
             .unwrap();
-        
+
         assert_eq!(result.len(), 2);
         assert!(result.contains(&PathBuf::from("test.rs")));
         assert!(result.contains(&PathBuf::from("main.rs")));
@@ -318,12 +328,13 @@ mod tests {
             PathBuf::from("tests/integration.rs"),
             PathBuf::from("README.md"),
         ];
-        
+
         // First filter: only .rs files
-        let result = files.into_iter()
+        let result = files
+            .into_iter()
             .filter_glob_any(&["*.rs".to_string()])
             .unwrap();
-        
+
         assert_eq!(result.len(), 3);
     }
 }

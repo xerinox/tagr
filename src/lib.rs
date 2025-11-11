@@ -1,20 +1,21 @@
 //! Tagr - A file tagging system with optimized reverse lookups
-//! 
+//!
 //! This library provides functionality for tagging files and performing
 //! efficient searches using an embedded database with reverse indices.
 
-use std::path::PathBuf;
-use serde::{Serialize, Deserialize};
 use bincode::{self, Decode, Encode};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use thiserror::Error;
 
-pub mod db;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod db;
 pub mod filters;
 pub mod output;
 pub mod search;
+pub mod vtags;
 
 #[cfg(test)]
 pub mod testing;
@@ -51,10 +52,8 @@ pub struct Pair {
 
 impl Pair {
     /// Create a new Pair
-    #[must_use] 
+    #[must_use]
     pub const fn new(file: PathBuf, tags: Vec<String>) -> Self {
         Self { file, tags }
     }
 }
-
-

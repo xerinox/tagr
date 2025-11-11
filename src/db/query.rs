@@ -3,11 +3,13 @@
 //! This module provides shared query building functionality used by both
 //! search and browse commands to construct file lists based on search parameters.
 
-use std::path::PathBuf;
-use std::collections::HashSet;
+use crate::cli::{SearchMode, SearchParams};
 use crate::db::{Database, DbError};
-use crate::cli::{SearchParams, SearchMode};
 use crate::search::filter::{PathFilterExt, PathTagFilterExt};
+use crate::vtags::{VirtualTag, VirtualTagConfig, VirtualTagEvaluator};
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::time::Duration;
 
 /// Apply search parameters to build a filtered file list
 ///
@@ -38,18 +40,14 @@ use crate::search::filter::{PathFilterExt, PathTagFilterExt};
 /// };
 /// let files = apply_search_params(&db, &params)?;
 /// ```
-pub fn apply_search_params(
-    db: &Database,
-    params: &SearchParams,
-) -> Result<Vec<PathBuf>, DbError> {
+pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<PathBuf>, DbError> {
     let mut files = if let Some(query) = &params.query {
         let files_by_tag = db.find_by_tag_regex(query)?;
-        
+
         let all_files = db.list_all_files()?;
         let filename_pattern = format!("*{query}*");
-        let files_by_name = all_files.into_iter()
-            .filter_glob_any(&[filename_pattern])?;
-        
+        let files_by_name = all_files.into_iter().filter_glob_any(&[filename_pattern])?;
+
         let mut file_set: HashSet<_> = files_by_tag.into_iter().collect();
         file_set.extend(files_by_name);
         let mut files: Vec<_> = file_set.into_iter().collect();
@@ -70,15 +68,16 @@ pub fn apply_search_params(
                             let matching_files = db.find_by_tag_regex(tag_pattern)?;
                             file_sets.push(matching_files.into_iter().collect());
                         }
-                        
+
                         // Find intersection of all sets
                         let first_set = file_sets.remove(0);
-                        let result: Vec<PathBuf> = first_set.into_iter()
+                        let result: Vec<PathBuf> = first_set
+                            .into_iter()
                             .filter(|file| file_sets.iter().all(|set| set.contains(file)))
                             .collect();
                         result
                     }
-                },
+                }
                 SearchMode::Any => {
                     // For ANY mode with regex, collect all files matching any pattern
                     let mut file_set = HashSet::new();
@@ -104,22 +103,64 @@ pub fn apply_search_params(
 
     if !params.file_patterns.is_empty() {
         let match_all = params.file_mode == SearchMode::All;
-        files = files.into_iter()
-            .filter_patterns(&params.file_patterns, params.regex_file, match_all)?;
+        files = files.into_iter().filter_patterns(
+            &params.file_patterns,
+            params.regex_file,
+            match_all,
+        )?;
     }
 
     if !params.exclude_tags.is_empty() {
         files = files.exclude_tags(db, &params.exclude_tags)?;
     }
 
+    if !params.virtual_tags.is_empty() {
+        files = apply_virtual_tags(files, &params.virtual_tags, params.virtual_mode)?;
+    }
+
     Ok(files)
+}
+
+fn apply_virtual_tags(
+    files: Vec<PathBuf>,
+    virtual_tags: &[String],
+    mode: SearchMode,
+) -> Result<Vec<PathBuf>, DbError> {
+    use rayon::prelude::*;
+
+    let config = VirtualTagConfig::default();
+
+    let parsed_tags: Vec<VirtualTag> = virtual_tags
+        .iter()
+        .map(|s| VirtualTag::parse_with_config(s, &config))
+        .collect::<Result<_, _>>()
+        .map_err(|e| DbError::InvalidInput(format!("Invalid virtual tag: {e}")))?;
+
+    let cache_ttl = Duration::from_secs(config.cache_ttl_seconds);
+
+    let filtered: Vec<PathBuf> = files
+        .into_par_iter()
+        .filter(|path| {
+            let mut evaluator = VirtualTagEvaluator::new(cache_ttl, config.clone());
+            match mode {
+                SearchMode::All => parsed_tags
+                    .iter()
+                    .all(|vtag| evaluator.matches(path, vtag).unwrap_or(false)),
+                SearchMode::Any => parsed_tags
+                    .iter()
+                    .any(|vtag| evaluator.matches(path, vtag).unwrap_or(false)),
+            }
+        })
+        .collect();
+
+    Ok(filtered)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{TempFile, TestDb};
     use std::path::PathBuf;
-    use crate::testing::{TestDb, TempFile};
 
     #[test]
     fn test_apply_search_params_compiles() {
@@ -138,9 +179,12 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        db.add_tags(file1.path(), vec!["markdown".into(), "note".into()]).unwrap();
-        db.add_tags(file2.path(), vec!["rust".into(), "code".into()]).unwrap();
-        db.add_tags(file3.path(), vec!["markdown".into(), "document".into()]).unwrap();
+        db.add_tags(file1.path(), vec!["markdown".into(), "note".into()])
+            .unwrap();
+        db.add_tags(file2.path(), vec!["rust".into(), "code".into()])
+            .unwrap();
+        db.add_tags(file3.path(), vec!["markdown".into(), "document".into()])
+            .unwrap();
 
         // Test regex search for tags matching "mark.*" (should match "markdown")
         let params = SearchParams {
@@ -152,6 +196,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -169,8 +215,10 @@ mod tests {
         let file1 = TempFile::create("file1.txt").unwrap();
         let file2 = TempFile::create("file2.txt").unwrap();
 
-        db.add_tags(file1.path(), vec!["markdown".into(), "note".into()]).unwrap();
-        db.add_tags(file2.path(), vec!["markdown".into(), "document".into()]).unwrap();
+        db.add_tags(file1.path(), vec!["markdown".into(), "note".into()])
+            .unwrap();
+        db.add_tags(file2.path(), vec!["markdown".into(), "document".into()])
+            .unwrap();
 
         // Test regex search requiring both "mark.*" and ".*note" (should match only file1)
         let params = SearchParams {
@@ -182,6 +230,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -210,6 +260,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -241,6 +293,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: false,
             regex_file: true,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -258,8 +312,10 @@ mod tests {
         let file1 = TempFile::create("test.rs").unwrap();
         let file2 = TempFile::create("test.txt").unwrap();
 
-        db.add_tags(file1.path(), vec!["rust".into(), "code".into()]).unwrap();
-        db.add_tags(file2.path(), vec!["rust".into(), "note".into()]).unwrap();
+        db.add_tags(file1.path(), vec!["rust".into(), "code".into()])
+            .unwrap();
+        db.add_tags(file2.path(), vec!["rust".into(), "note".into()])
+            .unwrap();
 
         // Search for rust files with regex patterns
         let params = SearchParams {
@@ -271,6 +327,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: true,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -284,7 +342,8 @@ mod tests {
         let db = test_db.db();
 
         let file1 = TempFile::create("file1.txt").unwrap();
-        db.add_tags(file1.path(), vec!["python".into(), "script".into()]).unwrap();
+        db.add_tags(file1.path(), vec!["python".into(), "script".into()])
+            .unwrap();
 
         // Search for regex that doesn't match any tags
         let params = SearchParams {
@@ -296,6 +355,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -313,7 +374,8 @@ mod tests {
 
         db.add_tags(file1.path(), vec!["python".into()]).unwrap();
         db.add_tags(file2.path(), vec!["rust".into()]).unwrap();
-        db.add_tags(file3.path(), vec!["javascript".into()]).unwrap();
+        db.add_tags(file3.path(), vec!["javascript".into()])
+            .unwrap();
 
         // Match any file with tags starting with "py" or "ru"
         let params = SearchParams {
@@ -325,6 +387,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();

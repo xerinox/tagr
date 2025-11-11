@@ -10,9 +10,9 @@
 //! - Import filters from file
 //! - Show filter usage statistics
 
-use crate::cli::FilterCommands;
-use crate::filters::{FilterManager, FilterCriteria, TagMode, FileMode};
 use crate::TagrError;
+use crate::cli::FilterCommands;
+use crate::filters::{FileMode, FilterCriteria, FilterManager, TagMode};
 use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -42,26 +42,36 @@ pub fn execute(command: &FilterCommands, quiet: bool) -> Result<()> {
         FilterCommands::Create {
             name,
             description,
-            tags,
-            any_tag,
-            all_tags: _,
-            file_patterns,
-            any_file,
-            all_files: _,
-            excludes,
-            regex_tag,
-            regex_file,
+            criteria,
         } => {
+            let tag_mode = if criteria.any_tag {
+                TagMode::Any
+            } else {
+                TagMode::All
+            };
+            let file_mode = if criteria.any_file {
+                FileMode::Any
+            } else {
+                FileMode::All
+            };
+            let virtual_mode = if criteria.any_virtual {
+                TagMode::Any
+            } else {
+                TagMode::All
+            };
+
             create_filter(
                 name,
                 description.as_deref(),
-                tags,
-                *any_tag,
-                file_patterns,
-                *any_file,
-                excludes,
-                *regex_tag,
-                *regex_file,
+                &criteria.tags,
+                tag_mode,
+                &criteria.file_patterns,
+                file_mode,
+                &criteria.excludes,
+                criteria.regex_tag,
+                criteria.regex_file,
+                &criteria.virtual_tags,
+                virtual_mode,
                 quiet,
             )?;
         }
@@ -92,9 +102,9 @@ pub fn execute(command: &FilterCommands, quiet: bool) -> Result<()> {
 fn list_filters(quiet: bool) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
-    
+
     let filters = manager.list()?;
-    
+
     if filters.is_empty() {
         if !quiet {
             println!("No saved filters.");
@@ -102,18 +112,23 @@ fn list_filters(quiet: bool) -> Result<()> {
         }
         return Ok(());
     }
-    
+
     if !quiet {
         println!("Saved Filters:");
         println!();
     }
-    
-    let max_name_len = filters.iter().map(|f| f.name.len()).max().unwrap_or(0).max(4);
-    
+
+    let max_name_len = filters
+        .iter()
+        .map(|f| f.name.len())
+        .max()
+        .unwrap_or(0)
+        .max(4);
+
     for filter in filters {
         let tags_count = filter.criteria.tags.len();
         let files_count = filter.criteria.file_patterns.len();
-        
+
         if quiet {
             println!("{}", filter.name);
         } else {
@@ -122,27 +137,35 @@ fn list_filters(quiet: bool) -> Result<()> {
             } else {
                 filter.description.clone()
             };
-            
-            println!(
-                "  {:<width$}  {}",
-                filter.name,
-                desc,
-                width = max_name_len
-            );
-            
+
+            println!("  {:<width$}  {}", filter.name, desc, width = max_name_len);
+
             if tags_count > 0 || files_count > 0 {
                 let mut details = Vec::new();
                 if tags_count > 0 {
-                    details.push(format!("{} tag{}", tags_count, if tags_count == 1 { "" } else { "s" }));
+                    details.push(format!(
+                        "{} tag{}",
+                        tags_count,
+                        if tags_count == 1 { "" } else { "s" }
+                    ));
                 }
                 if files_count > 0 {
-                    details.push(format!("{} pattern{}", files_count, if files_count == 1 { "" } else { "s" }));
+                    details.push(format!(
+                        "{} pattern{}",
+                        files_count,
+                        if files_count == 1 { "" } else { "s" }
+                    ));
                 }
-                println!("  {:<width$}  ({})", "", details.join(", "), width = max_name_len);
+                println!(
+                    "  {:<width$}  ({})",
+                    "",
+                    details.join(", "),
+                    width = max_name_len
+                );
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -150,67 +173,15 @@ fn list_filters(quiet: bool) -> Result<()> {
 fn show_filter(name: &str, quiet: bool) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
-    
+
     let filter = manager.get(name)?;
-    
+
     if quiet {
         println!("{}", filter.name);
-        return Ok(());
-    }
-    
-    println!("Filter: {}", filter.name);
-    
-    if !filter.description.is_empty() {
-        println!("Description: {}", filter.description);
-    }
-    
-    println!();
-    println!("Tags: {}", if filter.criteria.tags.is_empty() {
-        String::from("(none)")
     } else {
-        format!(
-            "{} ({})",
-            filter.criteria.tags.join(", "),
-            match filter.criteria.tag_mode {
-                TagMode::All => "ALL",
-                TagMode::Any => "ANY",
-            }
-        )
-    });
-    
-    println!("File Patterns: {}", if filter.criteria.file_patterns.is_empty() {
-        String::from("(none)")
-    } else {
-        format!(
-            "{} ({})",
-            filter.criteria.file_patterns.join(", "),
-            match filter.criteria.file_mode {
-                FileMode::All => "ALL",
-                FileMode::Any => "ANY",
-            }
-        )
-    });
-    
-    if !filter.criteria.excludes.is_empty() {
-        println!("Excludes: {}", filter.criteria.excludes.join(", "));
+        print!("{filter}");
     }
-    
-    if filter.criteria.regex_tag || filter.criteria.regex_file {
-        let mut regex_modes = Vec::new();
-        if filter.criteria.regex_tag {
-            regex_modes.push("tags");
-        }
-        if filter.criteria.regex_file {
-            regex_modes.push("files");
-        }
-        println!("Regex Mode: {}", regex_modes.join(", "));
-    }
-    
-    println!();
-    println!("Created: {}", filter.created.format("%Y-%m-%d %H:%M:%S"));
-    println!("Last Used: {}", filter.last_used.format("%Y-%m-%d %H:%M:%S"));
-    println!("Use Count: {}", filter.use_count);
-    
+
     Ok(())
 }
 
@@ -220,20 +191,19 @@ fn create_filter(
     name: &str,
     description: Option<&str>,
     tags: &[String],
-    any_tag: bool,
+    tag_mode: TagMode,
     file_patterns: &[String],
-    any_file: bool,
+    file_mode: FileMode,
     excludes: &[String],
     regex_tag: bool,
     regex_file: bool,
+    virtual_tags: &[String],
+    virtual_mode: TagMode,
     quiet: bool,
 ) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
-    
-    let tag_mode = if any_tag { TagMode::Any } else { TagMode::All };
-    let file_mode = if any_file { FileMode::Any } else { FileMode::All };
-    
+
     let criteria = FilterCriteria {
         tags: tags.to_vec(),
         tag_mode,
@@ -242,16 +212,18 @@ fn create_filter(
         excludes: excludes.to_vec(),
         regex_tag,
         regex_file,
+        virtual_tags: virtual_tags.to_vec(),
+        virtual_mode,
     };
-    
+
     let desc = description.unwrap_or("").to_string();
-    
+
     manager.create(name, desc, criteria)?;
-    
+
     if !quiet {
         println!("Filter '{name}' created successfully");
     }
-    
+
     Ok(())
 }
 
@@ -259,29 +231,29 @@ fn create_filter(
 fn delete_filter(name: &str, force: bool, quiet: bool) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
-    
+
     let _ = manager.get(name)?;
-    
+
     if !force && !quiet {
         print!("Delete filter '{name}'? (y/N): ");
         std::io::stdout().flush()?;
-        
+
         let mut response = String::new();
         std::io::stdin().read_line(&mut response)?;
-        
+
         let response = response.trim().to_lowercase();
         if response != "y" && response != "yes" {
             println!("Cancelled");
             return Ok(());
         }
     }
-    
+
     manager.delete(name)?;
-    
+
     if !quiet {
         println!("Filter '{name}' deleted");
     }
-    
+
     Ok(())
 }
 
@@ -289,13 +261,13 @@ fn delete_filter(name: &str, force: bool, quiet: bool) -> Result<()> {
 fn rename_filter(old_name: &str, new_name: &str, quiet: bool) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
-    
+
     manager.rename(old_name, new_name.to_string())?;
-    
+
     if !quiet {
         println!("Filter '{old_name}' renamed to '{new_name}'");
     }
-    
+
     Ok(())
 }
 
@@ -307,18 +279,19 @@ fn export_filters(
 ) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
-    
+
     if let Some(output_path) = output {
         manager.export(output_path, filters)?;
-        
+
         if !quiet {
             let count = if filters.is_empty() {
                 manager.list()?.len()
             } else {
                 filters.len()
             };
-            println!("Exported {} filter{} to {}", 
-                count, 
+            println!(
+                "Exported {} filter{} to {}",
+                count,
                 if count == 1 { "" } else { "s" },
                 output_path.display()
             );
@@ -335,16 +308,14 @@ fn export_filters(
                 let filter = manager.get(name)?;
                 exported.push(filter);
             }
-            crate::filters::FilterStorage {
-                filters: exported,
-            }
+            crate::filters::FilterStorage { filters: exported }
         };
-        
-        let toml = toml::to_string_pretty(&storage)
-            .map_err(|e| TagrError::FilterError(e.into()))?;
+
+        let toml =
+            toml::to_string_pretty(&storage).map_err(|e| TagrError::FilterError(e.into()))?;
         println!("{toml}");
     }
-    
+
     Ok(())
 }
 
@@ -357,21 +328,29 @@ fn import_filters(
 ) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
-    
+
     let (imported, skipped) = manager.import(path, overwrite, skip_existing)?;
-    
+
     if !quiet {
-        println!("Imported {} filter{}", imported, if imported == 1 { "" } else { "s" });
+        println!(
+            "Imported {} filter{}",
+            imported,
+            if imported == 1 { "" } else { "s" }
+        );
         if skipped > 0 {
-            println!("Skipped {} existing filter{}", skipped, if skipped == 1 { "" } else { "s" });
+            println!(
+                "Skipped {} existing filter{}",
+                skipped,
+                if skipped == 1 { "" } else { "s" }
+            );
         }
     }
-    
+
     Ok(())
 }
 
 /// Show filter usage statistics
-/// 
+///
 /// NOTE: This is a stub for future implementation of usage statistics.
 /// When implemented, it will show:
 /// - Most used filters (top 5)

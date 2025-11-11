@@ -8,7 +8,8 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 - 🔍 **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
 - ⚡ **Fast queries** - O(1) tag lookups using reverse indexing with sled database
 - 🎯 **Multi-select** - Select multiple tags and files at once
-- 💾 **Saved filters** - Save complex search criteria as named filters for quick recall (foundation implemented)
+- 🔮 **Virtual tags** - Query files by metadata (size, modification time, extension, etc.) without database storage
+- 💾 **Saved filters** - Save complex search criteria as named filters for quick recall
 - 🧹 **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
 - 💾 **Persistent storage** - Reliable embedded database with automatic flushing
 - 📊 **Multiple databases** - Manage separate databases for different projects
@@ -473,6 +474,221 @@ file_mode = "any"
 excludes = []
 regex_tag = false
 regex_file = false
+virtual_tags = []
+virtual_mode = "all"
+```
+
+## Virtual Tags
+
+Virtual tags are dynamically computed filters based on file metadata, requiring zero database storage. Query files by size, modification time, extension type, and more!
+
+### Why Virtual Tags?
+
+- **No database overhead** - Virtual tags are computed on-the-fly from filesystem metadata
+- **Always accurate** - Reflects current file state without manual updates
+- **Powerful queries** - Filter by properties that would be cumbersome to tag manually
+- **Combine with regular tags** - Mix virtual tags with your tagged files seamlessly
+
+### Time-based Virtual Tags
+
+Query files by their timestamps:
+
+```bash
+# Files modified today
+tagr search -v modified:today
+
+# Files modified in the last 7 days
+tagr search -v modified:last-7-days
+
+# Files created this week
+tagr search -v created:this-week
+
+# Files accessed in the last 24 hours
+tagr search -v accessed:last-24-hours
+
+# Files modified after a specific date
+tagr search -v modified:after-2025-11-01
+
+# Files modified before a date
+tagr search -v modified:before-2025-10-01
+
+# Files modified between dates
+tagr search -v modified:2025-11-01..2025-11-10
+```
+
+### Size-based Virtual Tags
+
+Filter by file size:
+
+```bash
+# Empty files
+tagr search -v size:empty
+
+# Size categories
+tagr search -v size:tiny     # < 1KB
+tagr search -v size:small    # 1KB - 100KB
+tagr search -v size:medium   # 100KB - 1MB
+tagr search -v size:large    # 1MB - 10MB
+tagr search -v size:huge     # > 10MB
+
+# Specific sizes
+tagr search -v "size:>1MB"
+tagr search -v "size:<100KB"
+tagr search -v "size:1MB-10MB"
+
+# Exact size
+tagr search -v size:1024
+```
+
+### Extension Virtual Tags
+
+Filter by file extension or type:
+
+```bash
+# Specific extension
+tagr search -v ext:.rs
+tagr search -v ext:.md
+
+# Extension types
+tagr search -v ext-type:source    # .rs, .py, .js, .go, .cpp, .c, .java, .ts
+tagr search -v ext-type:document  # .md, .txt, .pdf, .doc, .docx, .org
+tagr search -v ext-type:config    # .toml, .yaml, .json, .ini, .conf
+tagr search -v ext-type:image     # .png, .jpg, .jpeg, .gif, .svg, .webp
+tagr search -v ext-type:archive   # .zip, .tar, .gz, .7z, .rar, .bz2
+```
+
+### Location Virtual Tags
+
+Query by file location:
+
+```bash
+# Files in a specific directory
+tagr search -v dir:src
+
+# Files matching a path pattern
+tagr search -v "path:src/**/*.rs"
+tagr search -v "path:tests/*.rs"
+
+# Files at a specific depth
+tagr search -v depth:3
+tagr search -v "depth:<5"
+```
+
+### Permission Virtual Tags
+
+Filter by file permissions:
+
+```bash
+# Executable files
+tagr search -v perm:executable
+
+# Read-only files
+tagr search -v perm:readonly
+
+# Writable files
+tagr search -v perm:writable
+```
+
+### Content Virtual Tags
+
+Query by file content properties:
+
+```bash
+# Files with specific line count
+tagr search -v "lines:>100"
+tagr search -v "lines:<50"
+tagr search -v lines:10-50
+```
+
+### Git Virtual Tags
+
+Query by Git status (when in a repository):
+
+```bash
+# Tracked files
+tagr search -v git:tracked
+
+# Modified files
+tagr search -v git:modified
+
+# Staged files
+tagr search -v git:staged
+
+# Untracked files
+tagr search -v git:untracked
+
+# Stale files (not modified in 6+ months)
+tagr search -v git:stale
+```
+
+### Combining Virtual Tags
+
+Use multiple virtual tags together with AND/OR logic:
+
+```bash
+# Find large Rust files (AND logic - default)
+tagr search -v ext:.rs -v "size:>100KB"
+
+# Find files that are either empty OR tiny (OR logic)
+tagr search -v size:empty -v size:tiny --any-virtual
+
+# Combine regular tags with virtual tags
+tagr search -t rust -v "modified:this-week"
+tagr search -t config -v ext:.toml -v "size:<10KB"
+
+# Complex queries
+tagr search -t documentation -v ext-type:document -v "modified:last-7-days"
+```
+
+### Saving Virtual Tags in Filters
+
+Virtual tags can be saved in filters for quick recall:
+
+```bash
+# Save a filter with virtual tags
+tagr search -t rust -v ext:.rs -v "size:>1KB" \\
+  --save-filter "rust-source" \\
+  --filter-desc "Non-empty Rust source files"
+
+# Use the saved filter
+tagr search -F rust-source
+
+# View the filter (shows virtual tags)
+tagr filter show rust-source
+
+# Combine saved filter with additional virtual tags
+tagr search -F rust-source -v "modified:today"
+```
+
+### Virtual Tag Configuration
+
+Customize virtual tag behavior in `~/.config/tagr/config.toml`:
+
+```toml
+[virtual_tags]
+enabled = true
+cache_metadata = true
+cache_ttl_seconds = 300
+
+[virtual_tags.size_categories]
+tiny = "1KB"
+small = "100KB"
+medium = "1MB"
+large = "10MB"
+huge = "100MB"
+
+[virtual_tags.extension_types]
+source = [".rs", ".py", ".js", ".go"]
+document = [".md", ".txt", ".pdf"]
+config = [".toml", ".yaml", ".json"]
+
+[virtual_tags.time]
+recent = 7      # days
+stale = 180     # days
+
+[virtual_tags.git]
+enabled = true
+detect_repo = true
 ```
 
 ### Maintenance

@@ -14,13 +14,16 @@ mod tests {
     #[test]
     fn test_serialize_error() {
         let error = DbError::SerializeError("Invalid UTF-8".to_string());
-        assert_eq!(error.to_string(), "Error during serialization: Invalid UTF-8");
+        assert_eq!(
+            error.to_string(),
+            "Error during serialization: Invalid UTF-8"
+        );
     }
 
     #[test]
     fn test_error_display() {
         let error = DbError::FileNotFound("/path/to/file.txt".to_string());
-        let display = format!("{}", error);
+        let display = format!("{error}");
         assert!(display.contains("File not found"));
         assert!(display.contains("/path/to/file.txt"));
     }
@@ -28,7 +31,7 @@ mod tests {
     #[test]
     fn test_error_debug() {
         let error = DbError::SerializeError("test error".to_string());
-        let debug = format!("{:?}", error);
+        let debug = format!("{error:?}");
         assert!(debug.contains("SerializeError"));
         assert!(debug.contains("test error"));
     }
@@ -43,7 +46,7 @@ mod tests {
     fn test_serialize_error_creation() {
         let msg = "UTF-8 conversion failed";
         let error = DbError::SerializeError(msg.to_string());
-        
+
         match error {
             DbError::SerializeError(s) => assert_eq!(s, msg),
             _ => panic!("Expected SerializeError variant"),
@@ -54,7 +57,7 @@ mod tests {
     fn test_file_not_found_error_creation() {
         let path = "missing_file.txt";
         let error = DbError::FileNotFound(path.to_string());
-        
+
         match error {
             DbError::FileNotFound(p) => assert_eq!(p, path),
             _ => panic!("Expected FileNotFound variant"),

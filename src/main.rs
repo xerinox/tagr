@@ -43,47 +43,51 @@
 //! the user's config directory (`~/.config/tagr/config.toml` on Linux).
 
 use tagr::{
-    db::Database,
-    cli::{Cli, Commands, ConfigCommands, DbCommands},
-    commands,
-    config,
     TagrError,
+    cli::{Cli, Commands, ConfigCommands, DbCommands},
+    commands, config,
+    db::Database,
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Handle the db command - manage multiple databases
 #[allow(clippy::too_many_lines)]
-fn handle_db_command(mut config: config::TagrConfig, command: &DbCommands, quiet: bool) -> Result<()> {
+fn handle_db_command(
+    mut config: config::TagrConfig,
+    command: &DbCommands,
+    quiet: bool,
+) -> Result<()> {
     match command {
         DbCommands::Add { name, path } => {
             if config.get_database(name).is_some() {
                 if !quiet {
                     eprintln!("Error: Database '{name}' already exists");
                 }
-                return Err(TagrError::InvalidInput(format!("Database '{name}' already exists")));
+                return Err(TagrError::InvalidInput(format!(
+                    "Database '{name}' already exists"
+                )));
             }
-            
+
             let resolved_path = if path.components().count() == 1 {
-                let data_dir = dirs::data_local_dir()
-                    .ok_or_else(|| TagrError::InvalidInput(
-                        "Could not determine data directory".into()
-                    ))?;
+                let data_dir = dirs::data_local_dir().ok_or_else(|| {
+                    TagrError::InvalidInput("Could not determine data directory".into())
+                })?;
                 data_dir.join("tagr").join(path)
             } else {
                 path.clone()
             };
-            
+
             config.add_database(name.clone(), resolved_path.clone())?;
-            
+
             if !resolved_path.exists() {
                 std::fs::create_dir_all(&resolved_path)?;
             }
-            
+
             if !quiet {
                 println!("Database '{name}' added at {}", resolved_path.display());
             }
-            
+
             if config.databases.len() == 1 {
                 config.set_default_database(name.clone())?;
                 if !quiet {
@@ -99,20 +103,20 @@ fn handle_db_command(mut config: config::TagrConfig, command: &DbCommands, quiet
                 }
                 return Ok(());
             }
-            
+
             if !quiet {
                 println!("Configured databases:");
             }
-            
+
             let default_db = config.get_default_database();
             let mut db_names: Vec<_> = config.list_databases();
             db_names.sort();
-            
+
             for name in db_names {
                 if let Some(path) = config.get_database(name) {
                     let is_default = default_db == Some(name);
                     let marker = if is_default { " (default)" } else { "" };
-                    
+
                     if quiet {
                         println!("{name}");
                     } else {
@@ -126,21 +130,25 @@ fn handle_db_command(mut config: config::TagrConfig, command: &DbCommands, quiet
                 if !quiet {
                     eprintln!("Error: Database '{name}' does not exist");
                 }
-                return Err(TagrError::InvalidInput(format!("Database '{name}' does not exist")));
+                return Err(TagrError::InvalidInput(format!(
+                    "Database '{name}' does not exist"
+                )));
             }
-            
+
             let is_default = config.get_default_database() == Some(name);
             if is_default && !quiet {
-                println!("Warning: Removing the default database. You'll need to set a new default.");
+                println!(
+                    "Warning: Removing the default database. You'll need to set a new default."
+                );
             }
-            
+
             let removed_path = config.remove_database(name)?;
-            
+
             if let Some(path) = removed_path {
                 if !quiet {
                     println!("Database '{name}' removed from configuration");
                 }
-                
+
                 if *delete_files {
                     if path.exists() {
                         match std::fs::remove_dir_all(&path) {
@@ -156,13 +164,19 @@ fn handle_db_command(mut config: config::TagrConfig, command: &DbCommands, quiet
                             }
                         }
                     } else if !quiet {
-                        println!("Database files at {} do not exist (already deleted)", path.display());
+                        println!(
+                            "Database files at {} do not exist (already deleted)",
+                            path.display()
+                        );
                     }
                 } else if !quiet {
-                    println!("Note: Database files at {} were NOT deleted", path.display());
+                    println!(
+                        "Note: Database files at {} were NOT deleted",
+                        path.display()
+                    );
                 }
             }
-            
+
             if is_default {
                 config.default_database = None;
                 config.save()?;
@@ -173,11 +187,13 @@ fn handle_db_command(mut config: config::TagrConfig, command: &DbCommands, quiet
                 if !quiet {
                     eprintln!("Error: Database '{name}' does not exist");
                 }
-                return Err(TagrError::InvalidInput(format!("Database '{name}' does not exist")));
+                return Err(TagrError::InvalidInput(format!(
+                    "Database '{name}' does not exist"
+                )));
             }
-            
+
             config.set_default_database(name.clone())?;
-            
+
             if !quiet {
                 println!("Set '{name}' as default database");
             }
@@ -199,25 +215,29 @@ fn handle_db_command(mut config: config::TagrConfig, command: &DbCommands, quiet
 ///
 /// Returns `TagrError` if the configuration key is invalid, value parsing fails,
 /// or configuration save fails.
-fn handle_config_command(mut config: config::TagrConfig, command: &ConfigCommands, quiet: bool) -> Result<()> {
+fn handle_config_command(
+    mut config: config::TagrConfig,
+    command: &ConfigCommands,
+    quiet: bool,
+) -> Result<()> {
     match command {
         ConfigCommands::Set { setting } => {
             let parts: Vec<&str> = setting.splitn(2, '=').collect();
             if parts.len() != 2 {
                 return Err(TagrError::InvalidInput(
-                    "Invalid format. Use: tagr config set key=value".into()
+                    "Invalid format. Use: tagr config set key=value".into(),
                 ));
             }
-            
+
             let key = parts[0].trim();
             let value = parts[1].trim();
-            
+
             match key {
                 "quiet" => {
                     let new_value = value.parse::<bool>().map_err(|_| {
-                        TagrError::InvalidInput(
-                            format!("Invalid value for quiet: '{value}'. Use 'true' or 'false'")
-                        )
+                        TagrError::InvalidInput(format!(
+                            "Invalid value for quiet: '{value}'. Use 'true' or 'false'"
+                        ))
                     })?;
                     config.quiet = new_value;
                     config.save()?;
@@ -230,9 +250,9 @@ fn handle_config_command(mut config: config::TagrConfig, command: &ConfigCommand
                         "absolute" | "abs" => config::PathFormat::Absolute,
                         "relative" | "rel" => config::PathFormat::Relative,
                         _ => {
-                            return Err(TagrError::InvalidInput(
-                                format!("Invalid value for path_format: '{value}'. Use 'absolute' or 'relative'")
-                            ));
+                            return Err(TagrError::InvalidInput(format!(
+                                "Invalid value for path_format: '{value}'. Use 'absolute' or 'relative'"
+                            )));
                         }
                     };
                     config.path_format = new_value;
@@ -242,31 +262,29 @@ fn handle_config_command(mut config: config::TagrConfig, command: &ConfigCommand
                     }
                 }
                 _ => {
-                    return Err(TagrError::InvalidInput(
-                        format!("Unknown configuration key: '{key}'. Available keys: quiet, path_format")
-                    ));
+                    return Err(TagrError::InvalidInput(format!(
+                        "Unknown configuration key: '{key}'. Available keys: quiet, path_format"
+                    )));
                 }
             }
         }
-        ConfigCommands::Get { key } => {
-            match key.as_str() {
-                "quiet" => {
-                    println!("{}", config.quiet);
-                }
-                "path_format" | "path-format" => {
-                    let value = match config.path_format {
-                        config::PathFormat::Absolute => "absolute",
-                        config::PathFormat::Relative => "relative",
-                    };
-                    println!("{value}");
-                }
-                _ => {
-                    return Err(TagrError::InvalidInput(
-                        format!("Unknown configuration key: '{key}'. Available keys: quiet, path_format")
-                    ));
-                }
+        ConfigCommands::Get { key } => match key.as_str() {
+            "quiet" => {
+                println!("{}", config.quiet);
             }
-        }
+            "path_format" | "path-format" => {
+                let value = match config.path_format {
+                    config::PathFormat::Absolute => "absolute",
+                    config::PathFormat::Relative => "relative",
+                };
+                println!("{value}");
+            }
+            _ => {
+                return Err(TagrError::InvalidInput(format!(
+                    "Unknown configuration key: '{key}'. Available keys: quiet, path_format"
+                )));
+            }
+        },
     }
     Ok(())
 }
@@ -282,13 +300,13 @@ fn handle_config_command(mut config: config::TagrConfig, command: &ConfigCommand
 /// or any command handler returns an error.
 fn main() -> Result<()> {
     let config = config::TagrConfig::load_or_setup()?;
-    
+
     let cli = Cli::parse_args();
-    
+
     let quiet = cli.quiet || config.quiet;
-    
+
     let command = cli.get_command();
-    
+
     if let Commands::Db { command } = &command {
         handle_db_command(config, command, quiet)?;
     } else if let Commands::Config { command } = &command {
@@ -299,14 +317,13 @@ fn main() -> Result<()> {
         }).ok_or_else(|| TagrError::InvalidInput(
             "No default database set. Use 'tagr db add <name> <path>' to create one, or specify --db <name>.".into()
         ))?;
-        
-        let db_path = config.get_database(&db_name)
-            .ok_or_else(|| TagrError::InvalidInput(
-                format!("Database '{db_name}' not found in configuration")
-            ))?;
-        
+
+        let db_path = config.get_database(&db_name).ok_or_else(|| {
+            TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
+        })?;
+
         let db = Database::open(db_path)?;
-        
+
         // Determine path format: CLI override > config default
         let path_format = if let Some(cli_format) = cli.get_path_format() {
             match cli_format {
@@ -316,16 +333,26 @@ fn main() -> Result<()> {
         } else {
             config.path_format
         };
-        
+
         match &command {
             Commands::Browse { filter_args, .. } => {
                 let search_params = command.get_search_params_from_browse();
                 let execute_cmd = command.get_execute_from_browse();
-                
-                let save_filter = filter_args.save_filter.as_ref()
+
+                let save_filter = filter_args
+                    .save_filter
+                    .as_ref()
                     .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
-                
-                commands::browse(&db, search_params, filter_args.filter.as_deref(), save_filter, execute_cmd, path_format, quiet)?;
+
+                commands::browse(
+                    &db,
+                    search_params,
+                    filter_args.filter.as_deref(),
+                    save_filter,
+                    execute_cmd,
+                    path_format,
+                    quiet,
+                )?;
             }
             Commands::Tag { .. } => {
                 let file = command.get_file_from_tag();
@@ -333,13 +360,23 @@ fn main() -> Result<()> {
                 commands::tag(&db, file, tags, quiet)?;
             }
             Commands::Search { filter_args, .. } => {
-                let params = command.get_search_params()
-                    .ok_or_else(|| TagrError::InvalidInput("Failed to parse search parameters".into()))?;
-                
-                let save_filter = filter_args.save_filter.as_ref()
+                let params = command.get_search_params().ok_or_else(|| {
+                    TagrError::InvalidInput("Failed to parse search parameters".into())
+                })?;
+
+                let save_filter = filter_args
+                    .save_filter
+                    .as_ref()
                     .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
-                
-                commands::search(&db, params, filter_args.filter.as_deref(), save_filter, path_format, quiet)?;
+
+                commands::search(
+                    &db,
+                    params,
+                    filter_args.filter.as_deref(),
+                    save_filter,
+                    path_format,
+                    quiet,
+                )?;
             }
             Commands::Untag { .. } => {
                 let file = command.get_file_from_untag();
@@ -363,6 +400,6 @@ fn main() -> Result<()> {
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }
     }
-    
+
     Ok(())
 }

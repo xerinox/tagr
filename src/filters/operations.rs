@@ -3,10 +3,10 @@
 //! This module provides a `FilterManager` for managing saved filters with
 //! idiomatic Rust APIs.
 
-use std::fs;
-use std::path::PathBuf;
 use super::error::FilterError;
 use super::types::{Filter, FilterCriteria, FilterStorage};
+use std::fs;
+use std::path::PathBuf;
 
 /// Manager for filter operations
 ///
@@ -101,10 +101,10 @@ impl FilterManager {
         let mut storage = self.load()?;
 
         let filter = Filter::new(name.to_string(), description, criteria);
-        filter.validate()
-            .map_err(FilterError::InvalidCriteria)?;
+        filter.validate().map_err(FilterError::InvalidCriteria)?;
 
-        storage.add(filter.clone())
+        storage
+            .add(filter.clone())
             .map_err(|_e| FilterError::AlreadyExists(name.to_string()))?;
 
         self.save(&storage)?;
@@ -121,7 +121,8 @@ impl FilterManager {
     /// - The filter is not found
     pub fn get(&self, name: &str) -> Result<Filter, FilterError> {
         let storage = self.load()?;
-        storage.get(name)
+        storage
+            .get(name)
             .cloned()
             .ok_or_else(|| FilterError::NotFound(name.to_string()))
     }
@@ -137,10 +138,10 @@ impl FilterManager {
     pub fn update(&self, filter: Filter) -> Result<(), FilterError> {
         let mut storage = self.load()?;
 
-        filter.validate()
-            .map_err(FilterError::InvalidCriteria)?;
+        filter.validate().map_err(FilterError::InvalidCriteria)?;
 
-        storage.update(filter)
+        storage
+            .update(filter)
             .map_err(FilterError::InvalidCriteria)?;
 
         self.save(&storage)?;
@@ -158,7 +159,8 @@ impl FilterManager {
     pub fn delete(&self, name: &str) -> Result<Filter, FilterError> {
         let mut storage = self.load()?;
 
-        let filter = storage.remove(name)
+        let filter = storage
+            .remove(name)
             .ok_or_else(|| FilterError::NotFound(name.to_string()))?;
 
         self.save(&storage)?;
@@ -185,7 +187,8 @@ impl FilterManager {
             return Err(FilterError::AlreadyExists(new_name));
         }
 
-        let mut filter = storage.remove(old_name)
+        let mut filter = storage
+            .remove(old_name)
             .ok_or_else(|| FilterError::NotFound(old_name.to_string()))?;
 
         filter.name = new_name;
@@ -216,7 +219,8 @@ impl FilterManager {
     pub fn record_use(&self, name: &str) -> Result<(), FilterError> {
         let mut storage = self.load()?;
 
-        let filter = storage.get_mut(name)
+        let filter = storage
+            .get_mut(name)
             .ok_or_else(|| FilterError::NotFound(name.to_string()))?;
 
         filter.record_use();
@@ -236,7 +240,11 @@ impl FilterManager {
     /// Returns `FilterError` if:
     /// - Any specified filter is not found
     /// - The export file cannot be written
-    pub fn export(&self, export_path: &PathBuf, filter_names: &[String]) -> Result<(), FilterError> {
+    pub fn export(
+        &self,
+        export_path: &PathBuf,
+        filter_names: &[String],
+    ) -> Result<(), FilterError> {
         let storage = self.load()?;
 
         let filters_to_export = if filter_names.is_empty() {
@@ -244,7 +252,8 @@ impl FilterManager {
         } else {
             let mut exported = Vec::new();
             for name in filter_names {
-                let filter = storage.get(name)
+                let filter = storage
+                    .get(name)
                     .ok_or_else(|| FilterError::NotFound(name.clone()))?;
                 exported.push(filter.clone());
             }
@@ -287,7 +296,7 @@ impl FilterManager {
         skip_existing: bool,
     ) -> Result<(usize, usize), FilterError> {
         let mut storage = self.load()?;
-        
+
         let contents = fs::read_to_string(import_path)?;
         let import_storage: FilterStorage = toml::from_str(&contents)?;
 
@@ -297,7 +306,8 @@ impl FilterManager {
         for filter in import_storage.filters {
             if storage.contains(&filter.name) {
                 if overwrite {
-                    storage.update(filter)
+                    storage
+                        .update(filter)
                         .map_err(FilterError::InvalidCriteria)?;
                     imported += 1;
                 } else if skip_existing {
@@ -306,7 +316,8 @@ impl FilterManager {
                     return Err(FilterError::AlreadyExists(filter.name));
                 }
             } else {
-                storage.add(filter.clone())
+                storage
+                    .add(filter.clone())
                     .map_err(|_e| FilterError::AlreadyExists(filter.name.clone()))?;
                 imported += 1;
             }
@@ -330,7 +341,7 @@ mod tests {
     use std::env;
 
     fn temp_path(name: &str) -> PathBuf {
-        env::temp_dir().join(format!("tagr_test_{}.toml", name))
+        env::temp_dir().join(format!("tagr_test_{name}.toml"))
     }
 
     #[test]
@@ -364,7 +375,9 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("to-delete", "".to_string(), criteria).unwrap();
+        manager
+            .create("to-delete", String::new(), criteria)
+            .unwrap();
 
         let result = manager.delete("to-delete");
         assert!(result.is_ok());
@@ -385,7 +398,7 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("old-name", "".to_string(), criteria).unwrap();
+        manager.create("old-name", String::new(), criteria).unwrap();
 
         let result = manager.rename("old-name", "new-name".to_string());
         assert!(result.is_ok());
@@ -412,8 +425,10 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("filter1", "".to_string(), criteria.clone()).unwrap();
-        manager.create("filter2", "".to_string(), criteria).unwrap();
+        manager
+            .create("filter1", String::new(), criteria.clone())
+            .unwrap();
+        manager.create("filter2", String::new(), criteria).unwrap();
 
         manager.export(&export_path, &[]).unwrap();
 
