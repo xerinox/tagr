@@ -503,15 +503,12 @@ fn test_filter_create_and_list() {
     let test_mgr = TestFilterManager::new("create_list");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["rust".into(), "tutorial".into()],
-        tagr::cli::SearchMode::All,
-        vec!["*.rs".into()],
-        tagr::cli::SearchMode::Any,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tags(vec!["rust".into(), "tutorial".into()])
+        .tag_mode(TagMode::All)
+        .file_patterns(vec!["*.rs".into()])
+        .file_mode(FileMode::Any)
+        .build();
     
     let result = manager.create("test-filter", "Test filter".into(), criteria);
     assert!(result.is_ok());
@@ -527,15 +524,15 @@ fn test_filter_create_with_all_options() {
     let test_mgr = TestFilterManager::new("create_full");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["rust".into(), "tutorial".into(), "documentation".into()],
-        tagr::cli::SearchMode::All,
-        vec!["*.rs".into(), "*.toml".into()],
-        tagr::cli::SearchMode::Any,
-        vec!["deprecated".into(), "old".into()],
-        true,  // regex_tag
-        false, // regex_file
-    );
+    let criteria = FilterCriteria::builder()
+        .tags(vec!["rust".into(), "tutorial".into(), "documentation".into()])
+        .tag_mode(TagMode::All)
+        .file_patterns(vec!["*.rs".into(), "*.toml".into()])
+        .file_mode(FileMode::Any)
+        .excludes(vec!["deprecated".into(), "old".into()])
+        .regex_tag(true)
+        .regex_file(false)
+        .build();
     
     let filter = manager.create(
         "complex-filter",
@@ -558,15 +555,12 @@ fn test_filter_get_and_show() {
     let test_mgr = TestFilterManager::new("get_show");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["rust".into()],
-        tagr::cli::SearchMode::All,
-        vec!["src/*.rs".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tags(vec!["rust".into()])
+        .tag_mode(TagMode::All)
+        .file_patterns(vec!["src/*.rs".into()])
+        .file_mode(FileMode::All)
+        .build();
     
     manager.create("get-test", "Get test filter".into(), criteria).unwrap();
     
@@ -591,15 +585,9 @@ fn test_filter_rename() {
     let test_mgr = TestFilterManager::new("rename");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["test".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tag("test".into())
+        .build();
     
     manager.create("old-name", "Description".into(), criteria).unwrap();
     
@@ -615,15 +603,9 @@ fn test_filter_delete() {
     let test_mgr = TestFilterManager::new("delete");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["test".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tag("test".into())
+        .build();
     
     manager.create("to-delete", "Will be deleted".into(), criteria).unwrap();
     assert!(manager.get("to-delete").is_ok());
@@ -639,15 +621,9 @@ fn test_filter_duplicate_name() {
     let test_mgr = TestFilterManager::new("duplicate");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["test".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tag("test".into())
+        .build();
     
     manager.create("duplicate", "First".into(), criteria.clone()).unwrap();
     
@@ -662,25 +638,15 @@ fn test_filter_export_and_import() {
     let temp_file = TempFilterFile::new("test_export.toml");
     let export_path = temp_file.path();
     
-    let criteria1 = FilterCriteria::from_search_params(
-        vec!["rust".into()],
-        tagr::cli::SearchMode::All,
-        vec!["*.rs".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria1 = FilterCriteria::builder()
+        .tag("rust".into())
+        .file_pattern("*.rs".into())
+        .build();
     
-    let criteria2 = FilterCriteria::from_search_params(
-        vec!["python".into()],
-        tagr::cli::SearchMode::All,
-        vec!["*.py".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria2 = FilterCriteria::builder()
+        .tag("python".into())
+        .file_pattern("*.py".into())
+        .build();
     
     manager.create("filter1", "First filter".into(), criteria1).unwrap();
     manager.create("filter2", "Second filter".into(), criteria2).unwrap();
@@ -708,15 +674,9 @@ fn test_filter_export_selective() {
     let temp_file = TempFilterFile::new("test_export_selective.toml");
     let export_path = temp_file.path();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["test".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tag("test".into())
+        .build();
     
     manager.create("filter-a", "A".into(), criteria.clone()).unwrap();
     manager.create("filter-b", "B".into(), criteria.clone()).unwrap();
@@ -748,25 +708,13 @@ fn test_filter_import_conflict_skip() {
     let temp_file = TempFilterFile::new("test_import_skip.toml");
     let export_path = temp_file.path();
     
-    let criteria1 = FilterCriteria::from_search_params(
-        vec!["existing".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria1 = FilterCriteria::builder()
+        .tag("existing".into())
+        .build();
     
-    let criteria2 = FilterCriteria::from_search_params(
-        vec!["new".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria2 = FilterCriteria::builder()
+        .tag("new".into())
+        .build();
     
     // Create existing filter
     manager.create("conflict", "Original".into(), criteria1.clone()).unwrap();
@@ -797,25 +745,13 @@ fn test_filter_import_conflict_overwrite() {
     let temp_file = TempFilterFile::new("test_import_overwrite.toml");
     let export_path = temp_file.path();
     
-    let criteria1 = FilterCriteria::from_search_params(
-        vec!["original".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria1 = FilterCriteria::builder()
+        .tag("original".into())
+        .build();
     
-    let criteria2 = FilterCriteria::from_search_params(
-        vec!["updated".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria2 = FilterCriteria::builder()
+        .tag("updated".into())
+        .build();
     
     // Create existing filter
     manager.create("overwrite-me", "Original".into(), criteria1).unwrap();
@@ -841,15 +777,9 @@ fn test_filter_usage_tracking() {
     let test_mgr = TestFilterManager::new("usage_tracking");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["test".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tag("test".into())
+        .build();
     
     let filter = manager.create("track-usage", "Test".into(), criteria).unwrap();
     assert_eq!(filter.use_count, 0);
@@ -872,15 +802,7 @@ fn test_filter_criteria_validation() {
     let manager = test_mgr.manager();
     
     // Empty criteria should fail
-    let empty_criteria = FilterCriteria::from_search_params(
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let empty_criteria = FilterCriteria::builder().build();
     
     let result = manager.create("invalid", "Invalid".into(), empty_criteria);
     assert!(result.is_err());
@@ -891,15 +813,9 @@ fn test_filter_name_validation() {
     let test_mgr = TestFilterManager::new("name_validation");
     let manager = test_mgr.manager();
     
-    let criteria = FilterCriteria::from_search_params(
-        vec!["test".into()],
-        tagr::cli::SearchMode::All,
-        vec![],
-        tagr::cli::SearchMode::All,
-        vec![],
-        false,
-        false,
-    );
+    let criteria = FilterCriteria::builder()
+        .tag("test".into())
+        .build();
     
     // Invalid characters
     let result = manager.create("invalid name!", "Invalid".into(), criteria.clone());
