@@ -19,14 +19,16 @@
 //! # Examples
 //!
 //! ```no_run
-//! use tagr::vtags::{VirtualTagParser, VirtualTagEvaluator, VirtualTagConfig};
+//! use tagr::vtags::{VirtualTag, VirtualTagEvaluator, VirtualTagConfig};
 //! use std::path::Path;
 //! use std::time::Duration;
 //!
-//! // Parse a virtual tag
+//! // Parse a virtual tag using TryFrom
+//! let vtag: VirtualTag = "modified:today".try_into().unwrap();
+//!
+//! // Or with custom config for size categories
 //! let config = VirtualTagConfig::default();
-//! let parser = VirtualTagParser::new(config.clone());
-//! let vtag = parser.parse("modified:today").unwrap();
+//! let vtag = VirtualTag::parse_with_config("size:>1MB", &config).unwrap();
 //!
 //! // Evaluate against a file
 //! let cache_ttl = Duration::from_secs(300);
@@ -37,7 +39,7 @@
 //! # Modules
 //!
 //! - [`types`]: Virtual tag type definitions and enums
-//! - [`parser`]: Parse virtual tag strings into VirtualTag enums
+//! - [`parser`]: Parse virtual tag strings into `VirtualTag` enums
 //! - [`evaluator`]: Evaluate virtual tags against file metadata
 //! - [`cache`]: Metadata caching layer for performance
 //! - [`config`]: Virtual tag configuration and defaults
@@ -51,7 +53,7 @@ pub mod types;
 pub use cache::{FileMetadata, MetadataCache};
 pub use config::VirtualTagConfig;
 pub use evaluator::VirtualTagEvaluator;
-pub use parser::{ParseError, VirtualTagParser};
+pub use parser::ParseError;
 pub use types::{
     ExtTypeCategory, GitCondition, PermissionCondition, RangeCondition, SizeCategory,
     SizeCondition, TimeCondition, VirtualTag,

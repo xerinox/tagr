@@ -96,13 +96,10 @@ mod tests {
 
         for error in errors {
             match error {
-                SearchError::InterruptedError => {
-                    // Expected
-                }
                 SearchError::BuildError(msg) => {
                     assert_eq!(msg, "error1");
                 }
-                SearchError::DatabaseError(_) => {
+                SearchError::InterruptedError | SearchError::DatabaseError(_) => {
                     // Expected
                 }
             }

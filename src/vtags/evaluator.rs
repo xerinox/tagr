@@ -25,17 +25,19 @@ impl VirtualTagEvaluator {
         }
     }
 
+    /// # Errors
+    /// Returns an error if file metadata or content cannot be read.
     pub fn matches(&mut self, path: &Path, vtag: &VirtualTag) -> io::Result<bool> {
         match vtag {
             VirtualTag::Modified(cond) => self.check_time(path, cond, TimeField::Modified),
             VirtualTag::Created(cond) => self.check_time(path, cond, TimeField::Created),
             VirtualTag::Accessed(cond) => self.check_time(path, cond, TimeField::Accessed),
             VirtualTag::Size(cond) => self.check_size(path, cond),
-            VirtualTag::Extension(ext) => Ok(self.check_extension(path, ext)),
+            VirtualTag::Extension(ext) => Ok(Self::check_extension(path, ext)),
             VirtualTag::ExtensionType(category) => Ok(self.check_ext_type(path, *category)),
-            VirtualTag::Directory(dir) => Ok(self.check_directory(path, dir)),
-            VirtualTag::Path(pattern) => Ok(self.check_path_pattern(path, pattern)),
-            VirtualTag::Depth(range) => Ok(self.check_depth(path, range)),
+            VirtualTag::Directory(dir) => Ok(Self::check_directory(path, dir)),
+            VirtualTag::Path(pattern) => Ok(Self::check_path_pattern(path, pattern)),
+            VirtualTag::Depth(range) => Ok(Self::check_depth(path, range)),
             VirtualTag::Permission(perm) => self.check_permission(path, perm),
             VirtualTag::Lines(range) => self.check_lines(path, range),
             VirtualTag::Git(_cond) => Ok(false),
@@ -67,7 +69,7 @@ impl VirtualTagEvaluator {
         Ok(self.evaluate_size_condition(metadata.size, cond))
     }
 
-    fn check_extension(&self, path: &Path, ext: &str) -> bool {
+    fn check_extension(path: &Path, ext: &str) -> bool {
         path.extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| {
@@ -99,16 +101,16 @@ impl VirtualTagEvaluator {
         false
     }
 
-    fn check_directory(&self, path: &Path, dir: &Path) -> bool {
+    fn check_directory(path: &Path, dir: &Path) -> bool {
         path.parent()
             .is_some_and(|parent| parent == dir || parent.ends_with(dir))
     }
 
-    fn check_path_pattern(&self, path: &Path, pattern: &glob::Pattern) -> bool {
+    fn check_path_pattern(path: &Path, pattern: &glob::Pattern) -> bool {
         pattern.matches_path(path)
     }
 
-    fn check_depth(&self, path: &Path, range: &RangeCondition) -> bool {
+    fn check_depth(path: &Path, range: &RangeCondition) -> bool {
         let depth = path.components().count() as u64;
         evaluate_range_condition(depth, range)
     }
@@ -168,6 +170,7 @@ impl VirtualTagEvaluator {
     }
 }
 
+#[derive(Copy, Clone)]
 enum TimeField {
     Modified,
     Created,

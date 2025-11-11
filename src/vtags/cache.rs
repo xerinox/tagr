@@ -1,17 +1,11 @@
-use std::collections::HashMap;
+use moka::sync::Cache;
 use std::fs::Permissions;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 pub struct MetadataCache {
-    cache: HashMap<PathBuf, CachedEntry>,
-    ttl: Duration,
-}
-
-struct CachedEntry {
-    metadata: FileMetadata,
-    cached_at: Instant,
+    cache: Cache<PathBuf, FileMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -30,28 +24,21 @@ impl MetadataCache {
     #[must_use] 
     pub fn new(ttl: Duration) -> Self {
         Self {
-            cache: HashMap::new(),
-            ttl,
+            cache: Cache::builder()
+                .time_to_idle(ttl)
+                .build(),
         }
     }
 
+    /// # Errors
+    /// Returns an error if the file metadata cannot be read from the filesystem.
     pub fn get(&mut self, path: &Path) -> io::Result<FileMetadata> {
-        let now = Instant::now();
-
-        if let Some(entry) = self.cache.get(path)
-            && now.duration_since(entry.cached_at) < self.ttl {
-                return Ok(entry.metadata.clone());
-            }
+        if let Some(metadata) = self.cache.get(&path.to_path_buf()) {
+            return Ok(metadata);
+        }
 
         let metadata = Self::fetch_metadata(path)?;
-
-        self.cache.insert(
-            path.to_path_buf(),
-            CachedEntry {
-                metadata: metadata.clone(),
-                cached_at: now,
-            },
-        );
+        self.cache.insert(path.to_path_buf(), metadata.clone());
 
         Ok(metadata)
     }
@@ -72,12 +59,11 @@ impl MetadataCache {
     }
 
     pub fn cleanup(&mut self) {
-        let now = Instant::now();
-        self.cache
-            .retain(|_, entry| now.duration_since(entry.cached_at) < self.ttl);
+        // Moka automatically handles TTL-based eviction
+        self.cache.run_pending_tasks();
     }
 
     pub fn clear(&mut self) {
-        self.cache.clear();
+        self.cache.invalidate_all();
     }
 }

@@ -120,36 +120,13 @@ impl Default for VirtualTagConfig {
 
 impl VirtualTagConfig {
     #[must_use]
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn parse_size(&self, size_str: &str) -> Option<u64> {
-        let size_str = size_str.trim().to_uppercase();
+        use byte_unit::Byte;
         
-        if let Ok(size) = size_str.parse::<u64>() {
-            return Some(size);
-        }
-        
-        let (num_part, unit) = if let Some(idx) = size_str.find(|c: char| c.is_alphabetic()) {
-            (&size_str[..idx], &size_str[idx..])
-        } else {
-            return None;
-        };
-        
-        let num: f64 = num_part.trim().parse().ok()?;
-        
-        let multiplier: u64 = match unit {
-            "B" => 1,
-            "KB" => 1_000,
-            "MB" => 1_000_000,
-            "GB" => 1_000_000_000,
-            "TB" => 1_000_000_000_000,
-            "KIB" => 1_024,
-            "MIB" => 1_048_576,
-            "GIB" => 1_073_741_824,
-            "TIB" => 1_099_511_627_776,
-            _ => return None,
-        };
-        
-        Some((num * multiplier as f64) as u64)
+        // Try parsing with byte-unit
+        Byte::parse_str(size_str, true)
+            .ok()
+            .map(byte_unit::Byte::as_u64)
     }
 
     #[must_use] 

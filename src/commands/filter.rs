@@ -196,14 +196,14 @@ fn show_filter(name: &str, quiet: bool) -> Result<()> {
     }
     
     if !filter.criteria.virtual_tags.is_empty() {
-        println!("Virtual Tags: {}", format!(
-            "{} ({})",
+        println!(
+            "Virtual Tags: {} ({})",
             filter.criteria.virtual_tags.join(", "),
             match filter.criteria.virtual_mode {
                 TagMode::All => "ALL",
                 TagMode::Any => "ANY",
             }
-        ));
+        );
     }
     
     if filter.criteria.regex_tag || filter.criteria.regex_file {

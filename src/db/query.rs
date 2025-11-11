@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::db::{Database, DbError};
 use crate::cli::{SearchParams, SearchMode};
 use crate::search::filter::{PathFilterExt, PathTagFilterExt};
-use crate::vtags::{VirtualTagConfig, VirtualTagEvaluator, VirtualTagParser};
+use crate::vtags::{VirtualTag, VirtualTagConfig, VirtualTagEvaluator};
 
 /// Apply search parameters to build a filtered file list
 ///
@@ -130,10 +130,9 @@ fn apply_virtual_tags(
     
     let config = VirtualTagConfig::default();
     
-    let parser = VirtualTagParser::new(config.clone());
-    let parsed_tags: Vec<_> = virtual_tags
+    let parsed_tags: Vec<VirtualTag> = virtual_tags
         .iter()
-        .map(|s| parser.parse(s))
+        .map(|s| VirtualTag::parse_with_config(s, &config))
         .collect::<Result<_, _>>()
         .map_err(|e| DbError::InvalidInput(format!("Invalid virtual tag: {e}")))?;
     

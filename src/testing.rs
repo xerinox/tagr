@@ -134,6 +134,8 @@ impl TempFile {
     ///
     /// # Errors
     /// Returns an `io::Error` if the file cannot be created.
+    /// # Panics
+    /// Panics if the system time is before the Unix epoch.
     pub fn create(filename: impl AsRef<Path>) -> std::io::Result<Self> {
         use std::time::{SystemTime, UNIX_EPOCH};
         
@@ -157,6 +159,8 @@ impl TempFile {
     ///
     /// # Errors
     /// Returns an `io::Error` if the file cannot be created.
+    /// # Panics
+    /// Panics if the system time is before the Unix epoch.
     pub fn create_with_content(filename: impl AsRef<Path>, content: &[u8]) -> std::io::Result<Self> {
         use std::time::{SystemTime, UNIX_EPOCH};
         
