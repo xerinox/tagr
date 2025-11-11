@@ -87,6 +87,10 @@ pub struct SearchParams {
     pub regex_tag: bool,
     /// Use regex for file pattern matching
     pub regex_file: bool,
+    /// Virtual tags to filter by
+    pub virtual_tags: Vec<String>,
+    /// How to combine multiple virtual tags (AND/OR)
+    pub virtual_mode: SearchMode,
 }
 
 impl SearchParams {
@@ -164,6 +168,8 @@ impl From<&crate::filters::FilterCriteria> for SearchParams {
             exclude_tags: criteria.excludes.clone(),
             regex_tag: criteria.regex_tag,
             regex_file: criteria.regex_file,
+            virtual_tags: Vec::new(),
+            virtual_mode: SearchMode::All,
         }
     }
 }
@@ -474,6 +480,10 @@ pub enum Commands {
         #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
         exclude_tags: Vec<String>,
 
+        /// Virtual tags to filter by (can specify multiple: -v tag1 -v tag2)
+        #[arg(short = 'v', long = "virtual-tag", value_name = "VTAG", num_args = 0..)]
+        virtual_tags: Vec<String>,
+
         /// Execute command for each selected file (use {} as placeholder for file path)
         #[arg(short = 'x', long = "exec", value_name = "COMMAND")]
         execute: Option<String>,
@@ -568,6 +578,18 @@ pub enum Commands {
         /// Use regex matching for file patterns
         #[arg(long = "regex-file")]
         regex_file: bool,
+
+        /// Virtual tags to filter by (can specify multiple: -v tag1 -v tag2)
+        #[arg(short = 'v', long = "virtual-tag", value_name = "VTAG", num_args = 0..)]
+        virtual_tags: Vec<String>,
+
+        /// Match files with ANY of the virtual tags (OR logic, default is AND)
+        #[arg(long = "any-virtual", conflicts_with = "all_virtual")]
+        any_virtual: bool,
+
+        /// Match files with ALL of the virtual tags (AND logic, explicit)
+        #[arg(long = "all-virtual", conflicts_with = "any_virtual")]
+        all_virtual: bool,
 
         #[command(flatten)]
         db_args: DbArgs,
@@ -669,6 +691,9 @@ impl Commands {
                 exclude_tags,
                 regex_tag,
                 regex_file,
+                virtual_tags,
+                any_virtual,
+                all_virtual: _all_virtual,
                 ..
             } => Some(SearchParams {
                 query: query.clone(),
@@ -687,6 +712,12 @@ impl Commands {
                 exclude_tags: exclude_tags.clone(),
                 regex_tag: *regex_tag,
                 regex_file: *regex_file,
+                virtual_tags: virtual_tags.clone(),
+                virtual_mode: if *any_virtual {
+                    SearchMode::Any
+                } else {
+                    SearchMode::All
+                },
             }),
             _ => None,
         }
@@ -710,10 +741,11 @@ impl Commands {
                 tags,
                 file_patterns,
                 exclude_tags,
+                virtual_tags,
                 ..
             } => {
                 // Only return search params if at least one filter is specified
-                if query.is_some() || !tags.is_empty() || !file_patterns.is_empty() || !exclude_tags.is_empty() {
+                if query.is_some() || !tags.is_empty() || !file_patterns.is_empty() || !exclude_tags.is_empty() || !virtual_tags.is_empty() {
                     Some(SearchParams {
                         query: query.clone(),
                         tags: tags.clone(),
@@ -723,6 +755,8 @@ impl Commands {
                         exclude_tags: exclude_tags.clone(),
                         regex_tag: false,
                         regex_file: false,
+                        virtual_tags: virtual_tags.clone(),
+                        virtual_mode: SearchMode::Any,
                     })
                 } else {
                     None
@@ -797,6 +831,7 @@ impl Cli {
             tags: Vec::new(),
             file_patterns: Vec::new(),
             exclude_tags: Vec::new(),
+            virtual_tags: Vec::new(),
             execute: None,
             db_args: DbArgs { db: None },
             filter_args: FilterArgs {

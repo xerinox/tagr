@@ -152,6 +152,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -182,6 +184,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -210,6 +214,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -241,6 +247,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: false,
             regex_file: true,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -271,6 +279,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: true,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -296,6 +306,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -325,6 +337,8 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
         };
 
         let results = apply_search_params(db, &params).unwrap();
