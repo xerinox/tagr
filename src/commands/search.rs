@@ -4,6 +4,7 @@ use crate::{
     db::{Database, query},
     cli::{SearchParams, SearchMode},
     config,
+    filters::{FilterManager, FilterCriteria},
     output,
     TagrError,
 };
@@ -17,10 +18,27 @@ type Result<T> = std::result::Result<T, TagrError>;
 /// Returns an error if database operations fail or search parameters are invalid
 pub fn execute(
     db: &Database,
-    params: &SearchParams,
+    mut params: SearchParams,
+    filter_name: Option<&str>,
+    save_filter: Option<(&str, Option<&str>)>,
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
+    if let Some(name) = filter_name {
+        let filter_path = crate::filters::get_filter_path()?;
+        let manager = FilterManager::new(filter_path);
+        let filter = manager.get(name)?;
+        
+        let filter_params = SearchParams::from(&filter.criteria);
+        params.merge(&filter_params);
+        
+        manager.record_use(name)?;
+        
+        if !quiet {
+            println!("Using filter '{}'", name);
+        }
+    }
+    
     // Validate query mode doesn't mix with other flags
     if params.query.is_some() && (!params.tags.is_empty() || !params.file_patterns.is_empty()) {
         return Err(TagrError::InvalidInput(
@@ -32,23 +50,36 @@ pub fn execute(
         return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags or -f for file patterns.".into()));
     }
     
-    let files = query::apply_search_params(db, params)?;
+    let files = query::apply_search_params(db, &params)?;
 
     if let Some(query) = &params.query {
         print_results(db, &files, query, path_format, quiet);
     } else if files.is_empty() {
         if !quiet {
-            let criteria = build_criteria_description(params);
+            let criteria = build_criteria_description(&params);
             println!("No files found matching {criteria}");
         }
     } else {
         if !quiet {
-            let description = build_search_description(params);
+            let description = build_search_description(&params);
             println!("Found {} file(s) matching {}:", files.len(), description);
         }
         
         for file in files {
             print_file_with_tags(db, &file, path_format, quiet);
+        }
+    }
+    
+    if let Some((name, desc)) = save_filter {
+        let filter_path = crate::filters::get_filter_path()?;
+        let manager = FilterManager::new(filter_path);
+        let criteria = FilterCriteria::from(params);
+        let description = desc.unwrap_or("Saved search filter");
+        
+        manager.create(name, description.to_string(), criteria)?;
+        
+        if !quiet {
+            println!("\nSaved filter '{}'", name);
         }
     }
     
