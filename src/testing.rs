@@ -202,7 +202,8 @@ impl Drop for TempFile {
         // Best effort cleanup - ignore errors
         let _ = fs::remove_file(&self.path);
         if let Some(ref temp_dir) = self.temp_dir {
-            let _ = fs::remove_dir(temp_dir);
+            // Use remove_dir_all to ensure complete cleanup even if dir has other files
+            let _ = fs::remove_dir_all(temp_dir);
         }
     }
 }
