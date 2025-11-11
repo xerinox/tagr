@@ -89,6 +89,85 @@ pub struct SearchParams {
     pub regex_file: bool,
 }
 
+impl SearchParams {
+    /// Merge with another SearchParams (typically from a loaded filter)
+    ///
+    /// This extends the current params with additional criteria:
+    /// - Tags and file patterns are combined
+    /// - Exclusions are merged
+    /// - Regex flags are OR'd
+    /// - Modes are preserved from self (CLI takes precedence)
+    pub fn merge(&mut self, other: &Self) {
+        for tag in &other.tags {
+            if !self.tags.contains(tag) {
+                self.tags.push(tag.clone());
+            }
+        }
+
+        for pattern in &other.file_patterns {
+            if !self.file_patterns.contains(pattern) {
+                self.file_patterns.push(pattern.clone());
+            }
+        }
+
+        for exclude in &other.exclude_tags {
+            if !self.exclude_tags.contains(exclude) {
+                self.exclude_tags.push(exclude.clone());
+            }
+        }
+
+        self.regex_tag = self.regex_tag || other.regex_tag;
+        self.regex_file = self.regex_file || other.regex_file;
+    }
+}
+
+impl From<SearchParams> for crate::filters::FilterCriteria {
+    /// Convert SearchParams to FilterCriteria for saving as a filter
+    ///
+    /// Note: The general query is not preserved in FilterCriteria since
+    /// filters use explicit tags and file patterns only.
+    fn from(params: SearchParams) -> Self {
+        Self {
+            tags: params.tags,
+            tag_mode: params.tag_mode.into(),
+            file_patterns: params.file_patterns,
+            file_mode: params.file_mode.into(),
+            excludes: params.exclude_tags,
+            regex_tag: params.regex_tag,
+            regex_file: params.regex_file,
+        }
+    }
+}
+
+impl From<&SearchParams> for crate::filters::FilterCriteria {
+    fn from(params: &SearchParams) -> Self {
+        Self {
+            tags: params.tags.clone(),
+            tag_mode: params.tag_mode.into(),
+            file_patterns: params.file_patterns.clone(),
+            file_mode: params.file_mode.into(),
+            excludes: params.exclude_tags.clone(),
+            regex_tag: params.regex_tag,
+            regex_file: params.regex_file,
+        }
+    }
+}
+
+impl From<&crate::filters::FilterCriteria> for SearchParams {
+    fn from(criteria: &crate::filters::FilterCriteria) -> Self {
+        Self {
+            query: None,
+            tags: criteria.tags.clone(),
+            tag_mode: criteria.tag_mode.into(),
+            file_patterns: criteria.file_patterns.clone(),
+            file_mode: criteria.file_mode.into(),
+            exclude_tags: criteria.excludes.clone(),
+            regex_tag: criteria.regex_tag,
+            regex_file: criteria.regex_file,
+        }
+    }
+}
+
 /// Execute a command template for each file in the list
 ///
 /// Runs a shell command for each file, replacing the `{}` placeholder in the
