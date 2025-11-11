@@ -73,15 +73,19 @@ fn test_search_command_single_tag() {
     create_test_file("file2.txt", "content2").unwrap();
     create_test_file("file3.txt", "content3").unwrap();
 
-    db.insert("file1.txt", vec!["rust".into()]).unwrap();
-    db.insert("file2.txt", vec!["rust".into(), "programming".into()])
+    let file1_path = fs::canonicalize("file1.txt").unwrap();
+    let file2_path = fs::canonicalize("file2.txt").unwrap();
+    let file3_path = fs::canonicalize("file3.txt").unwrap();
+
+    db.insert(&file1_path, vec!["rust".into()]).unwrap();
+    db.insert(&file2_path, vec!["rust".into(), "programming".into()])
         .unwrap();
-    db.insert("file3.txt", vec!["python".into()]).unwrap();
+    db.insert(&file3_path, vec!["python".into()]).unwrap();
 
     let files = db.find_by_tag("rust").unwrap();
     assert_eq!(files.len(), 2);
-    assert!(files.contains(&PathBuf::from("file1.txt")));
-    assert!(files.contains(&PathBuf::from("file2.txt")));
+    assert!(files.contains(&file1_path));
+    assert!(files.contains(&file2_path));
 
     let _ = fs::remove_file("file1.txt");
     let _ = fs::remove_file("file2.txt");
