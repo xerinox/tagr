@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Saved Filters Feature (Complete)
+- **Filter Management CLI** - Complete command-line interface for filter operations
+  - `tagr filter create <name>` - Create new filter with tags, patterns, exclusions
+  - `tagr filter list` / `ls` - List all saved filters with descriptions
+  - `tagr filter show <name>` - Show detailed filter information
+  - `tagr filter delete <name>` / `rm` - Delete filter (with confirmation)
+  - `tagr filter rename <old> <new>` / `mv` - Rename existing filter
+  - `tagr filter export [names...]` - Export filters to TOML file
+  - `tagr filter import <file>` - Import filters with conflict resolution
+  - `tagr filter stats` - Show filter usage statistics (stub for future implementation)
+- **Search & Browse Integration** - Full integration with search and browse commands
+  - `--filter` / `-F <name>` - Load and apply saved filter
+  - `--save-filter <name>` - Save current search/browse as filter
+  - `--filter-desc <desc>` - Add description when saving filter
+  - Automatic filter criteria merging with CLI arguments
+  - Usage statistics tracking on filter load
+- **SearchParams Conversions** - Idiomatic From trait implementations
+  - `impl From<SearchParams> for FilterCriteria` - Convert CLI args to filter
+  - `impl From<&FilterCriteria> for SearchParams` - Convert filter to CLI args
+  - `SearchParams::merge()` - Merge filter criteria with additional CLI arguments
+- **CLI Integration** - Filter subcommands integrated into main CLI
+  - `Commands::Filter` variant added to main command enum
+  - `FilterArgs` struct with flatten for search/browse commands
+  - All filter commands properly routed through `commands/filter.rs`
+  - Short aliases for common operations (`ls`, `rm`, `mv`)
+- **Export/Import Features** - Share and backup filters
+  - Export to file with `--output` flag or stdout
+  - Import with conflict resolution: `--overwrite` or `--skip-existing`
+  - Selective export by filter names
+- **User Experience**
+  - Force delete with `--force` / `-f` flag
+  - Detailed output with creation dates and usage stats
+  - Comprehensive descriptions for each filter
+  - Usage tracking (last_used, use_count) in metadata
+  - Warning when saving browse filter with no criteria
+
+#### Saved Filters and Bookmarks (Foundation)
+- **Filter Storage Infrastructure** - Core types and operations for saved search filters
+- `FilterManager` API - Idiomatic Rust interface for filter management
+- `FilterCriteria` - Stores search parameters (tags, patterns, modes, exclusions, regex flags)
+- `Filter` - Complete filter with metadata (name, description, created, last_used, use_count)
+- `FilterStorage` - TOML-based persistent storage at `~/.config/tagr/filters.toml`
+- Filter CRUD operations: create, get, update, delete, rename, list
+- Filter validation - Name rules (alphanumeric, hyphens, underscores, max 64 chars)
+- Criteria validation - At least one tag or file pattern required
+- Filter export/import - Share filters with conflict resolution (overwrite/skip-existing)
+- Usage statistics tracking - Automatic use_count and last_used updates
+- Auto-backup functionality - Backup before saves (configurable)
+- Comprehensive error handling with `FilterError` type
+- 10 unit tests covering all CRUD operations and edge cases
+
 #### Interactive Browse Mode
 - Two-stage fuzzy finder for tag and file selection
 - Multi-select support via TAB key for both tags and files
@@ -159,6 +210,7 @@ for item in old_db.iter() {
 ## Dependencies
 
 ### Added
+- `chrono = "0.4"` - Date/time handling for filter timestamps
 - `skim = "0.20.5"` - Fuzzy finder library
 - `bincode = "2.0.0-rc.3"` - Binary serialization
 - `sled = "0.34"` - Embedded database

@@ -12,6 +12,7 @@ pub mod db;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod filters;
 pub mod output;
 pub mod search;
 
@@ -27,6 +28,9 @@ pub enum TagrError {
     /// Search error
     #[error("Search error: {0}")]
     SearchError(#[from] search::SearchError),
+    /// Filter error
+    #[error("Filter error: {0}")]
+    FilterError(#[from] filters::FilterError),
     /// Represents a configuration error
     #[error("Configuration error: {0}")]
     ConfigError(#[from] ::config::ConfigError),

@@ -8,6 +8,7 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 - 🔍 **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
 - ⚡ **Fast queries** - O(1) tag lookups using reverse indexing with sled database
 - 🎯 **Multi-select** - Select multiple tags and files at once
+- 💾 **Saved filters** - Save complex search criteria as named filters for quick recall (foundation implemented)
 - 🧹 **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
 - 💾 **Persistent storage** - Reliable embedded database with automatic flushing
 - 📊 **Multiple databases** - Manage separate databases for different projects
@@ -347,6 +348,133 @@ tagr db set-default <name>
 tagr db remove <name>
 ```
 
+## Saved Filters
+
+Save complex search criteria as named filters for quick recall, eliminating the need to repeatedly type complex queries.
+
+### Why Use Filters?
+
+Filters are perfect for searches you run frequently:
+- Finding all Rust tutorial files: `tagr search -t rust -t tutorial -f "*.rs"`
+- Reviewing production code: `tagr search -t rust -t production -e deprecated -e test`
+- Checking documentation: `tagr search -t documentation -f "*.md" -f "*.txt" --any-file`
+
+Instead of retyping these, save them once and recall instantly!
+
+### Creating Filters
+
+```bash
+# Create a filter with tags
+tagr filter create rust-tutorials \
+  -d "Find Rust tutorial files" \
+  -t rust -t tutorial \
+  -f "*.rs"
+
+# Create a filter with all criteria
+tagr filter create prod-rust \
+  -d "Production Rust code (no tests/deprecated)" \
+  -t rust -t production --all-tags \
+  -f "src/*.rs" -f "lib/*.rs" --any-file \
+  -e test -e deprecated
+
+# Create with regex
+tagr filter create config-files \
+  -d "All configuration files" \
+  -t config \
+  -f ".*\\.(toml|yaml|json)$" --regex-file
+```
+
+### Managing Filters
+
+```bash
+# List all saved filters
+tagr filter list
+tagr filter ls
+
+# Show detailed filter information
+tagr filter show rust-tutorials
+
+# Rename a filter
+tagr filter rename rust-tutorials rust-beginner-tutorials
+tagr filter mv rust-tutorials rust-beginner-tutorials
+
+# Delete a filter
+tagr filter delete rust-tutorials
+tagr filter rm rust-tutorials
+
+# Delete without confirmation
+tagr filter delete rust-tutorials --force
+tagr filter rm rust-tutorials -f
+```
+
+### Using Filters with Search & Browse
+
+Filters work seamlessly with `tagr search` and `tagr browse` commands:
+
+```bash
+# Use a saved filter
+tagr search --filter rust-tutorials
+tagr search -F rust-tutorials
+
+# Load in browse mode
+tagr browse --filter prod-rust
+tagr browse -F prod-rust
+
+# Combine filter with additional criteria
+tagr search -F rust-tutorials -e beginner
+tagr browse -F config-files -f "*.toml"
+
+# Save current search as filter
+tagr search -t rust -t tutorial -f "*.rs" --save-filter "my-rust-search"
+
+# Save with description
+tagr search -t rust -f "*.rs" --save-filter "rust-src" --filter-desc "All Rust source files"
+```
+
+### Export & Import Filters
+
+Share filters with your team or back them up:
+
+```bash
+# Export all filters to file
+tagr filter export --output team-filters.toml
+
+# Export specific filters
+tagr filter export rust-tutorials prod-rust --output rust-filters.toml
+
+# Export to stdout
+tagr filter export rust-tutorials
+
+# Import filters
+tagr filter import team-filters.toml
+
+# Import with conflict resolution
+tagr filter import team-filters.toml --overwrite      # Replace existing
+tagr filter import team-filters.toml --skip-existing  # Keep existing
+```
+
+### Filter Storage
+
+Filters are stored in TOML format at `~/.config/tagr/filters.toml`:
+
+```toml
+[[filter]]
+name = "rust-tutorials"
+description = "Find Rust tutorial files"
+created = "2025-11-10T14:30:00Z"
+last_used = "2025-11-10T15:45:00Z"
+use_count = 12
+
+[filter.criteria]
+tags = ["rust", "tutorial"]
+tag_mode = "all"
+file_patterns = ["*.rs"]
+file_mode = "any"
+excludes = []
+regex_tag = false
+regex_file = false
+```
+
 ### Maintenance
 
 ```bash
@@ -448,36 +576,62 @@ src/
 tagr can be used as a library in your Rust projects:
 
 ```rust
-use tagr::{db::Database, search};
+use tagr::{db::Database, search, filters::FilterManager};
 use std::path::PathBuf;
 
-// Open or create a database
+// Database operations
 let db = Database::open("my_db").unwrap();
-
-// Tag a file
 db.insert("file.txt", vec!["tag1".into(), "tag2".into()]).unwrap();
-
-// Get tags for a file
-let tags = db.get_tags("file.txt").unwrap();
-
-// Find files by tag
 let files = db.find_by_tag("tag1").unwrap();
 
-// Find files with ALL specified tags (AND)
-let files = db.find_by_all_tags(&["tag1".into(), "tag2".into()]).unwrap();
-
-// Find files with ANY of the specified tags (OR)
-let files = db.find_by_any_tag(&["tag1".into(), "tag2".into()]).unwrap();
+// Filter management
+let filter_manager = FilterManager::new(PathBuf::from("~/.config/tagr/filters.toml"));
+let filters = filter_manager.list().unwrap();
 
 // Interactive browse
 match search::browse(&db) {
     Ok(Some(result)) => {
-        println!("Selected {} tags", result.selected_tags.len());
         println!("Selected {} files", result.selected_files.len());
     }
     Ok(None) => println!("Cancelled"),
     Err(e) => eprintln!("Error: {}", e),
 }
+```
+
+### Filter Management API
+
+```rust
+use tagr::filters::{FilterManager, FilterCriteria, TagMode};
+use std::path::PathBuf;
+
+let manager = FilterManager::new(PathBuf::from("~/.config/tagr/filters.toml"));
+
+// Create a filter
+let criteria = FilterCriteria {
+    tags: vec!["rust".to_string(), "tutorial".to_string()],
+    tag_mode: TagMode::All,
+    file_patterns: vec!["*.rs".to_string()],
+    ..Default::default()
+};
+
+manager.create(
+    "rust-tutorials".to_string(),
+    "Find Rust tutorial files".to_string(),
+    criteria,
+).unwrap();
+
+// Use a filter
+let filter = manager.get("rust-tutorials").unwrap();
+println!("Filter: {} - {}", filter.name, filter.description);
+
+// List all filters
+let filters = manager.list().unwrap();
+for filter in filters {
+    println!("{}: {}", filter.name, filter.description);
+}
+
+// Export/import filters
+manager.export(&PathBuf::from("my-filters.toml"), &[]).unwrap();
 ```
 
 ### Database API
@@ -558,6 +712,7 @@ cargo test
 - **skim** - Fuzzy finder for interactive browsing
 - **bincode** - Efficient binary serialization
 - **clap** - Command-line argument parsing
+- **chrono** - Date/time handling for filter timestamps
 - **thiserror** - Error handling
 
 ## Performance Notes
@@ -578,6 +733,21 @@ This project is licensed under the MIT License.
 ## Future Enhancements
 
 Potential improvements:
+
+### Saved Filters (In Progress - Foundation Complete)
+- [x] Filter storage infrastructure with `FilterManager`
+- [x] Filter CRUD operations (create, get, update, delete, rename, list)
+- [x] Export/import functionality with conflict resolution
+- [x] Usage statistics tracking
+- [ ] CLI commands for filter management (`tagr filter list`, `show`, `create`, etc.)
+- [ ] `--save-filter` flag for search/browse commands
+- [ ] `--filter/-F` flag to load and apply saved filters
+- [ ] Filter test command to preview matches
+- [ ] Filter statistics command
+- [ ] Interactive filter builder wizard
+- [ ] Filter configuration options in config.toml
+
+### Browse Mode Enhancements
 
 - [ ] Preview pane - Show file content in skim preview
 - [ ] Tag statistics - Show file count per tag

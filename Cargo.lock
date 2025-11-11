@@ -209,6 +209,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -1512,9 +1513,10 @@ dependencies = [
 
 [[package]]
 name = "tagr"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
+ "chrono",
  "clap",
  "colored",
  "config",

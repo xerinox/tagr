@@ -89,6 +89,85 @@ pub struct SearchParams {
     pub regex_file: bool,
 }
 
+impl SearchParams {
+    /// Merge with another `SearchParams` (typically from a loaded filter)
+    ///
+    /// This extends the current params with additional criteria:
+    /// - Tags and file patterns are combined
+    /// - Exclusions are merged
+    /// - Regex flags are OR'd
+    /// - Modes are preserved from self (CLI takes precedence)
+    pub fn merge(&mut self, other: &Self) {
+        for tag in &other.tags {
+            if !self.tags.contains(tag) {
+                self.tags.push(tag.clone());
+            }
+        }
+
+        for pattern in &other.file_patterns {
+            if !self.file_patterns.contains(pattern) {
+                self.file_patterns.push(pattern.clone());
+            }
+        }
+
+        for exclude in &other.exclude_tags {
+            if !self.exclude_tags.contains(exclude) {
+                self.exclude_tags.push(exclude.clone());
+            }
+        }
+
+        self.regex_tag = self.regex_tag || other.regex_tag;
+        self.regex_file = self.regex_file || other.regex_file;
+    }
+}
+
+impl From<SearchParams> for crate::filters::FilterCriteria {
+    /// Convert `SearchParams` to `FilterCriteria` for saving as a filter
+    ///
+    /// Note: The general query is not preserved in `FilterCriteria` since
+    /// filters use explicit tags and file patterns only.
+    fn from(params: SearchParams) -> Self {
+        Self {
+            tags: params.tags,
+            tag_mode: params.tag_mode.into(),
+            file_patterns: params.file_patterns,
+            file_mode: params.file_mode.into(),
+            excludes: params.exclude_tags,
+            regex_tag: params.regex_tag,
+            regex_file: params.regex_file,
+        }
+    }
+}
+
+impl From<&SearchParams> for crate::filters::FilterCriteria {
+    fn from(params: &SearchParams) -> Self {
+        Self {
+            tags: params.tags.clone(),
+            tag_mode: params.tag_mode.into(),
+            file_patterns: params.file_patterns.clone(),
+            file_mode: params.file_mode.into(),
+            excludes: params.exclude_tags.clone(),
+            regex_tag: params.regex_tag,
+            regex_file: params.regex_file,
+        }
+    }
+}
+
+impl From<&crate::filters::FilterCriteria> for SearchParams {
+    fn from(criteria: &crate::filters::FilterCriteria) -> Self {
+        Self {
+            query: None,
+            tags: criteria.tags.clone(),
+            tag_mode: criteria.tag_mode.into(),
+            file_patterns: criteria.file_patterns.clone(),
+            file_mode: criteria.file_mode.into(),
+            exclude_tags: criteria.excludes.clone(),
+            regex_tag: criteria.regex_tag,
+            regex_file: criteria.regex_file,
+        }
+    }
+}
+
 /// Execute a command template for each file in the list
 ///
 /// Runs a shell command for each file, replacing the `{}` placeholder in the
@@ -218,12 +297,137 @@ pub enum DbCommands {
     },
 }
 
+/// Filter management subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum FilterCommands {
+    /// List all saved filters
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Show detailed information about a filter
+    Show {
+        /// Name of the filter to show
+        name: String,
+    },
+
+    /// Create a new filter
+    Create {
+        /// Name of the filter
+        name: String,
+
+        /// Description of the filter
+        #[arg(short = 'd', long = "description")]
+        description: Option<String>,
+
+        /// Tags to search for
+        #[arg(short = 't', long = "tag", value_name = "TAG", num_args = 0..)]
+        tags: Vec<String>,
+
+        /// Match files with ANY of the specified tags (OR logic, default is AND)
+        #[arg(long = "any-tag", conflicts_with = "all_tags")]
+        any_tag: bool,
+
+        /// Match files with ALL of the specified tags (AND logic, explicit)
+        #[arg(long = "all-tags", conflicts_with = "any_tag")]
+        all_tags: bool,
+
+        /// File path patterns to filter results (glob syntax: *.rs, src/**/*)
+        #[arg(short = 'f', long = "file", value_name = "PATTERN", num_args = 0..)]
+        file_patterns: Vec<String>,
+
+        /// Match files with ANY of the file patterns (OR logic, default is AND)
+        #[arg(long = "any-file", conflicts_with = "all_files")]
+        any_file: bool,
+
+        /// Match files with ALL of the file patterns (AND logic, explicit)
+        #[arg(long = "all-files", conflicts_with = "any_file")]
+        all_files: bool,
+
+        /// Exclude files with these tags
+        #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
+        excludes: Vec<String>,
+
+        /// Use regex matching for tags
+        #[arg(short = 'r', long = "regex-tag")]
+        regex_tag: bool,
+
+        /// Use regex matching for file patterns
+        #[arg(long = "regex-file")]
+        regex_file: bool,
+    },
+
+    /// Delete a filter
+    #[command(visible_alias = "rm")]
+    Delete {
+        /// Name of the filter to delete
+        name: String,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'f', long = "force")]
+        force: bool,
+    },
+
+    /// Rename a filter
+    #[command(visible_alias = "mv")]
+    Rename {
+        /// Current name of the filter
+        old_name: String,
+
+        /// New name for the filter
+        new_name: String,
+    },
+
+    /// Export filters to a file
+    Export {
+        /// Names of specific filters to export (exports all if not specified)
+        #[arg(value_name = "FILTER")]
+        filters: Vec<String>,
+
+        /// Output file path (prints to stdout if not specified)
+        #[arg(short = 'o', long = "output")]
+        output: Option<PathBuf>,
+    },
+
+    /// Import filters from a file
+    Import {
+        /// Path to the file to import from
+        path: PathBuf,
+
+        /// Overwrite existing filters with the same name
+        #[arg(long = "overwrite", conflicts_with = "skip_existing")]
+        overwrite: bool,
+
+        /// Skip filters that already exist
+        #[arg(long = "skip-existing", conflicts_with = "overwrite")]
+        skip_existing: bool,
+    },
+
+    /// Show filter usage statistics
+    Stats,
+}
+
 /// Shared arguments for commands that work with a database
 #[derive(Parser, Debug, Clone)]
 pub struct DbArgs {
     /// Database name to use (overrides default)
     #[arg(long = "db", value_name = "NAME")]
     pub db: Option<String>,
+}
+
+/// Shared arguments for filter operations
+#[derive(Parser, Debug, Clone)]
+pub struct FilterArgs {
+    /// Load a saved filter
+    #[arg(short = 'F', long = "filter", value_name = "NAME")]
+    pub filter: Option<String>,
+    
+    /// Save current search as a filter
+    #[arg(long = "save-filter", value_name = "NAME")]
+    pub save_filter: Option<String>,
+    
+    /// Description for saved filter
+    #[arg(long = "filter-desc", value_name = "DESC", requires = "save_filter")]
+    pub filter_desc: Option<String>,
 }
 
 /// Main CLI structure for parsing command-line arguments
@@ -276,6 +480,9 @@ pub enum Commands {
 
         #[command(flatten)]
         db_args: DbArgs,
+
+        #[command(flatten)]
+        filter_args: FilterArgs,
     },
 
     /// Manage configuration settings
@@ -288,6 +495,12 @@ pub enum Commands {
     Db {
         #[command(subcommand)]
         command: DbCommands,
+    },
+
+    /// Manage saved filters
+    Filter {
+        #[command(subcommand)]
+        command: FilterCommands,
     },
 
     /// Tag a file with one or more tags
@@ -358,6 +571,9 @@ pub enum Commands {
 
         #[command(flatten)]
         db_args: DbArgs,
+
+        #[command(flatten)]
+        filter_args: FilterArgs,
     },
 
     /// Remove tags from a file
@@ -583,6 +799,11 @@ impl Cli {
             exclude_tags: Vec::new(),
             execute: None,
             db_args: DbArgs { db: None },
+            filter_args: FilterArgs {
+                filter: None,
+                save_filter: None,
+                filter_desc: None,
+            },
         })
     }
     

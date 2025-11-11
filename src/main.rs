@@ -318,20 +318,28 @@ fn main() -> Result<()> {
         };
         
         match &command {
-            Commands::Browse { .. } => {
+            Commands::Browse { filter_args, .. } => {
                 let search_params = command.get_search_params_from_browse();
                 let execute_cmd = command.get_execute_from_browse();
-                commands::browse(&db, search_params, execute_cmd, path_format, quiet)?;
+                
+                let save_filter = filter_args.save_filter.as_ref()
+                    .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
+                
+                commands::browse(&db, search_params, filter_args.filter.as_deref(), save_filter, execute_cmd, path_format, quiet)?;
             }
             Commands::Tag { .. } => {
                 let file = command.get_file_from_tag();
                 let tags = command.get_tags_from_tag();
                 commands::tag(&db, file, tags, quiet)?;
             }
-            Commands::Search { .. } => {
+            Commands::Search { filter_args, .. } => {
                 let params = command.get_search_params()
                     .ok_or_else(|| TagrError::InvalidInput("Failed to parse search parameters".into()))?;
-                commands::search(&db, &params, path_format, quiet)?;
+                
+                let save_filter = filter_args.save_filter.as_ref()
+                    .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
+                
+                commands::search(&db, params, filter_args.filter.as_deref(), save_filter, path_format, quiet)?;
             }
             Commands::Untag { .. } => {
                 let file = command.get_file_from_untag();
@@ -347,6 +355,10 @@ fn main() -> Result<()> {
             }
             Commands::List { variant, .. } => {
                 commands::list(&db, *variant, path_format, quiet)?;
+            }
+            Commands::Filter { command } => {
+                // Filter management doesn't need database access
+                commands::filter(command, quiet)?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }

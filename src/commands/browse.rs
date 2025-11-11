@@ -4,6 +4,7 @@ use crate::{
     db::Database,
     cli::SearchParams,
     config,
+    filters::{FilterManager, FilterCriteria},
     output,
     search,
     TagrError,
@@ -17,12 +18,34 @@ type Result<T> = std::result::Result<T, TagrError>;
 /// Returns an error if database operations fail or if the browse operation encounters issues
 pub fn execute(
     db: &Database,
-    search_params: Option<SearchParams>,
+    mut search_params: Option<SearchParams>,
+    filter_name: Option<&str>,
+    save_filter: Option<(&str, Option<&str>)>,
     execute_cmd: Option<String>,
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
-    match search::browse_with_params(db, search_params, path_format) {
+    if let Some(name) = filter_name {
+        let filter_path = crate::filters::get_filter_path()?;
+        let manager = FilterManager::new(filter_path);
+        let filter = manager.get(name)?;
+        
+        let filter_params = SearchParams::from(&filter.criteria);
+        
+        if let Some(ref mut params) = search_params {
+            params.merge(&filter_params);
+        } else {
+            search_params = Some(filter_params);
+        }
+        
+        manager.record_use(name)?;
+        
+        if !quiet {
+            println!("Using filter '{name}'");
+        }
+    }
+    
+    match search::browse_with_params(db, search_params.clone(), path_format) {
         Ok(Some(result)) => {
             if !quiet {
                 println!("=== Selected Tags ===");
@@ -46,6 +69,23 @@ pub fn execute(
                     println!("\n=== Executing Command ===");
                 }
                 crate::cli::execute_command_on_files(&result.selected_files, &cmd_template, quiet);
+            }
+            
+            if let Some((name, desc)) = save_filter {
+                if let Some(params) = search_params {
+                    let filter_path = crate::filters::get_filter_path()?;
+                    let manager = FilterManager::new(filter_path);
+                    let criteria = FilterCriteria::from(params);
+                    let description = desc.unwrap_or("Saved browse filter");
+                    
+                    manager.create(name, description.to_string(), criteria)?;
+                    
+                    if !quiet {
+                        println!("\nSaved filter '{name}'");
+                    }
+                } else if !quiet {
+                    println!("\nWarning: Cannot save filter with no search criteria");
+                }
             }
         }
         Ok(None) => {
