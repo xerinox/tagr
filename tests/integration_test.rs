@@ -462,6 +462,7 @@ impl TestFilterManager {
         &self.manager
     }
     
+    #[allow(dead_code)]
     fn path(&self) -> &PathBuf {
         &self.path
     }

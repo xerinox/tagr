@@ -32,7 +32,7 @@
 //! };
 //!
 //! manager.create(
-//!     "rust-tutorials".to_string(),
+//!     "rust-tutorials",
 //!     "Find Rust tutorial files".to_string(),
 //!     criteria,
 //! ).unwrap();
