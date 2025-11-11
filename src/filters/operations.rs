@@ -27,16 +27,18 @@ pub struct FilterManager {
 }
 
 impl FilterManager {
-    /// Create a new FilterManager with the specified storage path
-    pub fn new(path: PathBuf) -> Self {
+    /// Create a new `FilterManager` with the specified storage path
+    #[must_use]
+    pub const fn new(path: PathBuf) -> Self {
         Self {
             path,
             auto_backup: true,
         }
     }
 
-    /// Create a FilterManager with auto-backup disabled
-    pub fn without_backup(path: PathBuf) -> Self {
+    /// Create a `FilterManager` with auto-backup disabled
+    #[must_use]
+    pub const fn without_backup(path: PathBuf) -> Self {
         Self {
             path,
             auto_backup: false,
@@ -44,13 +46,13 @@ impl FilterManager {
     }
 
     /// Enable or disable auto-backup
-    pub fn set_auto_backup(&mut self, enabled: bool) {
+    pub const fn set_auto_backup(&mut self, enabled: bool) {
         self.auto_backup = enabled;
     }
 
     /// Load filters from the storage file
     ///
-    /// Returns an empty FilterStorage if the file doesn't exist.
+    /// Returns an empty `FilterStorage` if the file doesn't exist.
     fn load(&self) -> Result<FilterStorage, FilterError> {
         if !self.path.exists() {
             return Ok(FilterStorage::new());
@@ -64,7 +66,7 @@ impl FilterManager {
     /// Save filters to the storage file
     ///
     /// Creates the parent directory if it doesn't exist.
-    /// Creates a backup if auto_backup is enabled.
+    /// Creates a backup if `auto_backup` is enabled.
     fn save(&self, storage: &FilterStorage) -> Result<(), FilterError> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
@@ -92,18 +94,18 @@ impl FilterManager {
     /// - The storage file cannot be saved
     pub fn create(
         &self,
-        name: String,
+        name: &str,
         description: String,
         criteria: FilterCriteria,
     ) -> Result<Filter, FilterError> {
         let mut storage = self.load()?;
 
-        let filter = Filter::new(name.clone(), description, criteria);
+        let filter = Filter::new(name.to_string(), description, criteria);
         filter.validate()
-            .map_err(|e| FilterError::InvalidCriteria(e))?;
+            .map_err(FilterError::InvalidCriteria)?;
 
         storage.add(filter.clone())
-            .map_err(|_e| FilterError::AlreadyExists(name.clone()))?;
+            .map_err(|_e| FilterError::AlreadyExists(name.to_string()))?;
 
         self.save(&storage)?;
 
@@ -136,10 +138,10 @@ impl FilterManager {
         let mut storage = self.load()?;
 
         filter.validate()
-            .map_err(|e| FilterError::InvalidCriteria(e))?;
+            .map_err(FilterError::InvalidCriteria)?;
 
         storage.update(filter)
-            .map_err(|e| FilterError::InvalidCriteria(e))?;
+            .map_err(FilterError::InvalidCriteria)?;
 
         self.save(&storage)?;
 
@@ -204,7 +206,7 @@ impl FilterManager {
         Ok(storage.filters)
     }
 
-    /// Record filter usage (increment use count, update last_used timestamp)
+    /// Record filter usage (increment use count, update `last_used` timestamp)
     ///
     /// # Errors
     ///
@@ -226,7 +228,7 @@ impl FilterManager {
 
     /// Export filters to a file
     ///
-    /// If filter_names is empty, exports all filters.
+    /// If `filter_names` is empty, exports all filters.
     /// Otherwise, exports only the specified filters.
     ///
     /// # Errors
@@ -243,7 +245,7 @@ impl FilterManager {
             let mut exported = Vec::new();
             for name in filter_names {
                 let filter = storage.get(name)
-                    .ok_or_else(|| FilterError::NotFound(name.to_string()))?;
+                    .ok_or_else(|| FilterError::NotFound(name.clone()))?;
                 exported.push(filter.clone());
             }
             exported
@@ -271,7 +273,7 @@ impl FilterManager {
     /// * `skip_existing` - If true, skip filters that already exist (only if overwrite is false)
     ///
     /// # Returns
-    /// A tuple of (imported_count, skipped_count)
+    /// A tuple of (`imported_count`, `skipped_count`)
     ///
     /// # Errors
     ///
@@ -296,7 +298,7 @@ impl FilterManager {
             if storage.contains(&filter.name) {
                 if overwrite {
                     storage.update(filter)
-                        .map_err(|e| FilterError::InvalidCriteria(e))?;
+                        .map_err(FilterError::InvalidCriteria)?;
                     imported += 1;
                 } else if skip_existing {
                     skipped += 1;
@@ -305,7 +307,7 @@ impl FilterManager {
                 }
             } else {
                 storage.add(filter.clone())
-                    .map_err(|_e| FilterError::AlreadyExists(filter.name))?;
+                    .map_err(|_e| FilterError::AlreadyExists(filter.name.clone()))?;
                 imported += 1;
             }
         }
@@ -316,7 +318,8 @@ impl FilterManager {
     }
 
     /// Get the storage path
-    pub fn path(&self) -> &PathBuf {
+    #[must_use]
+    pub const fn path(&self) -> &PathBuf {
         &self.path
     }
 }
@@ -341,7 +344,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = manager.create("test-filter".to_string(), "Test".to_string(), criteria);
+        let result = manager.create("test-filter", "Test".to_string(), criteria);
         assert!(result.is_ok());
 
         let loaded = manager.get("test-filter");
@@ -361,7 +364,7 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("to-delete".to_string(), "".to_string(), criteria).unwrap();
+        manager.create("to-delete", "".to_string(), criteria).unwrap();
 
         let result = manager.delete("to-delete");
         assert!(result.is_ok());
@@ -382,7 +385,7 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("old-name".to_string(), "".to_string(), criteria).unwrap();
+        manager.create("old-name", "".to_string(), criteria).unwrap();
 
         let result = manager.rename("old-name", "new-name".to_string());
         assert!(result.is_ok());
@@ -409,8 +412,8 @@ mod tests {
             tags: vec!["test".to_string()],
             ..Default::default()
         };
-        manager.create("filter1".to_string(), "".to_string(), criteria.clone()).unwrap();
-        manager.create("filter2".to_string(), "".to_string(), criteria).unwrap();
+        manager.create("filter1", "".to_string(), criteria.clone()).unwrap();
+        manager.create("filter2", "".to_string(), criteria).unwrap();
 
         manager.export(&export_path, &[]).unwrap();
 

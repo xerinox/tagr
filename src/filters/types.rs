@@ -46,11 +46,13 @@ pub struct FilterCriteria {
 
 impl FilterCriteria {
     /// Create a new filter criteria
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create from search mode parameters
+    #[must_use]
     pub fn from_search_params(
         tags: Vec<String>,
         tag_mode: SearchMode,
@@ -77,7 +79,7 @@ impl FilterCriteria {
     /// - Tags and file patterns are added
     /// - Exclusions are merged
     /// - Regex flags are OR'd (if either is true, use regex)
-    pub fn merge(&mut self, other: &FilterCriteria) {
+    pub fn merge(&mut self, other: &Self) {
         for tag in &other.tags {
             if !self.tags.contains(tag) {
                 self.tags.push(tag.clone());
@@ -104,6 +106,12 @@ impl FilterCriteria {
     }
 
     /// Validate the criteria
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No tags or file patterns are specified
+    /// - Regex patterns are invalid when regex mode is enabled
     pub fn validate(&self) -> Result<(), String> {
         if self.tags.is_empty() && self.file_patterns.is_empty() {
             return Err("Filter must specify at least one tag or file pattern".to_string());
@@ -112,7 +120,7 @@ impl FilterCriteria {
         if self.regex_tag {
             for tag in &self.tags {
                 if regex::Regex::new(tag).is_err() {
-                    return Err(format!("Invalid regex pattern for tag: {}", tag));
+                    return Err(format!("Invalid regex pattern for tag: {tag}"));
                 }
             }
         }
@@ -120,7 +128,7 @@ impl FilterCriteria {
         if self.regex_file {
             for pattern in &self.file_patterns {
                 if regex::Regex::new(pattern).is_err() {
-                    return Err(format!("Invalid regex pattern for file: {}", pattern));
+                    return Err(format!("Invalid regex pattern for file: {pattern}"));
                 }
             }
         }
@@ -144,26 +152,21 @@ impl Default for FilterCriteria {
 }
 
 /// Tag matching mode (ALL = AND, ANY = OR)
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TagMode {
     /// Match ALL tags (AND logic)
+    #[default]
     All,
     /// Match ANY tag (OR logic)
     Any,
 }
 
-impl Default for TagMode {
-    fn default() -> Self {
-        Self::All
-    }
-}
-
 impl From<SearchMode> for TagMode {
     fn from(mode: SearchMode) -> Self {
         match mode {
-            SearchMode::All => TagMode::All,
-            SearchMode::Any => TagMode::Any,
+            SearchMode::All => Self::All,
+            SearchMode::Any => Self::Any,
         }
     }
 }
@@ -171,33 +174,28 @@ impl From<SearchMode> for TagMode {
 impl From<TagMode> for SearchMode {
     fn from(mode: TagMode) -> Self {
         match mode {
-            TagMode::All => SearchMode::All,
-            TagMode::Any => SearchMode::Any,
+            TagMode::All => Self::All,
+            TagMode::Any => Self::Any,
         }
     }
 }
 
 /// File pattern matching mode (ALL = AND, ANY = OR)
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum FileMode {
     /// Match ALL patterns (AND logic)
     All,
     /// Match ANY pattern (OR logic)
+    #[default]
     Any,
-}
-
-impl Default for FileMode {
-    fn default() -> Self {
-        Self::Any
-    }
 }
 
 impl From<SearchMode> for FileMode {
     fn from(mode: SearchMode) -> Self {
         match mode {
-            SearchMode::All => FileMode::All,
-            SearchMode::Any => FileMode::Any,
+            SearchMode::All => Self::All,
+            SearchMode::Any => Self::Any,
         }
     }
 }
@@ -205,8 +203,8 @@ impl From<SearchMode> for FileMode {
 impl From<FileMode> for SearchMode {
     fn from(mode: FileMode) -> Self {
         match mode {
-            FileMode::All => SearchMode::All,
-            FileMode::Any => SearchMode::Any,
+            FileMode::All => Self::All,
+            FileMode::Any => Self::Any,
         }
     }
 }
@@ -231,6 +229,7 @@ pub struct FilterMetadata {
 
 impl FilterMetadata {
     /// Create new metadata with current timestamp
+    #[must_use]
     pub fn new(description: String) -> Self {
         let now = Utc::now();
         Self {
@@ -241,7 +240,7 @@ impl FilterMetadata {
         }
     }
 
-    /// Update usage statistics (increment count, update last_used)
+    /// Update usage statistics (increment count, update `last_used`)
     pub fn record_use(&mut self) {
         self.use_count += 1;
         self.last_used = Utc::now();
@@ -275,6 +274,7 @@ pub struct Filter {
 
 impl Filter {
     /// Create a new filter
+    #[must_use]
     pub fn new(name: String, description: String, criteria: FilterCriteria) -> Self {
         let now = Utc::now();
         Self {
@@ -294,6 +294,12 @@ impl Filter {
     }
 
     /// Validate the filter
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The filter name is invalid
+    /// - The filter criteria is invalid
     pub fn validate(&self) -> Result<(), String> {
         validate_filter_name(&self.name)?;
         self.criteria.validate()?;
@@ -313,13 +319,15 @@ pub struct FilterStorage {
 
 impl FilterStorage {
     /// Create a new empty filter storage
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             filters: Vec::new(),
         }
     }
 
     /// Get a filter by name
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<&Filter> {
         self.filters.iter().find(|f| f.name == name)
     }
@@ -330,11 +338,18 @@ impl FilterStorage {
     }
 
     /// Check if a filter exists
+    #[must_use]
     pub fn contains(&self, name: &str) -> bool {
         self.filters.iter().any(|f| f.name == name)
     }
 
     /// Add a filter (returns error if name already exists)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - A filter with the same name already exists
+    /// - The filter validation fails
     pub fn add(&mut self, filter: Filter) -> Result<(), String> {
         if self.contains(&filter.name) {
             return Err(format!("Filter '{}' already exists", filter.name));
@@ -345,6 +360,12 @@ impl FilterStorage {
     }
 
     /// Update an existing filter
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The filter is not found
+    /// - The filter validation fails
     pub fn update(&mut self, filter: Filter) -> Result<(), String> {
         filter.validate()?;
         if let Some(existing) = self.get_mut(&filter.name) {
@@ -365,11 +386,13 @@ impl FilterStorage {
     }
 
     /// List all filter names
+    #[must_use]
     pub fn list_names(&self) -> Vec<&str> {
         self.filters.iter().map(|f| f.name.as_str()).collect()
     }
 
     /// Get filters sorted by use count (most used first)
+    #[must_use]
     pub fn most_used(&self) -> Vec<&Filter> {
         let mut sorted: Vec<&Filter> = self.filters.iter().collect();
         sorted.sort_by(|a, b| b.use_count.cmp(&a.use_count));
@@ -377,6 +400,7 @@ impl FilterStorage {
     }
 
     /// Get filters sorted by last used (most recent first)
+    #[must_use]
     pub fn recently_used(&self) -> Vec<&Filter> {
         let mut sorted: Vec<&Filter> = self.filters.iter().collect();
         sorted.sort_by(|a, b| b.last_used.cmp(&a.last_used));
@@ -390,6 +414,13 @@ impl FilterStorage {
 /// - Be 1-64 characters long
 /// - Contain only alphanumeric characters, hyphens, and underscores
 /// - Not be empty
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The name is empty
+/// - The name exceeds 64 characters
+/// - The name contains invalid characters
 pub fn validate_filter_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Filter name cannot be empty".to_string());
@@ -402,8 +433,7 @@ pub fn validate_filter_name(name: &str) -> Result<(), String> {
     // Check for valid characters: alphanumeric, hyphen, underscore
     if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err(format!(
-            "Filter name '{}' contains invalid characters (only alphanumeric, '-', and '_' allowed)",
-            name
+            "Filter name '{name}' contains invalid characters (only alphanumeric, '-', and '_' allowed)"
         ));
     }
 
