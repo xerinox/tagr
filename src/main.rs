@@ -44,7 +44,7 @@
 
 use tagr::{
     db::Database,
-    cli::{Cli, Commands, ConfigCommands, DbCommands, FilterCommands},
+    cli::{Cli, Commands, ConfigCommands, DbCommands},
     commands,
     config,
     TagrError,

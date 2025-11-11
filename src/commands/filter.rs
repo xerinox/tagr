@@ -133,10 +133,10 @@ fn list_filters(quiet: bool) -> Result<()> {
             if tags_count > 0 || files_count > 0 {
                 let mut details = Vec::new();
                 if tags_count > 0 {
-                    details.push(format!("{} tag{}", tags_count, if tags_count != 1 { "s" } else { "" }));
+                    details.push(format!("{} tag{}", tags_count, if tags_count == 1 { "" } else { "s" }));
                 }
                 if files_count > 0 {
-                    details.push(format!("{} pattern{}", files_count, if files_count != 1 { "s" } else { "" }));
+                    details.push(format!("{} pattern{}", files_count, if files_count == 1 { "" } else { "s" }));
                 }
                 println!("  {:<width$}  ({})", "", details.join(", "), width = max_name_len);
             }
@@ -215,7 +215,7 @@ fn show_filter(name: &str, quiet: bool) -> Result<()> {
 }
 
 /// Create a new filter with the specified criteria
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 fn create_filter(
     name: &str,
     description: Option<&str>,
@@ -249,7 +249,7 @@ fn create_filter(
     manager.create(name, desc, criteria)?;
     
     if !quiet {
-        println!("Filter '{}' created successfully", name);
+        println!("Filter '{name}' created successfully");
     }
     
     Ok(())
@@ -263,7 +263,7 @@ fn delete_filter(name: &str, force: bool, quiet: bool) -> Result<()> {
     let _ = manager.get(name)?;
     
     if !force && !quiet {
-        print!("Delete filter '{}'? (y/N): ", name);
+        print!("Delete filter '{name}'? (y/N): ");
         std::io::stdout().flush()?;
         
         let mut response = String::new();
@@ -279,7 +279,7 @@ fn delete_filter(name: &str, force: bool, quiet: bool) -> Result<()> {
     manager.delete(name)?;
     
     if !quiet {
-        println!("Filter '{}' deleted", name);
+        println!("Filter '{name}' deleted");
     }
     
     Ok(())
@@ -293,7 +293,7 @@ fn rename_filter(old_name: &str, new_name: &str, quiet: bool) -> Result<()> {
     manager.rename(old_name, new_name.to_string())?;
     
     if !quiet {
-        println!("Filter '{}' renamed to '{}'", old_name, new_name);
+        println!("Filter '{old_name}' renamed to '{new_name}'");
     }
     
     Ok(())
@@ -319,7 +319,7 @@ fn export_filters(
             };
             println!("Exported {} filter{} to {}", 
                 count, 
-                if count != 1 { "s" } else { "" },
+                if count == 1 { "" } else { "s" },
                 output_path.display()
             );
         }
@@ -342,7 +342,7 @@ fn export_filters(
         
         let toml = toml::to_string_pretty(&storage)
             .map_err(|e| TagrError::FilterError(e.into()))?;
-        println!("{}", toml);
+        println!("{toml}");
     }
     
     Ok(())
@@ -361,9 +361,9 @@ fn import_filters(
     let (imported, skipped) = manager.import(path, overwrite, skip_existing)?;
     
     if !quiet {
-        println!("Imported {} filter{}", imported, if imported != 1 { "s" } else { "" });
+        println!("Imported {} filter{}", imported, if imported == 1 { "" } else { "s" });
         if skipped > 0 {
-            println!("Skipped {} existing filter{}", skipped, if skipped != 1 { "s" } else { "" });
+            println!("Skipped {} existing filter{}", skipped, if skipped == 1 { "" } else { "s" });
         }
     }
     
@@ -378,6 +378,7 @@ fn import_filters(
 /// - Recently used filters (top 5)
 /// - Total filter count
 /// - Total usage count across all filters
+#[allow(clippy::unnecessary_wraps)]
 fn show_stats(_quiet: bool) -> Result<()> {
     println!("Filter statistics feature is not yet implemented.");
     println!("This will show usage statistics for your saved filters.");

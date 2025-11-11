@@ -41,7 +41,7 @@ pub fn execute(
         manager.record_use(name)?;
         
         if !quiet {
-            println!("Using filter '{}'", name);
+            println!("Using filter '{name}'");
         }
     }
     
@@ -81,7 +81,7 @@ pub fn execute(
                     manager.create(name, description.to_string(), criteria)?;
                     
                     if !quiet {
-                        println!("\nSaved filter '{}'", name);
+                        println!("\nSaved filter '{name}'");
                     }
                 } else if !quiet {
                     println!("\nWarning: Cannot save filter with no search criteria");

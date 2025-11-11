@@ -90,7 +90,7 @@ pub struct SearchParams {
 }
 
 impl SearchParams {
-    /// Merge with another SearchParams (typically from a loaded filter)
+    /// Merge with another `SearchParams` (typically from a loaded filter)
     ///
     /// This extends the current params with additional criteria:
     /// - Tags and file patterns are combined
@@ -122,9 +122,9 @@ impl SearchParams {
 }
 
 impl From<SearchParams> for crate::filters::FilterCriteria {
-    /// Convert SearchParams to FilterCriteria for saving as a filter
+    /// Convert `SearchParams` to `FilterCriteria` for saving as a filter
     ///
-    /// Note: The general query is not preserved in FilterCriteria since
+    /// Note: The general query is not preserved in `FilterCriteria` since
     /// filters use explicit tags and file patterns only.
     fn from(params: SearchParams) -> Self {
         Self {
