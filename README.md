@@ -412,7 +412,7 @@ tagr filter rm rust-tutorials -f
 Filters work seamlessly with `tagr search` and `tagr browse` commands:
 
 ```bash
-# Use a saved filter (coming soon in next release)
+# Use a saved filter
 tagr search --filter rust-tutorials
 tagr search -F rust-tutorials
 
@@ -426,6 +426,9 @@ tagr browse -F config-files -f "*.toml"
 
 # Save current search as filter
 tagr search -t rust -t tutorial -f "*.rs" --save-filter "my-rust-search"
+
+# Save with description
+tagr search -t rust -f "*.rs" --save-filter "rust-src" --filter-desc "All Rust source files"
 ```
 
 ### Export & Import Filters

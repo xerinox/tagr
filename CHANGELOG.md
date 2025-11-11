@@ -19,12 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tagr filter export [names...]` - Export filters to TOML file
   - `tagr filter import <file>` - Import filters with conflict resolution
   - `tagr filter stats` - Show filter usage statistics (stub for future implementation)
+- **Search & Browse Integration** - Full integration with search and browse commands
+  - `--filter` / `-F <name>` - Load and apply saved filter
+  - `--save-filter <name>` - Save current search/browse as filter
+  - `--filter-desc <desc>` - Add description when saving filter
+  - Automatic filter criteria merging with CLI arguments
+  - Usage statistics tracking on filter load
 - **SearchParams Conversions** - Idiomatic From trait implementations
   - `impl From<SearchParams> for FilterCriteria` - Convert CLI args to filter
   - `impl From<&FilterCriteria> for SearchParams` - Convert filter to CLI args
   - `SearchParams::merge()` - Merge filter criteria with additional CLI arguments
 - **CLI Integration** - Filter subcommands integrated into main CLI
   - `Commands::Filter` variant added to main command enum
+  - `FilterArgs` struct with flatten for search/browse commands
   - All filter commands properly routed through `commands/filter.rs`
   - Short aliases for common operations (`ls`, `rm`, `mv`)
 - **Export/Import Features** - Share and backup filters
@@ -36,8 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Detailed output with creation dates and usage stats
   - Comprehensive descriptions for each filter
   - Usage tracking (last_used, use_count) in metadata
-
-**Note**: Integration with `search` and `browse` commands (--filter/-F and --save-filter flags) is planned for next release.
+  - Warning when saving browse filter with no criteria
 
 #### Saved Filters and Bookmarks (Foundation)
 - **Filter Storage Infrastructure** - Core types and operations for saved search filters
