@@ -414,6 +414,22 @@ pub struct DbArgs {
     pub db: Option<String>,
 }
 
+/// Shared arguments for filter operations
+#[derive(Parser, Debug, Clone)]
+pub struct FilterArgs {
+    /// Load a saved filter
+    #[arg(short = 'F', long = "filter", value_name = "NAME")]
+    pub filter: Option<String>,
+    
+    /// Save current search as a filter
+    #[arg(long = "save-filter", value_name = "NAME")]
+    pub save_filter: Option<String>,
+    
+    /// Description for saved filter
+    #[arg(long = "filter-desc", value_name = "DESC", requires = "save_filter")]
+    pub filter_desc: Option<String>,
+}
+
 /// Main CLI structure for parsing command-line arguments
 #[derive(Parser, Debug)]
 #[command(name = "tagr")]
@@ -464,6 +480,9 @@ pub enum Commands {
 
         #[command(flatten)]
         db_args: DbArgs,
+
+        #[command(flatten)]
+        filter_args: FilterArgs,
     },
 
     /// Manage configuration settings
@@ -552,6 +571,9 @@ pub enum Commands {
 
         #[command(flatten)]
         db_args: DbArgs,
+
+        #[command(flatten)]
+        filter_args: FilterArgs,
     },
 
     /// Remove tags from a file
@@ -777,6 +799,11 @@ impl Cli {
             exclude_tags: Vec::new(),
             execute: None,
             db_args: DbArgs { db: None },
+            filter_args: FilterArgs {
+                filter: None,
+                save_filter: None,
+                filter_desc: None,
+            },
         })
     }
     
