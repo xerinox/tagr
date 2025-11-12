@@ -14,7 +14,9 @@ pub mod config;
 pub mod db;
 pub mod filters;
 pub mod output;
+pub mod preview;
 pub mod search;
+pub mod ui;
 pub mod vtags;
 
 #[cfg(test)]
@@ -32,6 +34,12 @@ pub enum TagrError {
     /// Filter error
     #[error("Filter error: {0}")]
     FilterError(#[from] filters::FilterError),
+    /// UI error
+    #[error("UI error: {0}")]
+    UiError(#[from] ui::UiError),
+    /// Preview error
+    #[error("Preview error: {0}")]
+    PreviewError(#[from] preview::PreviewError),
     /// Represents a configuration error
     #[error("Configuration error: {0}")]
     ConfigError(#[from] ::config::ConfigError),
