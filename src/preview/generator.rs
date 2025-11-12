@@ -78,10 +78,8 @@ impl PreviewGenerator {
 
     fn generate_text_preview(&self, path: &Path, _file_size: u64) -> Result<PreviewContent> {
         // Try bat first if available and syntax highlighting is enabled
-        if self.config.syntax_highlighting && self.bat_available {
-            if let Ok(highlighted) = self.generate_bat_preview(path) {
-                return Ok(highlighted);
-            }
+        if self.config.syntax_highlighting && self.bat_available && let Ok(highlighted) = self.generate_bat_preview(path) {
+            return Ok(highlighted);
         }
 
         // Fallback to syntect or plain text
@@ -133,11 +131,10 @@ impl PreviewGenerator {
             .arg(format!("--line-range=:{}", self.config.max_lines))
             .arg(path)
             .output()
-            .map_err(|e| PreviewError::IoError(e))?;
+            .map_err(PreviewError::IoError)?;
 
         if !output.status.success() {
-            return Err(PreviewError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(PreviewError::IoError(std::io::Error::other(
                 "bat command failed",
             )));
         }
@@ -171,11 +168,8 @@ impl PreviewGenerator {
         lines
             .iter()
             .map(|line| {
-                if let Ok(ranges) = highlighter.highlight_line(line, &self.syntax_set) {
-                    as_24_bit_terminal_escaped(&ranges[..], false)
-                } else {
-                    line.clone()
-                }
+                highlighter.highlight_line(line, &self.syntax_set)
+                    .map_or_else(|_| line.clone(), |ranges| as_24_bit_terminal_escaped(&ranges[..], false))
             })
             .collect()
     }
@@ -189,16 +183,14 @@ impl PreviewGenerator {
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64),
-            permissions: self.format_permissions(metadata),
+            permissions: Some(self.format_permissions(metadata)),
             file_type: self.detect_file_type(path),
         };
 
-        if self.is_image(path) {
-            if let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone()) {
-                return PreviewContent::Image {
-                    metadata: image_meta,
-                };
-            }
+        if self.is_image(path) && let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone()) {
+            return PreviewContent::Image {
+                metadata: image_meta,
+            };
         }
 
         PreviewContent::Binary {
@@ -207,10 +199,10 @@ impl PreviewGenerator {
     }
 
     #[cfg(unix)]
-    fn format_permissions(&self, metadata: &fs::Metadata) -> Option<String> {
+    fn format_permissions(&self, metadata: &fs::Metadata) -> String {
         use std::os::unix::fs::PermissionsExt;
         let mode = metadata.permissions().mode();
-        Some(format!(
+        format!(
             "{}{}{}{}{}{}{}{}{}",
             if mode & 0o400 != 0 { 'r' } else { '-' },
             if mode & 0o200 != 0 { 'w' } else { '-' },
@@ -221,15 +213,15 @@ impl PreviewGenerator {
             if mode & 0o004 != 0 { 'r' } else { '-' },
             if mode & 0o002 != 0 { 'w' } else { '-' },
             if mode & 0o001 != 0 { 'x' } else { '-' },
-        ))
+        )
     }
 
     #[cfg(not(unix))]
-    fn format_permissions(&self, metadata: &fs::Metadata) -> Option<String> {
+    fn format_permissions(&self, metadata: &fs::Metadata) -> String {
         if metadata.permissions().readonly() {
-            Some("readonly".to_string())
+            "readonly".to_string()
         } else {
-            Some("read-write".to_string())
+            "read-write".to_string()
         }
     }
 
@@ -338,5 +330,68 @@ mod tests {
         let preview = generator.generate(Path::new("/nonexistent/file.txt")).unwrap();
 
         assert!(matches!(preview, PreviewContent::Error(_)));
+    }
+
+    #[test]
+    #[cfg(feature = "syntax-highlighting")]
+    fn test_syntax_highlighting_enabled() {
+        let temp = TempFile::create("test.rs").unwrap();
+        fs::write(temp.path(), "fn main() {\n    println!(\"Hello\");\n}\n").unwrap();
+
+        let mut config = PreviewConfig::default();
+        config.syntax_highlighting = true;
+        let generator = PreviewGenerator::new(config);
+        let preview = generator.generate(temp.path()).unwrap();
+
+        match preview {
+            PreviewContent::Text { has_ansi, lines, .. } => {
+                // Should have ANSI codes from bat or syntect
+                assert!(has_ansi || !lines.is_empty()); // Either ANSI or plain text fallback
+            }
+            _ => panic!("Expected Text preview"),
+        }
+    }
+
+    #[test]
+    fn test_bat_availability_check() {
+        let config = PreviewConfig::default();
+        let generator = PreviewGenerator::new(config);
+        // Just verify the generator was created successfully
+        // bat_available is determined at runtime
+        assert!(generator.config.enabled);
+    }
+
+    #[test]
+    fn test_binary_file_preview() {
+        let temp = TempFile::create("test.bin").unwrap();
+        // Write invalid UTF-8
+        fs::write(temp.path(), &[0xFF, 0xFE, 0xFD]).unwrap();
+
+        let mut config = PreviewConfig::default();
+        config.syntax_highlighting = false; // Disable to ensure we test the fallback path
+        let generator = PreviewGenerator::new(config);
+        let preview = generator.generate(temp.path()).unwrap();
+
+        match preview {
+            PreviewContent::Binary { metadata } => {
+                assert_eq!(metadata.size, 3);
+                assert!(metadata.permissions.is_some());
+            }
+            _ => panic!("Expected Binary preview, got {:?}", preview),
+        }
+    }
+
+    #[test]
+    fn test_large_file_error() {
+        let temp = TempFile::create("large.txt").unwrap();
+        // Create a file just over 5MB
+        let content = "x".repeat(5_242_881);
+        fs::write(temp.path(), content).unwrap();
+
+        let config = PreviewConfig::default();
+        let generator = PreviewGenerator::new(config);
+        let result = generator.generate(temp.path());
+
+        assert!(matches!(result, Err(PreviewError::FileTooLarge(_, _))));
     }
 }

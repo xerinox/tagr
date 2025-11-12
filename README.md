@@ -6,6 +6,7 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 
 - 🏷️ **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
 - 🔍 **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
+- 👁️ **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)
 - ⚡ **Fast queries** - O(1) tag lookups using reverse indexing with sled database
 - 🎯 **Multi-select** - Select multiple tags and files at once
 - 🔮 **Virtual tags** - Query files by metadata (size, modification time, extension, etc.) without database storage
@@ -155,6 +156,83 @@ tagr browse -t tutorial -f "*.rs" -x "nvim {}"
 # Browse any doc format, excluding archived
 tagr browse -t documentation -e archived
 ```
+
+## Preview Pane
+
+The preview pane displays file content when browsing files in interactive mode, helping you make informed selections without leaving the fuzzy finder.
+
+### Features
+
+- **Syntax highlighting** - Automatically highlights code files using `bat` (if installed) or built-in `syntect`
+- **Smart fallbacks** - Plain text preview if syntax highlighting unavailable or disabled
+- **Binary file metadata** - Shows file size, modification time, permissions for non-text files
+- **ANSI color support** - Preserves syntax highlighting colors in the preview
+- **Configurable** - Control preview size, position, and features
+
+### Usage
+
+Preview is enabled by default when browsing:
+
+```bash
+# Browse with preview (default)
+tagr browse
+
+# Disable preview
+tagr browse --no-preview
+
+# Customize preview lines
+tagr browse --preview-lines 100
+
+# Change preview position (right/bottom/top)
+tagr browse --preview-position bottom
+
+# Adjust preview width (percentage)
+tagr browse --preview-width 60
+```
+
+### Configuration
+
+Add preview settings to `~/.config/tagr/config.toml`:
+
+```toml
+[preview]
+enabled = true
+max_file_size = 5242880  # 5MB
+max_lines = 50
+syntax_highlighting = true
+show_line_numbers = true
+preview_position = "right"  # right, bottom, or top
+preview_width_percent = 50  # 0-100
+```
+
+### Syntax Highlighting
+
+Preview uses a hybrid approach for best results:
+
+1. **First choice**: Uses `bat` command (if installed) - respects your bat theme and config
+2. **Fallback**: Uses built-in `syntect` library with default theme
+3. **Final fallback**: Plain text if syntax highlighting disabled
+
+To install `bat` for better syntax highlighting:
+
+```bash
+# macOS
+brew install bat
+
+# Ubuntu/Debian
+apt install bat
+
+# Arch Linux
+pacman -S bat
+
+# Cargo
+cargo install bat
+```
+
+Syntax highlighting can be disabled via:
+- Configuration: `syntax_highlighting = false` in config.toml
+- CLI flag: `--no-preview` when browsing
+- Compile-time: `cargo build --no-default-features` (removes syntect dependency)
 
 ## Commands
 

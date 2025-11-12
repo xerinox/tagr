@@ -28,19 +28,13 @@ pub enum PathFormat {
 }
 
 /// UI backend selection
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum UiBackend {
-    /// Use skim fuzzy finder
+    /// Use skim fuzzy finder (default)
+    #[default]
     Skim,
     /// Use custom TUI (future)
     Custom,
-}
-
-impl Default for UiBackend {
-    fn default() -> Self {
-        Self::Skim
-    }
 }
 
 /// UI configuration
@@ -105,34 +99,34 @@ impl Default for PreviewConfig {
     }
 }
 
-fn default_preview_enabled() -> bool {
+const fn default_preview_enabled() -> bool {
     true
 }
 
-fn default_max_file_size() -> u64 {
-    5_242_880
+const fn default_max_file_size() -> u64 {
+    5_242_880 // 5MB
 }
 
-fn default_max_lines() -> usize {
+const fn default_max_lines() -> usize {
     50
 }
 
-fn default_syntax_highlighting() -> bool {
+const fn default_syntax_highlighting() -> bool {
     true
 }
 
-fn default_show_line_numbers() -> bool {
+const fn default_show_line_numbers() -> bool {
     true
 }
 
-fn default_width_percent() -> u8 {
+const fn default_width_percent() -> u8 {
     50
 }
 
 impl PreviewConfig {
-    /// Convert to UI trait PreviewConfig
+    /// Convert to UI trait `PreviewConfig`
     #[must_use]
-    pub fn to_ui_config(&self) -> crate::ui::PreviewConfig {
+    pub const fn to_ui_config(&self) -> crate::ui::PreviewConfig {
         crate::ui::PreviewConfig {
             enabled: self.enabled,
             max_file_size: self.max_file_size,
