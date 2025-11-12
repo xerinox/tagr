@@ -1,9 +1,11 @@
 //! Common types for UI abstraction layer
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Position of preview pane
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PreviewPosition {
     /// Preview on the right side
     Right,
