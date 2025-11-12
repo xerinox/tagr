@@ -114,7 +114,7 @@ impl FuzzyFinder for SkimFinder {
     }
 }
 
-/// Wrapper around DisplayItem that implements SkimItem
+/// Wrapper around `DisplayItem` that implements `SkimItem`
 struct SkimDisplayItem {
     item: DisplayItem,
     preview_provider: Option<Arc<dyn PreviewProvider>>,
@@ -177,7 +177,7 @@ pub struct SkimPreviewProvider {
 impl SkimPreviewProvider {
     /// Create a new skim preview provider
     #[must_use]
-    pub fn new(generator: Arc<PreviewGenerator>) -> Self {
+    pub const fn new(generator: Arc<PreviewGenerator>) -> Self {
         Self { generator }
     }
 }

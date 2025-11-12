@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Preview Pane Feature (Phase 4 Complete)
+- **Interactive File Preview** - View file content in fuzzy finder before selecting
+  - Real-time preview while navigating through files
+  - Automatic text file detection with UTF-8 validation
+  - Binary file metadata display (size, modified time, permissions, type)
+  - Empty file detection and handling
+- **Syntax Highlighting** - Hybrid approach for best highlighting quality
+  - Primary: Uses `bat` command if installed (respects user's bat config/theme)
+  - Fallback: Built-in `syntect` library with default theme
+  - Final fallback: Plain text if syntax highlighting disabled
+  - ANSI color codes properly rendered in preview pane
+- **Feature Flag** - `syntax-highlighting` feature (enabled by default)
+  - Compile without syntect: `cargo build --no-default-features`
+  - Optional syntect 5.2 dependency
+  - Zero impact on binary size when disabled
+- **Configuration** - Fully configurable preview behavior
+  - Enable/disable preview globally via config
+  - Max file size limit (default: 5MB)
+  - Max lines to display (default: 50)
+  - Toggle syntax highlighting
+  - Show/hide line numbers
+  - Preview position: right, bottom, or top
+  - Preview width percentage (0-100)
+- **CLI Flags** - Override preview settings per command
+  - `--no-preview` - Disable preview for this session
+  - `--preview-lines <LINES>` - Override max lines
+  - `--preview-position <POSITION>` - Override position (right/bottom/top)
+  - `--preview-width <PERCENT>` - Override width percentage
+- **Performance** - Efficient preview generation with caching
+  - Moka cache with 300s TTL and 1000 item capacity
+  - Cached previews for fast navigation
+  - File size checks before reading
+  - Lazy loading (preview generated on demand)
+- **UI Abstraction** - Backend-agnostic preview system
+  - `PreviewProvider` trait for custom preview implementations
+  - `PreviewText` type with ANSI metadata tracking
+  - skim adapter uses `ItemPreview::AnsiText` for colored output
+  - Easy to add new preview providers
+
 #### Virtual Tags Feature (Complete)
 - **Dynamic Metadata Queries** - Query files by filesystem metadata without database storage
   - Time-based queries: modified, created, accessed timestamps
@@ -49,6 +88,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configuration** - Customizable virtual tag behavior
   - Size category thresholds (tiny, small, medium, large, huge)
   - Extension type mappings (source, document, config, image, archive)
+
+### Improved
+
+- **Test Infrastructure** - Automatic cleanup for integration tests
+  - `TestDb` and `TestFile` wrappers with Drop-based cleanup
+  - Prevents leftover test files and directories
+  - Panic-safe cleanup (works even when tests fail)
+  - All integration tests migrated to new pattern
+
+### Fixed
+
+- Clippy warnings reduced with pedantic and nursery lints
+  - Derived Default for UiBackend enum
+  - Made config helper functions const
+  - Fixed redundant closures and nested if statements
+  - Improved doc comments with proper backticks
+  - Better error handling patterns
+
   - Time thresholds (recent, stale)
   - Git integration toggle
   - Metadata cache TTL
