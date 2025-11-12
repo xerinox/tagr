@@ -208,6 +208,7 @@ mod tests {
     #[test]
     fn test_generate_empty_file_preview() {
         let temp = TempFile::create("empty.txt").unwrap();
+        fs::write(temp.path(), "").unwrap();
 
         let config = PreviewConfig::default();
         let generator = PreviewGenerator::new(config);
