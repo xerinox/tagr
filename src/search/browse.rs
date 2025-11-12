@@ -12,12 +12,10 @@ use crate::config::PathFormat;
 use crate::db::{Database, query};
 use crate::preview::FilePreviewProvider;
 use crate::ui::{
-    DisplayItem, FinderConfig, FuzzyFinder, ItemMetadata, PreviewConfig,
-    skim_adapter::SkimFinder,
+    DisplayItem, FinderConfig, FuzzyFinder, ItemMetadata, PreviewConfig, skim_adapter::SkimFinder,
 };
 use colored::Colorize;
 use std::path::{Path, PathBuf};
-
 
 fn format_path_for_display(path: &Path, format: PathFormat) -> String {
     match format {
@@ -110,7 +108,8 @@ pub fn browse_with_params(
         return Ok(None);
     }
 
-    let selected_files = select_files_from_list(db, &matching_files, preview_overrides, path_format)?;
+    let selected_files =
+        select_files_from_list(db, &matching_files, preview_overrides, path_format)?;
 
     if selected_files.is_empty() {
         return Ok(None);
@@ -224,7 +223,7 @@ fn select_files_from_list(
 
     // Start with default preview config
     let mut preview_config = PreviewConfig::default();
-    
+
     // Apply preview overrides from CLI
     if let Some(overrides) = preview_overrides {
         if overrides.no_preview {
@@ -253,7 +252,7 @@ fn select_files_from_list(
             let tags = db.get_tags(file).ok()??;
             let display_path = format_path_for_display(file, path_format);
             let exists = file.exists();
-            
+
             let file_colored = if exists {
                 display_path.green()
             } else {
@@ -291,11 +290,7 @@ fn select_files_from_list(
         return Ok(Vec::new());
     }
 
-    let selected_files: Vec<PathBuf> = result
-        .selected
-        .iter()
-        .map(PathBuf::from)
-        .collect();
+    let selected_files: Vec<PathBuf> = result.selected.iter().map(PathBuf::from).collect();
 
     Ok(selected_files)
 }
@@ -373,8 +368,11 @@ pub fn browse_advanced(
 /// Returns `SearchError::BuildError` if skim options cannot be built or
 /// `SearchError::InterruptedError` if the fuzzy finder is interrupted.
 fn select_search_mode() -> Result<bool, SearchError> {
-    let options = ["ANY (files with any of these tags)", "ALL (files with all of these tags)"];
-    
+    let options = [
+        "ANY (files with any of these tags)",
+        "ALL (files with all of these tags)",
+    ];
+
     let items: Vec<DisplayItem> = options
         .iter()
         .enumerate()

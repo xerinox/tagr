@@ -106,7 +106,10 @@ impl PreviewContent {
             }
             Self::Binary { metadata } => format_file_metadata(metadata),
             Self::Image { metadata } => format_image_metadata(metadata),
-            Self::Archive { contents, truncated } => {
+            Self::Archive {
+                contents,
+                truncated,
+            } => {
                 let mut output = String::from("Archive contents:\n\n");
                 output.push_str(&contents.join("\n"));
                 if *truncated {

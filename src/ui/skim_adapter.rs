@@ -38,7 +38,7 @@ impl SkimFinder {
     /// Build skim options from finder configuration
     fn build_skim_options(&self, config: &FinderConfig) -> Result<SkimOptions> {
         let mut builder = SkimOptionsBuilder::default();
-        
+
         builder
             .multi(config.multi_select)
             .prompt(config.prompt.clone())
@@ -48,20 +48,22 @@ impl SkimFinder {
             builder.ansi(true).color(Some("dark".to_string()));
         }
 
-                // Preview configuration
+        // Preview configuration
         if let Some(preview_config) = &config.preview_config
-            && preview_config.enabled && self.preview_provider.is_some() {
-                // Skim requires a preview command to enable preview window
-                // Use empty string to signal we're using ItemPreview trait
-                builder.preview(Some(String::new()));
-                
-                let preview_window = format!(
-                    "{}:{}%",
-                    preview_config.position.as_str(),
-                    preview_config.width_percent
-                );
-                builder.preview_window(preview_window);
-            }
+            && preview_config.enabled
+            && self.preview_provider.is_some()
+        {
+            // Skim requires a preview command to enable preview window
+            // Use empty string to signal we're using ItemPreview trait
+            builder.preview(Some(String::new()));
+
+            let preview_window = format!(
+                "{}:{}%",
+                preview_config.position.as_str(),
+                preview_config.width_percent
+            );
+            builder.preview_window(preview_window);
+        }
 
         builder
             .build()
@@ -161,7 +163,9 @@ impl SkimItem for SkimDisplayItem {
                         ItemPreview::Text(preview_text.content)
                     }
                 }
-                Err(_) => ItemPreview::Text(format!("Error generating preview for {}", self.item.key)),
+                Err(_) => {
+                    ItemPreview::Text(format!("Error generating preview for {}", self.item.key))
+                }
             },
         )
     }
@@ -209,11 +213,7 @@ impl PreviewProvider for SkimPreviewProvider {
 ///
 /// Returns `UiError::BuildError` if skim options cannot be built.
 /// Returns `UiError::ExecutionError` if skim fails to run.
-pub fn run_skim_simple(
-    items: &[String],
-    multi: bool,
-    prompt: &str,
-) -> Result<FinderResult> {
+pub fn run_skim_simple(items: &[String], multi: bool, prompt: &str) -> Result<FinderResult> {
     let items_text = items.join("\n");
     let item_reader = SkimItemReader::default();
     let items = item_reader.of_bufread(Cursor::new(items_text));

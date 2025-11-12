@@ -327,22 +327,25 @@ mod tests {
         let path_outside = {
             let temp = TempFile::create("test_panic.txt").unwrap();
             let path = temp.path().to_path_buf();
-            
+
             // File exists while temp is in scope
             assert!(path.exists());
-            
+
             // Simulate a panic within the scope
             let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
                 assert!(path.exists());
                 panic!("Simulated test failure");
             }));
-            
+
             assert!(result.is_err());
             path
             // temp is dropped here, even though we panicked
         };
 
         // Verify cleanup happened after panic
-        assert!(!path_outside.exists(), "TempFile should be cleaned up even after panic");
+        assert!(
+            !path_outside.exists(),
+            "TempFile should be cleaned up even after panic"
+        );
     }
 }
