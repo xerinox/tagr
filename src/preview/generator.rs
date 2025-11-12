@@ -1,30 +1,20 @@
-//! Preview generation logic
-
 use super::error::{PreviewError, Result};
 use super::types::{FileMetadata, ImageMetadata, PreviewContent};
 use crate::ui::PreviewConfig;
 use std::fs;
 use std::path::Path;
 
-/// Preview generator
 pub struct PreviewGenerator {
     config: PreviewConfig,
 }
 
 impl PreviewGenerator {
-    /// Create a new preview generator with configuration
     #[must_use]
     pub const fn new(config: PreviewConfig) -> Self {
         Self { config }
     }
 
-    /// Generate preview for a file
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be read or preview generation fails
     pub fn generate(&self, path: &Path) -> Result<PreviewContent> {
-        // Check if file exists
         if !path.exists() {
             return Ok(PreviewContent::Error(format!(
                 "File not found: {}",
@@ -32,11 +22,9 @@ impl PreviewGenerator {
             )));
         }
 
-        // Get file metadata
         let metadata = fs::metadata(path)?;
-
-        // Check file size
         let file_size = metadata.len();
+
         if file_size == 0 {
             return Ok(PreviewContent::Empty);
         }
@@ -48,18 +36,15 @@ impl PreviewGenerator {
             ));
         }
 
-        // Try to read as text
         match self.generate_text_preview(path, file_size) {
             Ok(content) => Ok(content),
             Err(PreviewError::InvalidUtf8(_)) => {
-                // Not a text file, generate binary preview
                 Ok(self.generate_binary_preview(path, &metadata))
             }
             Err(e) => Err(e),
         }
     }
 
-    /// Generate preview for text file
     fn generate_text_preview(&self, path: &Path, _file_size: u64) -> Result<PreviewContent> {
         let content = fs::read_to_string(path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::InvalidData {
@@ -86,7 +71,6 @@ impl PreviewGenerator {
         })
     }
 
-    /// Generate preview for binary file
     fn generate_binary_preview(&self, path: &Path, metadata: &fs::Metadata) -> PreviewContent {
         let file_metadata = FileMetadata {
             path: path.to_path_buf(),
@@ -100,7 +84,6 @@ impl PreviewGenerator {
             file_type: self.detect_file_type(path),
         };
 
-        // Check if it's an image
         if self.is_image(path) {
             if let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone()) {
                 return PreviewContent::Image {
@@ -114,7 +97,6 @@ impl PreviewGenerator {
         }
     }
 
-    /// Format file permissions
     #[cfg(unix)]
     fn format_permissions(&self, metadata: &fs::Metadata) -> Option<String> {
         use std::os::unix::fs::PermissionsExt;
@@ -142,14 +124,12 @@ impl PreviewGenerator {
         }
     }
 
-    /// Detect file type by extension
     fn detect_file_type(&self, path: &Path) -> Option<String> {
         path.extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_uppercase())
     }
 
-    /// Check if file is an image by extension
     fn is_image(&self, path: &Path) -> bool {
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             matches!(
@@ -161,7 +141,6 @@ impl PreviewGenerator {
         }
     }
 
-    /// Extract image metadata (placeholder for now)
     fn extract_image_metadata(
         &self,
         _path: &Path,
