@@ -228,7 +228,7 @@ impl PreviewGenerator {
     fn detect_file_type(&self, path: &Path) -> Option<String> {
         path.extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.to_uppercase())
+            .map(str::to_uppercase)
     }
 
     fn is_image(&self, path: &Path) -> bool {
@@ -242,7 +242,7 @@ impl PreviewGenerator {
         }
     }
 
-    fn extract_image_metadata(
+    const fn extract_image_metadata(
         &self,
         _path: &Path,
         file_metadata: FileMetadata,

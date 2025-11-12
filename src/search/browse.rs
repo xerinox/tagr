@@ -373,16 +373,16 @@ pub fn browse_advanced(
 /// Returns `SearchError::BuildError` if skim options cannot be built or
 /// `SearchError::InterruptedError` if the fuzzy finder is interrupted.
 fn select_search_mode() -> Result<bool, SearchError> {
-    let options = vec!["ANY (files with any of these tags)", "ALL (files with all of these tags)"];
+    let options = ["ANY (files with any of these tags)", "ALL (files with all of these tags)"];
     
     let items: Vec<DisplayItem> = options
         .iter()
         .enumerate()
         .map(|(idx, opt)| {
             DisplayItem::with_metadata(
-                opt.to_string(),
-                opt.to_string(),
-                opt.to_string(),
+                (*opt).to_string(),
+                (*opt).to_string(),
+                (*opt).to_string(),
                 ItemMetadata {
                     tags: vec![],
                     exists: true,

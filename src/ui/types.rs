@@ -6,8 +6,10 @@ use std::fmt;
 /// Position of preview pane
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PreviewPosition {
     /// Preview on the right side
+    #[default]
     Right,
     /// Preview at the bottom
     Bottom,
@@ -27,11 +29,6 @@ impl PreviewPosition {
     }
 }
 
-impl Default for PreviewPosition {
-    fn default() -> Self {
-        Self::Right
-    }
-}
 
 impl fmt::Display for PreviewPosition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -66,7 +63,7 @@ impl DisplayItem {
 
     /// Create a display item with metadata
     #[must_use]
-    pub fn with_metadata(
+    pub const fn with_metadata(
         key: String,
         display: String,
         searchable: String,
@@ -95,7 +92,7 @@ pub struct ItemMetadata {
 /// Result from fuzzy finder
 #[derive(Debug)]
 pub struct FinderResult {
-    /// Selected items (keys from DisplayItem)
+    /// Selected items (keys from `DisplayItem`)
     pub selected: Vec<String>,
     /// Whether the operation was aborted by user
     pub aborted: bool,
@@ -113,7 +110,7 @@ impl FinderResult {
 
     /// Create an aborted result
     #[must_use]
-    pub fn aborted() -> Self {
+    pub const fn aborted() -> Self {
         Self {
             selected: Vec::new(),
             aborted: true,
