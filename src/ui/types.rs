@@ -21,8 +21,8 @@ impl PreviewPosition {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Right => "right",
-            Self::Bottom => "bottom",
-            Self::Top => "top",
+            Self::Bottom => "down",
+            Self::Top => "up",
         }
     }
 }

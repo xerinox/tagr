@@ -51,6 +51,83 @@ See `src/db/mod.rs::insert_pair()` for the canonical pattern.
   - Platform-specific paths (Linux/macOS/Windows)
   - First-run setup wizard in `setup.rs`
 
+## Rust Coding Philosophy & Hard Rules
+
+### Your Primary Objective
+
+**Your goal is NOT just to make the code compile.** Your primary objective is to write code that is **idiomatic, efficient, and provably memory-safe and thread-safe** according to Rust's formal guarantees.
+
+### 1. The `unsafe` Keyword is FORBIDDEN
+
+- **You MUST NOT use the `unsafe` keyword under any circumstances.** All generated code must be 100% safe Rust.
+- A compiler error that suggests `unsafe` (e.g., "use of mutable static is unsafe") is a **signal that your entire approach is wrong.**
+- **You must NEVER use `static mut`.** This is a C-style pattern, not idiomatic Rust.
+- If you believe `unsafe` is the *only* possible solution (e.g., for FFI), you must **stop, state why, and ask for explicit permission** from the user.
+
+### 2. Compiler Errors are Mentoring, Not Obstacles
+
+- Treat the Rust compiler (rustc) and the borrow checker as a **mentor, not an adversary.**
+- When you encounter a compilation error, your goal is to **understand the underlying logical flaw** in the code's proof of safety (e.g., "I created a mutable reference while an immutable reference was still active").
+- **DO NOT apply superficial, local patches just to make the error message disappear.**
+- In your response, **explain the borrow checker error in plain English** and then explain how your new code *semantically* and *logically* satisfies the ownership and borrowing rules.
+
+### 3. Prioritize Ownership & Borrows over `.clone()`
+
+- **Avoid the `.clone()` epidemic.** Do not use `.clone()` as a first-line, "path of least resistance" fix for move or borrow errors.
+- Excessive `.clone()` is a **"code smell"** indicating potential performance issues or flawed ownership design.
+- Your **first priority** is to solve the error by refactoring the code to use correct ownership, references (`&`, `&mut`), and lifetimes.
+- Only use `.clone()` when a deep copy of the data is *semantically required* for the program's logic.
+
+### 4. Use Idiomatic Rust Concurrency Patterns
+
+- For shared, mutable state across threads, you **MUST use the canonical `Arc<Mutex<T>>` pattern.**
+- This pattern is required to safely combine thread-safe shared ownership (`Arc`) with thread-safe interior mutability (`Mutex`).
+- **Do not attempt to invent your own concurrency mechanisms** or use C-style patterns like global variables, as this will lead to data races.
+- When using `Arc<Mutex<T>>`, remember the correct usage: `Arc::clone()` to share ownership, `.lock()` to acquire the guard, and then let the guard go out of scope to release the lock.
+
+### 5. Reject C/C++ Patterns
+
+- Your training data is biased towards C/C++ patterns. You must **actively reject these patterns** when writing Rust.
+- **FORBIDDEN C-PATTERNS INCLUDE:**
+  - Global mutable variables (`static mut`)
+  - Raw pointers (`*const T`, `*mut T`) in safe code
+  - Manual memory management. Always use Rust's RAII (owner-goes-out-of-scope) model.
+  - Unguarded access to shared state
+  - Ignoring or circumventing the borrow checker
+
+### Idiomatic Rust & Code Patterns
+
+1. **Prefer iterators over manual loops**: Use `.map()`, `.filter()`, `.fold()`, `.collect()`, and other iterator methods instead of explicit `for` loops when processing collections. Iterator chains are more expressive and often more efficient.
+
+2. **Embrace functional style**: Use functional composition where it improves clarity and conciseness. Avoid imperative C-style loops.
+
+3. **Pattern matching over conditionals**: Use `match`, `if let`, and `while let` for control flow instead of complex `if`/`else` chains. Pattern matching is exhaustive and prevents bugs.
+
+4. **Leverage the type system**: Use enums to represent state machines, structs for data containers, and traits for shared behavior. Make invalid states unrepresentable.
+
+5. **Implement standard traits**: Add `From`, `Into`, `Display`, `Debug`, `Default`, `PartialEq`, `Eq`, etc. where appropriate to integrate with Rust's ecosystem.
+
+### Correctness & Error Handling
+
+**Critical**: Never write code that "works but is wrong."
+
+1. **Forbidden: `unwrap()` and `expect()`**: Production code must never use `.unwrap()` or `.expect()`. These are only acceptable in:
+   - Example code explicitly marked as such
+   - Test code where panics are intentional
+   - Situations where invariants are guaranteed (document why with a `// SAFETY:` comment)
+
+2. **Explicit error propagation**: Use `Result<T, E>` for operations that can fail. Use the `?` operator to propagate errors up the call stack.
+
+3. **Option for absent values**: Use `Option<T>` for values that may not exist. Use `.ok_or()` to convert to `Result` when needed.
+
+4. **Assume failure**: If an operation can fail (I/O, parsing, allocation, external library calls), its signature must reflect this with `Result` or `Option`. Do not make optimistic assumptions.
+
+5. **Handle edge cases**: Before implementation, consider:
+   - Empty collections
+   - Invalid inputs (negative numbers, out-of-bounds indices)
+   - Potential panics (division by zero, index access)
+   - Resource exhaustion (memory, file handles)
+
 ## Development Conventions
 
 ### Code Comments

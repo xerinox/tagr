@@ -93,6 +93,19 @@ pub struct SearchParams {
     pub virtual_mode: SearchMode,
 }
 
+/// Preview configuration overrides from CLI
+#[derive(Debug, Clone)]
+pub struct PreviewOverrides {
+    /// Disable preview
+    pub no_preview: bool,
+    /// Maximum preview lines
+    pub preview_lines: Option<usize>,
+    /// Preview position
+    pub preview_position: Option<String>,
+    /// Preview width percentage
+    pub preview_width: Option<u8>,
+}
+
 impl SearchParams {
     /// Merge with another `SearchParams` (typically from a loaded filter)
     ///
@@ -497,6 +510,22 @@ pub enum Commands {
         #[arg(short = 'x', long = "exec", value_name = "COMMAND")]
         execute: Option<String>,
 
+        /// Disable preview pane
+        #[arg(long = "no-preview")]
+        no_preview: bool,
+
+        /// Maximum number of preview lines
+        #[arg(long = "preview-lines", value_name = "LINES")]
+        preview_lines: Option<usize>,
+
+        /// Preview position (right, bottom, top)
+        #[arg(long = "preview-position", value_name = "POSITION")]
+        preview_position: Option<String>,
+
+        /// Preview width percentage (0-100)
+        #[arg(long = "preview-width", value_name = "PERCENT")]
+        preview_width: Option<u8>,
+
         #[command(flatten)]
         db_args: DbArgs,
 
@@ -693,6 +722,26 @@ impl Commands {
         }
     }
 
+    /// Helper method to get preview configuration overrides from browse
+    #[must_use]
+    pub fn get_preview_overrides_from_browse(&self) -> Option<PreviewOverrides> {
+        match self {
+            Self::Browse {
+                no_preview,
+                preview_lines,
+                preview_position,
+                preview_width,
+                ..
+            } => Some(PreviewOverrides {
+                no_preview: *no_preview,
+                preview_lines: *preview_lines,
+                preview_position: preview_position.clone(),
+                preview_width: *preview_width,
+            }),
+            _ => None,
+        }
+    }
+
     /// Helper method to get search parameters from browse command
     #[must_use]
     pub fn get_search_params_from_browse(&self) -> Option<SearchParams> {
@@ -810,6 +859,10 @@ impl Cli {
                 all_virtual: false,
             },
             execute: None,
+            no_preview: false,
+            preview_lines: None,
+            preview_position: None,
+            preview_width: None,
             db_args: DbArgs { db: None },
             filter_args: FilterArgs {
                 filter: None,

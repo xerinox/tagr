@@ -10,8 +10,9 @@ use super::error::SearchError;
 use crate::cli::SearchParams;
 use crate::config::PathFormat;
 use crate::db::{Database, query};
+use crate::preview::FilePreviewProvider;
 use crate::ui::{
-    DisplayItem, FinderConfig, FuzzyFinder, ItemMetadata,
+    DisplayItem, FinderConfig, FuzzyFinder, ItemMetadata, PreviewConfig,
     skim_adapter::SkimFinder,
 };
 use colored::Colorize;
@@ -59,7 +60,7 @@ pub struct BrowseResult {
 /// Returns `SearchError` if database operations fail, UI interactions fail,
 /// or if skim selection is interrupted.
 pub fn browse(db: &Database, path_format: PathFormat) -> Result<Option<BrowseResult>, SearchError> {
-    browse_with_params(db, None, path_format)
+    browse_with_params(db, None, None, path_format)
 }
 
 /// Run interactive browse mode with optional pre-populated search parameters
@@ -87,6 +88,7 @@ pub fn browse(db: &Database, path_format: PathFormat) -> Result<Option<BrowseRes
 pub fn browse_with_params(
     db: &Database,
     search_params: Option<SearchParams>,
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
 ) -> Result<Option<BrowseResult>, SearchError> {
     let (selected_tags, matching_files) = if let Some(params) = search_params {
@@ -108,7 +110,7 @@ pub fn browse_with_params(
         return Ok(None);
     }
 
-    let selected_files = select_files_from_list(db, &matching_files, path_format)?;
+    let selected_files = select_files_from_list(db, &matching_files, preview_overrides, path_format)?;
 
     if selected_files.is_empty() {
         return Ok(None);
@@ -212,11 +214,36 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
 fn select_files_from_list(
     db: &Database,
     files: &[PathBuf],
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
 ) -> Result<Vec<PathBuf>, SearchError> {
     if files.is_empty() {
         eprintln!("No files found with the selected tags");
         return Ok(Vec::new());
+    }
+
+    // Start with default preview config
+    let mut preview_config = PreviewConfig::default();
+    
+    // Apply preview overrides from CLI
+    if let Some(overrides) = preview_overrides {
+        if overrides.no_preview {
+            preview_config.enabled = false;
+        }
+        if let Some(lines) = overrides.preview_lines {
+            preview_config.max_lines = lines;
+        }
+        if let Some(position) = overrides.preview_position {
+            preview_config.position = match position.to_lowercase().as_str() {
+                "right" => crate::ui::PreviewPosition::Right,
+                "bottom" => crate::ui::PreviewPosition::Bottom,
+                "top" => crate::ui::PreviewPosition::Top,
+                _ => preview_config.position,
+            };
+        }
+        if let Some(width) = overrides.preview_width {
+            preview_config.width_percent = width.min(100);
+        }
     }
 
     let items: Vec<DisplayItem> = files
@@ -252,9 +279,12 @@ fn select_files_from_list(
         "Select files (TAB to select multiple, Enter to confirm): ".to_string(),
     )
     .with_multi_select(true)
-    .with_ansi(true);
+    .with_ansi(true)
+    .with_preview(preview_config.clone());
 
-    let finder = SkimFinder::new();
+    // Create preview provider for file previews
+    let preview_provider = FilePreviewProvider::new(preview_config);
+    let finder = SkimFinder::with_preview_provider(preview_provider);
     let result = finder.run(config).map_err(SearchError::UiError)?;
 
     if result.aborted {
@@ -316,7 +346,7 @@ pub fn browse_advanced(
         return Ok(None);
     }
 
-    let selected_files = select_files_from_list(db, &matching_files, path_format)?;
+    let selected_files = select_files_from_list(db, &matching_files, None, path_format)?;
 
     if selected_files.is_empty() {
         return Ok(None);
