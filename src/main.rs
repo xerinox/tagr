@@ -338,6 +338,7 @@ fn main() -> Result<()> {
             Commands::Browse { filter_args, .. } => {
                 let search_params = command.get_search_params_from_browse();
                 let execute_cmd = command.get_execute_from_browse();
+                let preview_overrides = command.get_preview_overrides_from_browse();
 
                 let save_filter = filter_args
                     .save_filter
@@ -350,6 +351,7 @@ fn main() -> Result<()> {
                     filter_args.filter.as_deref(),
                     save_filter,
                     execute_cmd,
+                    preview_overrides,
                     path_format,
                     quiet,
                 )?;

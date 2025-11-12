@@ -1,15 +1,11 @@
-//! File preview functionality
-//!
-//! This module provides preview generation for various file types:
-//! - Text files with line truncation
-//! - Binary files with metadata
-//! - Images with dimensions and format info
-//! - Archives with content listing
+//! File preview system
 
 mod error;
 mod generator;
+mod provider;
 mod types;
 
 pub use error::{PreviewError, Result};
 pub use generator::PreviewGenerator;
+pub use provider::FilePreviewProvider;
 pub use types::{FileMetadata, ImageMetadata, PreviewContent};

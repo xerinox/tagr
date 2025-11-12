@@ -2,7 +2,7 @@
 
 use crate::{
     TagrError,
-    cli::SearchParams,
+    cli::{PreviewOverrides, SearchParams},
     config,
     db::Database,
     filters::{FilterCriteria, FilterManager},
@@ -21,6 +21,7 @@ pub fn execute(
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
     execute_cmd: Option<String>,
+    preview_overrides: Option<PreviewOverrides>,
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
@@ -44,7 +45,7 @@ pub fn execute(
         }
     }
 
-    match search::browse_with_params(db, search_params.clone(), path_format) {
+    match search::browse_with_params(db, search_params.clone(), preview_overrides, path_format) {
         Ok(Some(result)) => {
             if !quiet {
                 println!("=== Selected Tags ===");

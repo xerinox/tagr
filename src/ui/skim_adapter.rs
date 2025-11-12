@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 /// Skim-based fuzzy finder implementation
 pub struct SkimFinder {
-    preview_generator: Option<Arc<PreviewGenerator>>,
+    preview_provider: Option<Arc<dyn PreviewProvider>>,
 }
 
 impl SkimFinder {
@@ -23,15 +23,15 @@ impl SkimFinder {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            preview_generator: None,
+            preview_provider: None,
         }
     }
 
-    /// Create a skim finder with preview generator
+    /// Create a skim finder with preview provider
     #[must_use]
-    pub fn with_preview(preview_generator: PreviewGenerator) -> Self {
+    pub fn with_preview_provider(preview_provider: impl PreviewProvider + 'static) -> Self {
         Self {
-            preview_generator: Some(Arc::new(preview_generator)),
+            preview_provider: Some(Arc::new(preview_provider)),
         }
     }
 
@@ -48,10 +48,12 @@ impl SkimFinder {
             builder.ansi(true).color(Some("dark".to_string()));
         }
 
-        // Preview configuration
+                // Preview configuration
         if let Some(preview_config) = &config.preview_config {
-            if preview_config.enabled && self.preview_generator.is_some() {
-                builder.preview(Some(String::new()));  // Empty string enables internal preview
+            if preview_config.enabled && self.preview_provider.is_some() {
+                // Skim requires a preview command to enable preview window
+                // Use empty string to signal we're using ItemPreview trait
+                builder.preview(Some(String::new()));
                 
                 let preview_window = format!(
                     "{}:{}%",
@@ -68,11 +70,14 @@ impl SkimFinder {
     }
 
     /// Convert display items to skim items
-    fn convert_to_skim_items(items: Vec<DisplayItem>) -> SkimItemReceiver {
+    fn convert_to_skim_items(
+        items: Vec<DisplayItem>,
+        preview_provider: Option<Arc<dyn PreviewProvider>>,
+    ) -> SkimItemReceiver {
         let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
 
         for item in items {
-            let skim_item = Arc::new(SkimDisplayItem::new(item));
+            let skim_item = Arc::new(SkimDisplayItem::new(item, preview_provider.clone()));
             let _ = tx.send(skim_item);
         }
         drop(tx);
@@ -90,7 +95,8 @@ impl Default for SkimFinder {
 impl FuzzyFinder for SkimFinder {
     fn run(&self, config: FinderConfig) -> Result<FinderResult> {
         let options = self.build_skim_options(&config)?;
-        let rx = Self::convert_to_skim_items(config.items);
+        let preview_provider = self.preview_provider.clone();
+        let rx = Self::convert_to_skim_items(config.items, preview_provider);
 
         let output = Skim::run_with(&options, Some(rx)).ok_or(UiError::InterruptedError)?;
 
@@ -111,11 +117,15 @@ impl FuzzyFinder for SkimFinder {
 /// Wrapper around DisplayItem that implements SkimItem
 struct SkimDisplayItem {
     item: DisplayItem,
+    preview_provider: Option<Arc<dyn PreviewProvider>>,
 }
 
 impl SkimDisplayItem {
-    fn new(item: DisplayItem) -> Self {
-        Self { item }
+    fn new(item: DisplayItem, preview_provider: Option<Arc<dyn PreviewProvider>>) -> Self {
+        Self {
+            item,
+            preview_provider,
+        }
     }
 }
 
@@ -138,6 +148,18 @@ impl SkimItem for SkimDisplayItem {
     fn get_index(&self) -> usize {
         // Use metadata index if available
         self.item.metadata.index.unwrap_or(0)
+    }
+
+    fn preview(&self, _context: PreviewContext) -> ItemPreview {
+        // If we have a preview provider, use it to generate preview
+        if let Some(provider) = &self.preview_provider {
+            match provider.preview(&self.item.key) {
+                Ok(content) => ItemPreview::Text(content),
+                Err(_) => ItemPreview::Text(format!("Error generating preview for {}", self.item.key)),
+            }
+        } else {
+            ItemPreview::Text(String::new())
+        }
     }
 }
 
@@ -206,15 +228,16 @@ mod tests {
     #[test]
     fn test_skim_finder_creation() {
         let finder = SkimFinder::new();
-        assert!(finder.preview_generator.is_none());
+        assert!(finder.preview_provider.is_none());
     }
 
     #[test]
     fn test_skim_finder_with_preview() {
         let config = PreviewConfig::default();
         let generator = PreviewGenerator::new(config);
-        let finder = SkimFinder::with_preview(generator);
-        assert!(finder.preview_generator.is_some());
+        let provider = SkimPreviewProvider::new(Arc::new(generator));
+        let finder = SkimFinder::with_preview_provider(provider);
+        assert!(finder.preview_provider.is_some());
     }
 
     #[test]
@@ -230,7 +253,7 @@ mod tests {
             },
         );
 
-        let skim_item = SkimDisplayItem::new(item);
+        let skim_item = SkimDisplayItem::new(item, None);
         assert_eq!(skim_item.text(), "file.txt");
         assert_eq!(skim_item.output(), "/path/to/file.txt");
         assert_eq!(skim_item.get_index(), 42);
