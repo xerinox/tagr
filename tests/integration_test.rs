@@ -8,186 +8,205 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tagr::{Pair, cli::execute_command_on_files, db::Database};
 
-/// Helper function to create a temporary test database
-fn setup_test_db(name: &str) -> (Database, PathBuf) {
-    let db_path = PathBuf::from(format!("test_integration_{name}"));
-    let db = Database::open(&db_path).unwrap();
-    db.clear().unwrap();
-    (db, db_path)
+/// Test database wrapper that cleans up on drop
+struct TestDb {
+    db: Database,
+    path: PathBuf,
 }
 
-/// Helper function to clean up test database
-fn cleanup_test_db(db: Database, db_path: PathBuf) {
-    drop(db);
-    let _ = fs::remove_dir_all(db_path);
+impl TestDb {
+    fn new(name: &str) -> Self {
+        let path = PathBuf::from(format!("test_integration_{name}"));
+        let db = Database::open(&path).unwrap();
+        db.clear().unwrap();
+        Self { db, path }
+    }
+
+    fn db(&self) -> &Database {
+        &self.db
+    }
 }
 
-/// Helper function to create a test file
-fn create_test_file(path: &str, content: &str) -> std::io::Result<()> {
-    let mut file = fs::File::create(path)?;
-    file.write_all(content.as_bytes())?;
-    Ok(())
+impl Drop for TestDb {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Test file wrapper that cleans up on drop
+struct TestFile {
+    path: PathBuf,
+}
+
+impl TestFile {
+    fn create(path: &str, content: &str) -> std::io::Result<Self> {
+        let mut file = fs::File::create(path)?;
+        file.write_all(content.as_bytes())?;
+        Ok(Self {
+            path: PathBuf::from(path),
+        })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TestFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 #[test]
 fn test_tag_command_with_new_file() {
-    let (db, db_path) = setup_test_db("tag_new");
+    let test_db = TestDb::new("tag_new");
+    let _test_file = TestFile::create("test_tag_file.txt", "test content").unwrap();
 
-    create_test_file("test_tag_file.txt", "test content").unwrap();
-
-    let result = db.insert("test_tag_file.txt", vec!["rust".into(), "test".into()]);
+    let result = test_db.db().insert("test_tag_file.txt", vec!["rust".into(), "test".into()]);
     assert!(result.is_ok());
 
-    let tags = db.get_tags("test_tag_file.txt").unwrap();
+    let tags = test_db.db().get_tags("test_tag_file.txt").unwrap();
     assert_eq!(tags, Some(vec!["rust".into(), "test".into()]));
-
-    let _ = fs::remove_file("test_tag_file.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_tag_command_add_tags() {
-    let (db, db_path) = setup_test_db("tag_add");
+    let test_db = TestDb::new("tag_add");
+    let _test_file = TestFile::create("test_add_tags.txt", "content").unwrap();
 
-    create_test_file("test_add_tags.txt", "content").unwrap();
+    test_db.db().insert("test_add_tags.txt", vec!["tag1".into()]).unwrap();
 
-    db.insert("test_add_tags.txt", vec!["tag1".into()]).unwrap();
-
-    db.add_tags("test_add_tags.txt", vec!["tag2".into(), "tag3".into()])
+    test_db.db().add_tags("test_add_tags.txt", vec!["tag2".into(), "tag3".into()])
         .unwrap();
 
-    let tags = db.get_tags("test_add_tags.txt").unwrap().unwrap();
+    let tags = test_db.db().get_tags("test_add_tags.txt").unwrap().unwrap();
     assert!(tags.contains(&"tag1".into()));
     assert!(tags.contains(&"tag2".into()));
     assert!(tags.contains(&"tag3".into()));
-
-    let _ = fs::remove_file("test_add_tags.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_search_command_single_tag() {
-    let (db, db_path) = setup_test_db("search_single");
+    let test_db = TestDb::new("search_single");
 
-    create_test_file("file1.txt", "content1").unwrap();
-    create_test_file("file2.txt", "content2").unwrap();
-    create_test_file("file3.txt", "content3").unwrap();
+    let file1 = TestFile::create("file1.txt", "content1").unwrap();
+    let file2 = TestFile::create("file2.txt", "content2").unwrap();
+    let file3 = TestFile::create("file3.txt", "content3").unwrap();
 
-    let file1_path = fs::canonicalize("file1.txt").unwrap();
-    let file2_path = fs::canonicalize("file2.txt").unwrap();
-    let file3_path = fs::canonicalize("file3.txt").unwrap();
+    let file1_path = fs::canonicalize(file1.path()).unwrap();
+    let file2_path = fs::canonicalize(file2.path()).unwrap();
+    let file3_path = fs::canonicalize(file3.path()).unwrap();
 
-    db.insert(&file1_path, vec!["rust".into()]).unwrap();
-    db.insert(&file2_path, vec!["rust".into(), "programming".into()])
+    test_db.db().insert(&file1_path, vec!["rust".into()]).unwrap();
+    test_db.db().insert(&file2_path, vec!["rust".into(), "programming".into()])
         .unwrap();
-    db.insert(&file3_path, vec!["python".into()]).unwrap();
+    test_db.db().insert(&file3_path, vec!["python".into()]).unwrap();
 
-    let files = db.find_by_tag("rust").unwrap();
+    let files = test_db.db().find_by_tag("rust").unwrap();
     assert_eq!(files.len(), 2);
     assert!(files.contains(&file1_path));
     assert!(files.contains(&file2_path));
-
-    let _ = fs::remove_file("file1.txt");
-    let _ = fs::remove_file("file2.txt");
-    let _ = fs::remove_file("file3.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_search_command_nonexistent_tag() {
-    let (db, db_path) = setup_test_db("search_nonexistent");
+    let test_db = TestDb::new("search_nonexistent");
 
-    create_test_file("file1.txt", "content").unwrap();
-    db.insert("file1.txt", vec!["exists".into()]).unwrap();
+    let _test_file = TestFile::create("file1.txt", "content").unwrap();
+    test_db.db().insert("file1.txt", vec!["exists".into()]).unwrap();
 
-    let files = db.find_by_tag("nonexistent").unwrap();
+    let files = test_db.db().find_by_tag("nonexistent").unwrap();
     assert!(files.is_empty());
 
     let _ = fs::remove_file("file1.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_untag_command_specific_tags() {
-    let (db, db_path) = setup_test_db("untag_specific");
+    let test_db = TestDb::new("untag_specific");
 
-    create_test_file("file_untag.txt", "content").unwrap();
+    let _test_file = TestFile::create("file_untag.txt", "content").unwrap();
     let canonical_path = std::fs::canonicalize("file_untag.txt").unwrap();
 
-    db.insert(
+    test_db.db().insert(
         &canonical_path,
         vec!["tag1".into(), "tag2".into(), "tag3".into()],
     )
     .unwrap();
 
     // Verify file is in database with 3 tags
-    assert!(db.contains(&canonical_path).unwrap());
-    let initial_tags = db.get_tags(&canonical_path).unwrap().unwrap();
+    assert!(test_db.db().contains(&canonical_path).unwrap());
+    let initial_tags = test_db.db().get_tags(&canonical_path).unwrap().unwrap();
     assert_eq!(initial_tags.len(), 3);
 
     // Remove two tags, leaving one
-    db.remove_tags(&canonical_path, &["tag1".into(), "tag3".into()])
+    test_db.db().remove_tags(&canonical_path, &["tag1".into(), "tag3".into()])
         .unwrap();
 
     // File should still be in database with remaining tag
-    assert!(db.contains(&canonical_path).unwrap());
-    let remaining_tags = db.get_tags(&canonical_path).unwrap().unwrap();
+    assert!(test_db.db().contains(&canonical_path).unwrap());
+    let remaining_tags = test_db.db().get_tags(&canonical_path).unwrap().unwrap();
     assert_eq!(remaining_tags.len(), 1);
     assert_eq!(remaining_tags[0], "tag2");
 
     // Now remove the last tag - file should be removed from database
-    db.remove_tags(&canonical_path, &["tag2".into()]).unwrap();
+    test_db.db().remove_tags(&canonical_path, &["tag2".into()]).unwrap();
 
     // Verify file is completely gone from database
-    assert!(!db.contains(&canonical_path).unwrap());
-    assert!(db.get_tags(&canonical_path).unwrap().is_none());
+    assert!(!test_db.db().contains(&canonical_path).unwrap());
+    assert!(test_db.db().get_tags(&canonical_path).unwrap().is_none());
 
     let _ = fs::remove_file("file_untag.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_untag_command_all_tags() {
-    let (db, db_path) = setup_test_db("untag_all");
+    let test_db = TestDb::new("untag_all");
 
-    create_test_file("file_untag_all.txt", "content").unwrap();
+    let _test_file = TestFile::create("file_untag_all.txt", "content").unwrap();
     let canonical_path = std::fs::canonicalize("file_untag_all.txt").unwrap();
 
-    db.insert(&canonical_path, vec!["tag1".into(), "tag2".into()])
+    test_db.db().insert(&canonical_path, vec!["tag1".into(), "tag2".into()])
         .unwrap();
 
     // Verify file is in database before removal
-    assert!(db.contains(&canonical_path).unwrap());
-    let tags_before = db.get_tags(&canonical_path).unwrap();
+    assert!(test_db.db().contains(&canonical_path).unwrap());
+    let tags_before = test_db.db().get_tags(&canonical_path).unwrap();
     assert!(tags_before.is_some());
     assert_eq!(tags_before.unwrap().len(), 2);
 
     // Remove all tags (should remove file from database)
-    db.remove(&canonical_path).unwrap();
+    test_db.db().remove(&canonical_path).unwrap();
 
     // Verify file is completely gone from database
-    assert!(!db.contains(&canonical_path).unwrap());
-    let tags_after = db.get_tags(&canonical_path).unwrap();
+    assert!(!test_db.db().contains(&canonical_path).unwrap());
+    let tags_after = test_db.db().get_tags(&canonical_path).unwrap();
     assert!(tags_after.is_none());
 
     let _ = fs::remove_file("file_untag_all.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_tags_list_command() {
-    let (db, db_path) = setup_test_db("tags_list");
+    let test_db = TestDb::new("tags_list");
 
-    create_test_file("f1.txt", "c1").unwrap();
-    create_test_file("f2.txt", "c2").unwrap();
-    create_test_file("f3.txt", "c3").unwrap();
+    let _test_file = TestFile::create("f1.txt", "c1").unwrap();
+    let _test_file = TestFile::create("f2.txt", "c2").unwrap();
+    let _test_file = TestFile::create("f3.txt", "c3").unwrap();
 
-    db.insert("f1.txt", vec!["rust".into(), "programming".into()])
+    test_db.db().insert("f1.txt", vec!["rust".into(), "programming".into()])
         .unwrap();
-    db.insert("f2.txt", vec!["rust".into()]).unwrap();
-    db.insert("f3.txt", vec!["python".into()]).unwrap();
+    test_db.db().insert("f2.txt", vec!["rust".into()]).unwrap();
+    test_db.db().insert("f3.txt", vec!["python".into()]).unwrap();
 
-    let tags = db.list_all_tags().unwrap();
+    let tags = test_db.db().list_all_tags().unwrap();
     assert_eq!(tags.len(), 3);
     assert!(tags.contains(&"rust".into()));
     assert!(tags.contains(&"programming".into()));
@@ -196,74 +215,74 @@ fn test_tags_list_command() {
     let _ = fs::remove_file("f1.txt");
     let _ = fs::remove_file("f2.txt");
     let _ = fs::remove_file("f3.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_tags_remove_command() {
-    let (db, db_path) = setup_test_db("tags_remove");
+    let test_db = TestDb::new("tags_remove");
 
-    create_test_file("r1.txt", "c1").unwrap();
-    create_test_file("r2.txt", "c2").unwrap();
+    let _test_file = TestFile::create("r1.txt", "c1").unwrap();
+    let _test_file = TestFile::create("r2.txt", "c2").unwrap();
 
-    db.insert("r1.txt", vec!["removeme".into(), "keep".into()])
+    test_db.db().insert("r1.txt", vec!["removeme".into(), "keep".into()])
         .unwrap();
-    db.insert("r2.txt", vec!["removeme".into()]).unwrap();
+    test_db.db().insert("r2.txt", vec!["removeme".into()]).unwrap();
 
-    db.remove_tag_globally("removeme").unwrap();
+    test_db.db().remove_tag_globally("removeme").unwrap();
 
-    assert!(!db.list_all_tags().unwrap().contains(&"removeme".into()));
+    assert!(!test_db.db().list_all_tags().unwrap().contains(&"removeme".into()));
 
-    let r1_tags = db.get_tags("r1.txt").unwrap();
+    let r1_tags = test_db.db().get_tags("r1.txt").unwrap();
     assert_eq!(r1_tags, Some(vec!["keep".into()]));
 
-    assert!(!db.contains("r2.txt").unwrap());
+    assert!(!test_db.db().contains("r2.txt").unwrap());
 
     let _ = fs::remove_file("r1.txt");
     let _ = fs::remove_file("r2.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_cleanup_command_missing_files() {
-    let (db, db_path) = setup_test_db("cleanup_missing");
+    let test_db = TestDb::new("cleanup_missing");
 
-    create_test_file("temp_file.txt", "temp").unwrap();
+    let _test_file = TestFile::create("temp_file.txt", "temp").unwrap();
 
-    db.insert("temp_file.txt", vec!["tag".into()]).unwrap();
+    test_db.db().insert("temp_file.txt", vec!["tag".into()]).unwrap();
 
     fs::remove_file("temp_file.txt").unwrap();
 
     assert!(!Path::new("temp_file.txt").exists());
 
-    assert!(db.contains("temp_file.txt").unwrap());
+    assert!(test_db.db().contains("temp_file.txt").unwrap());
 
-    db.remove("temp_file.txt").unwrap();
+    test_db.db().remove("temp_file.txt").unwrap();
 
-    assert!(!db.contains("temp_file.txt").unwrap());
+    assert!(!test_db.db().contains("temp_file.txt").unwrap());
 
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_cleanup_command_untagged_files() {
-    let (db, db_path) = setup_test_db("cleanup_untagged");
+    let test_db = TestDb::new("cleanup_untagged");
 
-    create_test_file("untagged.txt", "content").unwrap();
+    let _test_file = TestFile::create("untagged.txt", "content").unwrap();
 
-    db.insert("untagged.txt", vec!["temp".into()]).unwrap();
-    db.remove_tags("untagged.txt", &["temp".into()]).unwrap();
+    test_db.db().insert("untagged.txt", vec!["temp".into()]).unwrap();
+    test_db.db().remove_tags("untagged.txt", &["temp".into()]).unwrap();
 
-    assert!(!db.contains("untagged.txt").unwrap());
+    assert!(!test_db.db().contains("untagged.txt").unwrap());
 
     let _ = fs::remove_file("untagged.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_execute_command_on_files() {
-    create_test_file("exec_test1.txt", "hello").unwrap();
-    create_test_file("exec_test2.txt", "world").unwrap();
+    let _test_file = TestFile::create("exec_test1.txt", "hello").unwrap();
+    let _test_file = TestFile::create("exec_test2.txt", "world").unwrap();
 
     let files = vec![
         PathBuf::from("exec_test1.txt"),
@@ -280,7 +299,7 @@ fn test_execute_command_on_files() {
 
 #[test]
 fn test_execute_command_on_files_with_failure() {
-    create_test_file("exec_fail_test.txt", "content").unwrap();
+    let _test_file = TestFile::create("exec_fail_test.txt", "content").unwrap();
 
     let files = vec![PathBuf::from("exec_fail_test.txt")];
 
@@ -293,22 +312,22 @@ fn test_execute_command_on_files_with_failure() {
 
 #[test]
 fn test_find_by_all_tags() {
-    let (db, db_path) = setup_test_db("find_all_tags");
+    let test_db = TestDb::new("find_all_tags");
 
-    create_test_file("multi1.txt", "c1").unwrap();
-    create_test_file("multi2.txt", "c2").unwrap();
-    create_test_file("multi3.txt", "c3").unwrap();
+    let _test_file = TestFile::create("multi1.txt", "c1").unwrap();
+    let _test_file = TestFile::create("multi2.txt", "c2").unwrap();
+    let _test_file = TestFile::create("multi3.txt", "c3").unwrap();
 
-    db.insert("multi1.txt", vec!["rust".into(), "programming".into()])
+    test_db.db().insert("multi1.txt", vec!["rust".into(), "programming".into()])
         .unwrap();
-    db.insert("multi2.txt", vec!["rust".into()]).unwrap();
-    db.insert(
+    test_db.db().insert("multi2.txt", vec!["rust".into()]).unwrap();
+    test_db.db().insert(
         "multi3.txt",
         vec!["rust".into(), "programming".into(), "web".into()],
     )
     .unwrap();
 
-    let files = db
+    let files = test_db.db()
         .find_by_all_tags(&["rust".into(), "programming".into()])
         .unwrap();
     assert_eq!(files.len(), 2);
@@ -318,22 +337,22 @@ fn test_find_by_all_tags() {
     let _ = fs::remove_file("multi1.txt");
     let _ = fs::remove_file("multi2.txt");
     let _ = fs::remove_file("multi3.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_find_by_any_tag() {
-    let (db, db_path) = setup_test_db("find_any_tag");
+    let test_db = TestDb::new("find_any_tag");
 
-    create_test_file("any1.txt", "c1").unwrap();
-    create_test_file("any2.txt", "c2").unwrap();
-    create_test_file("any3.txt", "c3").unwrap();
+    let _test_file = TestFile::create("any1.txt", "c1").unwrap();
+    let _test_file = TestFile::create("any2.txt", "c2").unwrap();
+    let _test_file = TestFile::create("any3.txt", "c3").unwrap();
 
-    db.insert("any1.txt", vec!["rust".into()]).unwrap();
-    db.insert("any2.txt", vec!["python".into()]).unwrap();
-    db.insert("any3.txt", vec!["javascript".into()]).unwrap();
+    test_db.db().insert("any1.txt", vec!["rust".into()]).unwrap();
+    test_db.db().insert("any2.txt", vec!["python".into()]).unwrap();
+    test_db.db().insert("any3.txt", vec!["javascript".into()]).unwrap();
 
-    let files = db
+    let files = test_db.db()
         .find_by_any_tag(&["rust".into(), "python".into()])
         .unwrap();
     assert_eq!(files.len(), 2);
@@ -343,7 +362,7 @@ fn test_find_by_any_tag() {
     let _ = fs::remove_file("any1.txt");
     let _ = fs::remove_file("any2.txt");
     let _ = fs::remove_file("any3.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
@@ -361,7 +380,7 @@ fn test_pair_struct_operations() {
 fn test_database_persistence() {
     let db_path = PathBuf::from("test_persistence");
 
-    create_test_file("persist.txt", "data").unwrap();
+    let _test_file = TestFile::create("persist.txt", "data").unwrap();
 
     {
         let db = Database::open(&db_path).unwrap();
@@ -377,77 +396,76 @@ fn test_database_persistence() {
         db.clear().unwrap();
     }
 
-    let _ = fs::remove_file("persist.txt");
     let _ = fs::remove_dir_all(db_path);
 }
 
 #[test]
 fn test_list_all_files() {
-    let (db, db_path) = setup_test_db("list_files");
+    let test_db = TestDb::new("list_files");
 
-    create_test_file("list1.txt", "c1").unwrap();
-    create_test_file("list2.txt", "c2").unwrap();
+    let _test_file = TestFile::create("list1.txt", "c1").unwrap();
+    let _test_file = TestFile::create("list2.txt", "c2").unwrap();
 
-    db.insert("list1.txt", vec!["a".into()]).unwrap();
-    db.insert("list2.txt", vec!["b".into()]).unwrap();
+    test_db.db().insert("list1.txt", vec!["a".into()]).unwrap();
+    test_db.db().insert("list2.txt", vec!["b".into()]).unwrap();
 
-    let files = db.list_all_files().unwrap();
+    let files = test_db.db().list_all_files().unwrap();
     assert_eq!(files.len(), 2);
     assert!(files.contains(&PathBuf::from("list1.txt")));
     assert!(files.contains(&PathBuf::from("list2.txt")));
 
     let _ = fs::remove_file("list1.txt");
     let _ = fs::remove_file("list2.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_database_count() {
-    let (db, db_path) = setup_test_db("count");
+    let test_db = TestDb::new("count");
 
-    assert_eq!(db.count(), 0);
+    assert_eq!(test_db.db().count(), 0);
 
-    create_test_file("count1.txt", "c1").unwrap();
-    create_test_file("count2.txt", "c2").unwrap();
+    let _test_file = TestFile::create("count1.txt", "c1").unwrap();
+    let _test_file = TestFile::create("count2.txt", "c2").unwrap();
 
-    db.insert("count1.txt", vec!["tag".into()]).unwrap();
-    assert_eq!(db.count(), 1);
+    test_db.db().insert("count1.txt", vec!["tag".into()]).unwrap();
+    assert_eq!(test_db.db().count(), 1);
 
-    db.insert("count2.txt", vec!["tag".into()]).unwrap();
-    assert_eq!(db.count(), 2);
+    test_db.db().insert("count2.txt", vec!["tag".into()]).unwrap();
+    assert_eq!(test_db.db().count(), 2);
 
-    db.remove("count1.txt").unwrap();
-    assert_eq!(db.count(), 1);
+    test_db.db().remove("count1.txt").unwrap();
+    assert_eq!(test_db.db().count(), 1);
 
     let _ = fs::remove_file("count1.txt");
     let _ = fs::remove_file("count2.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_insert_nonexistent_file() {
-    let (db, db_path) = setup_test_db("nonexistent");
+    let test_db = TestDb::new("nonexistent");
 
-    let result = db.insert("this_file_does_not_exist.txt", vec!["tag".into()]);
+    let result = test_db.db().insert("this_file_does_not_exist.txt", vec!["tag".into()]);
 
     assert!(result.is_err());
     if let Err(e) = result {
         assert!(e.to_string().contains("File not found"));
     }
 
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 #[test]
 fn test_get_pair() {
-    let (db, db_path) = setup_test_db("get_pair");
+    let test_db = TestDb::new("get_pair");
 
-    create_test_file("pair.txt", "content").unwrap();
+    let _test_file = TestFile::create("pair.txt", "content").unwrap();
 
-    db.insert("pair.txt", vec!["tag1".into(), "tag2".into()])
+    test_db.db().insert("pair.txt", vec!["tag1".into(), "tag2".into()])
         .unwrap();
 
-    let pair = db.get_pair("pair.txt").unwrap();
+    let pair = test_db.db().get_pair("pair.txt").unwrap();
     assert!(pair.is_some());
 
     let pair = pair.unwrap();
@@ -455,7 +473,7 @@ fn test_get_pair() {
     assert_eq!(pair.tags, vec!["tag1".to_string(), "tag2".to_string()]);
 
     let _ = fs::remove_file("pair.txt");
-    cleanup_test_db(db, db_path);
+    // Cleanup happens automatically via Drop
 }
 
 // ============================================================================

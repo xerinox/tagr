@@ -5,7 +5,7 @@
 //! abstract types and skim-specific types.
 
 use super::error::{Result, UiError};
-use super::traits::{FinderConfig, FuzzyFinder, PreviewProvider};
+use super::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
 use super::types::{DisplayItem, FinderResult};
 use crate::preview::PreviewGenerator;
 use skim::prelude::*;
@@ -154,7 +154,13 @@ impl SkimItem for SkimDisplayItem {
         // If we have a preview provider, use it to generate preview
         if let Some(provider) = &self.preview_provider {
             match provider.preview(&self.item.key) {
-                Ok(content) => ItemPreview::Text(content),
+                Ok(preview_text) => {
+                    if preview_text.has_ansi {
+                        ItemPreview::AnsiText(preview_text.content)
+                    } else {
+                        ItemPreview::Text(preview_text.content)
+                    }
+                }
                 Err(_) => ItemPreview::Text(format!("Error generating preview for {}", self.item.key)),
             }
         } else {
@@ -177,13 +183,22 @@ impl SkimPreviewProvider {
 }
 
 impl PreviewProvider for SkimPreviewProvider {
-    fn preview(&self, item: &str) -> Result<String> {
+    fn preview(&self, item: &str) -> Result<PreviewText> {
+        use crate::preview::PreviewContent;
         use std::path::PathBuf;
 
         let path = PathBuf::from(item);
         match self.generator.generate(&path) {
-            Ok(content) => Ok(content.to_display_string()),
-            Err(e) => Ok(format!("Preview error: {e}")),
+            Ok(content) => {
+                let display = content.to_display_string();
+                let has_ansi = matches!(content, PreviewContent::Text { has_ansi: true, .. });
+                Ok(if has_ansi {
+                    PreviewText::ansi(display)
+                } else {
+                    PreviewText::plain(display)
+                })
+            }
+            Err(e) => Ok(PreviewText::plain(format!("Preview error: {e}"))),
         }
     }
 }

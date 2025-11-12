@@ -4,14 +4,45 @@ use crate::ui::PreviewConfig;
 use std::fs;
 use std::path::Path;
 
+#[cfg(feature = "syntax-highlighting")]
+use syntect::easy::HighlightLines;
+#[cfg(feature = "syntax-highlighting")]
+use syntect::highlighting::ThemeSet;
+#[cfg(feature = "syntax-highlighting")]
+use syntect::parsing::SyntaxSet;
+#[cfg(feature = "syntax-highlighting")]
+use syntect::util::as_24_bit_terminal_escaped;
+
 pub struct PreviewGenerator {
     config: PreviewConfig,
+    #[cfg(feature = "syntax-highlighting")]
+    syntax_set: SyntaxSet,
+    #[cfg(feature = "syntax-highlighting")]
+    theme_set: ThemeSet,
+    bat_available: bool,
 }
 
 impl PreviewGenerator {
     #[must_use]
-    pub const fn new(config: PreviewConfig) -> Self {
-        Self { config }
+    pub fn new(config: PreviewConfig) -> Self {
+        let bat_available = Self::check_bat_available();
+        
+        Self {
+            config,
+            #[cfg(feature = "syntax-highlighting")]
+            syntax_set: SyntaxSet::load_defaults_newlines(),
+            #[cfg(feature = "syntax-highlighting")]
+            theme_set: ThemeSet::load_defaults(),
+            bat_available,
+        }
+    }
+
+    /// Check if bat is available on the system
+    fn check_bat_available() -> bool {
+        std::process::Command::new("bat")
+            .arg("--version")
+            .output()
+            .is_ok()
     }
 
     pub fn generate(&self, path: &Path) -> Result<PreviewContent> {
@@ -46,6 +77,14 @@ impl PreviewGenerator {
     }
 
     fn generate_text_preview(&self, path: &Path, _file_size: u64) -> Result<PreviewContent> {
+        // Try bat first if available and syntax highlighting is enabled
+        if self.config.syntax_highlighting && self.bat_available {
+            if let Ok(highlighted) = self.generate_bat_preview(path) {
+                return Ok(highlighted);
+            }
+        }
+
+        // Fallback to syntect or plain text
         let content = fs::read_to_string(path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::InvalidData {
                 PreviewError::InvalidUtf8(path.display().to_string())
@@ -58,17 +97,87 @@ impl PreviewGenerator {
         let total_lines = all_lines.len();
         let max_lines = self.config.max_lines;
 
-        let (lines, truncated) = if total_lines > max_lines {
-            (all_lines.into_iter().take(max_lines).collect(), true)
+        let lines = if total_lines > max_lines {
+            all_lines.into_iter().take(max_lines).collect()
         } else {
-            (all_lines, false)
+            all_lines
         };
+
+        // Apply syntax highlighting with syntect if enabled
+        #[cfg(feature = "syntax-highlighting")]
+        let (lines, has_ansi) = if self.config.syntax_highlighting {
+            (self.apply_syntect_highlighting(path, &lines), true)
+        } else {
+            (lines, false)
+        };
+
+        #[cfg(not(feature = "syntax-highlighting"))]
+        let has_ansi = false;
+
+        let truncated = total_lines > max_lines;
 
         Ok(PreviewContent::Text {
             lines,
             truncated,
             total_lines,
+            has_ansi,
         })
+    }
+
+    /// Generate preview using bat command
+    fn generate_bat_preview(&self, path: &Path) -> Result<PreviewContent> {
+        let output = std::process::Command::new("bat")
+            .arg("--color=always")
+            .arg("--style=numbers")
+            .arg("--paging=never")
+            .arg(format!("--line-range=:{}", self.config.max_lines))
+            .arg(path)
+            .output()
+            .map_err(|e| PreviewError::IoError(e))?;
+
+        if !output.status.success() {
+            return Err(PreviewError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "bat command failed",
+            )));
+        }
+
+        let content = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<String> = content.lines().map(String::from).collect();
+        let total_lines = lines.len();
+        let truncated = total_lines >= self.config.max_lines;
+
+        Ok(PreviewContent::Text {
+            lines,
+            truncated,
+            total_lines,
+            has_ansi: true,
+        })
+    }
+
+    /// Apply syntax highlighting using syntect
+    #[cfg(feature = "syntax-highlighting")]
+    fn apply_syntect_highlighting(&self, path: &Path, lines: &[String]) -> Vec<String> {
+        let syntax = self
+            .syntax_set
+            .find_syntax_for_file(path)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+
+        let theme = &self.theme_set.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
+        lines
+            .iter()
+            .map(|line| {
+                if let Ok(ranges) = highlighter.highlight_line(line, &self.syntax_set) {
+                    as_24_bit_terminal_escaped(&ranges[..], false)
+                } else {
+                    line.clone()
+                }
+            })
+            .collect()
     }
 
     fn generate_binary_preview(&self, path: &Path, metadata: &fs::Metadata) -> PreviewContent {
@@ -166,15 +275,17 @@ mod tests {
         let temp = TempFile::create("test.txt").unwrap();
         fs::write(temp.path(), "Line 1\nLine 2\nLine 3\n").unwrap();
 
-        let config = PreviewConfig::default();
+        let mut config = PreviewConfig::default();
+        config.syntax_highlighting = false;
         let generator = PreviewGenerator::new(config);
         let preview = generator.generate(temp.path()).unwrap();
 
         match preview {
-            PreviewContent::Text { lines, truncated, .. } => {
+            PreviewContent::Text { lines, truncated, has_ansi, .. } => {
                 assert_eq!(lines.len(), 3);
                 assert_eq!(lines[0], "Line 1");
                 assert!(!truncated);
+                assert!(!has_ansi);
             }
             _ => panic!("Expected Text preview"),
         }
@@ -188,6 +299,7 @@ mod tests {
 
         let mut config = PreviewConfig::default();
         config.max_lines = 10;
+        config.syntax_highlighting = false;
         let generator = PreviewGenerator::new(config);
         let preview = generator.generate(temp.path()).unwrap();
 
@@ -196,10 +308,12 @@ mod tests {
                 lines,
                 truncated,
                 total_lines,
+                has_ansi,
             } => {
                 assert_eq!(lines.len(), 10);
                 assert!(truncated);
                 assert_eq!(total_lines, 100);
+                assert!(!has_ansi);
             }
             _ => panic!("Expected Text preview"),
         }

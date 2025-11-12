@@ -15,5 +15,5 @@ pub mod skim_adapter;
 pub mod mock;
 
 pub use error::{Result, UiError};
-pub use traits::{FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider};
+pub use traits::{FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText};
 pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition};
