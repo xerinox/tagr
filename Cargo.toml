@@ -8,6 +8,10 @@ readme = "README.md"
 repository = "https://github.com/xerinox/tagr"
 keywords = ["search", "tag", "organization", "cli"]
 
+[features]
+default = ["syntax-highlighting"]
+syntax-highlighting = ["dep:syntect"]
+
 [dependencies]
 bincode = { version = "2.0.1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -24,5 +28,6 @@ regex = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
 skim = "0.20.5"
 sled = "0.34.7"
+syntect = { version = "5.2", optional = true }
 thiserror = "2.0.17"
 toml = "0.8"

@@ -116,5 +116,34 @@ pub trait PreviewProvider: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if preview generation fails.
-    fn preview(&self, item: &str) -> Result<String>;
+    fn preview(&self, item: &str) -> Result<PreviewText>;
+}
+
+/// Preview text with metadata about formatting
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewText {
+    /// The preview content
+    pub content: String,
+    /// Whether the content contains ANSI escape codes
+    pub has_ansi: bool,
+}
+
+impl PreviewText {
+    /// Create preview text without ANSI codes
+    #[must_use]
+    pub fn plain(content: String) -> Self {
+        Self {
+            content,
+            has_ansi: false,
+        }
+    }
+
+    /// Create preview text with ANSI codes
+    #[must_use]
+    pub fn ansi(content: String) -> Self {
+        Self {
+            content,
+            has_ansi: true,
+        }
+    }
 }

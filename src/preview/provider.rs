@@ -2,7 +2,7 @@
 
 use super::generator::PreviewGenerator;
 use super::types::PreviewContent;
-use crate::ui::{PreviewConfig, PreviewProvider, Result};
+use crate::ui::{PreviewConfig, PreviewProvider, PreviewText, Result};
 use moka::sync::Cache;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -60,12 +60,18 @@ impl FilePreviewProvider {
 }
 
 impl PreviewProvider for FilePreviewProvider {
-    fn preview(&self, item: &str) -> Result<String> {
+    fn preview(&self, item: &str) -> Result<PreviewText> {
         let path = PathBuf::from(item);
 
         // Check cache first
         if let Some(content) = self.cache.get(&path) {
-            return Ok(content.to_display_string());
+            let display = content.to_display_string();
+            let has_ansi = matches!(content, PreviewContent::Text { has_ansi: true, .. });
+            return Ok(if has_ansi {
+                PreviewText::ansi(display)
+            } else {
+                PreviewText::plain(display)
+            });
         }
 
         // Generate preview, converting PreviewError to string
@@ -73,14 +79,20 @@ impl PreviewProvider for FilePreviewProvider {
             Ok(c) => c,
             Err(e) => {
                 // Return error as displayable content instead of propagating
-                return Ok(format!("Preview error: {e}"));
+                return Ok(PreviewText::plain(format!("Preview error: {e}")));
             }
         };
         
         // Cache the result
         self.cache.insert(path, content.clone());
 
-        Ok(content.to_display_string())
+        let display = content.to_display_string();
+        let has_ansi = matches!(content, PreviewContent::Text { has_ansi: true, .. });
+        Ok(if has_ansi {
+            PreviewText::ansi(display)
+        } else {
+            PreviewText::plain(display)
+        })
     }
 }
 
@@ -99,9 +111,9 @@ mod tests {
         let provider = FilePreviewProvider::new(config);
 
         let preview = provider.preview(temp.path().to_str().unwrap()).unwrap();
-        assert!(preview.contains("Line 1"));
-        assert!(preview.contains("Line 2"));
-        assert!(preview.contains("Line 3"));
+        assert!(preview.content.contains("Line 1"));
+        assert!(preview.content.contains("Line 2"));
+        assert!(preview.content.contains("Line 3"));
     }
 
     #[test]
@@ -123,8 +135,8 @@ mod tests {
         
         // Both should be identical because second one used cache
         assert_eq!(preview1, preview2);
-        assert!(preview1.contains("Test content"));
-        assert!(!preview2.contains("Modified content"));
+        assert!(preview1.content.contains("Test content"));
+        assert!(!preview2.content.contains("Modified content"));
     }
 
     #[test]
@@ -137,7 +149,7 @@ mod tests {
 
         // Cache a preview
         let preview1 = provider.preview(temp.path().to_str().unwrap()).unwrap();
-        assert!(preview1.contains("Test content"));
+        assert!(preview1.content.contains("Test content"));
 
         // Modify the file
         fs::write(temp.path(), "Modified content\n").unwrap();
@@ -147,8 +159,8 @@ mod tests {
         
         // Should now see the modified content
         let preview2 = provider.preview(temp.path().to_str().unwrap()).unwrap();
-        assert!(preview2.contains("Modified content"));
-        assert!(!preview2.contains("Test content"));
+        assert!(preview2.content.contains("Modified content"));
+        assert!(!preview2.content.contains("Test content"));
     }
 
     #[test]
@@ -157,7 +169,7 @@ mod tests {
         let provider = FilePreviewProvider::new(config);
 
         let preview = provider.preview("/nonexistent/file.txt").unwrap();
-        assert!(preview.contains("File not found"));
+        assert!(preview.content.contains("File not found"));
     }
 
     #[test]
@@ -169,6 +181,6 @@ mod tests {
         let provider = FilePreviewProvider::new(config);
 
         let preview = provider.preview(temp.path().to_str().unwrap()).unwrap();
-        assert!(preview.contains("Empty file"));
+        assert!(preview.content.contains("Empty file"));
     }
 }

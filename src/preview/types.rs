@@ -13,6 +13,8 @@ pub enum PreviewContent {
         truncated: bool,
         /// Total number of lines in file
         total_lines: usize,
+        /// Whether the content contains ANSI escape codes
+        has_ansi: bool,
     },
 
     /// Binary file with metadata
@@ -88,6 +90,7 @@ impl PreviewContent {
                 lines,
                 truncated,
                 total_lines,
+                has_ansi: _,
             } => {
                 let mut output = lines.join("\n");
                 if *truncated {
