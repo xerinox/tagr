@@ -12,6 +12,34 @@ name = "default"
 # Windows: %APPDATA%\tagr\default
 # path = "/path/to/your/database"
 
+# UI configuration
+[ui]
+# Fuzzy finder backend: "skim" (current), "custom" (future TUI)
+backend = "skim"
+
+# Preview pane configuration
+[preview]
+# Enable preview pane
+enabled = true
+
+# Maximum file size to preview (bytes, default: 5MB)
+max_file_size = 5242880
+
+# Maximum lines to display (default: 50)
+max_lines = 50
+
+# Enable syntax highlighting (default: true)
+syntax_highlighting = true
+
+# Show line numbers (default: true)
+show_line_numbers = true
+
+# Position of preview pane: "right", "bottom", or "top" (default: "right")
+position = "right"
+
+# Width percentage 0-100 (default: 50)
+width_percent = 50
+
 # Virtual tags configuration
 [virtual_tags]
 # Enable/disable virtual tags globally

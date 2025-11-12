@@ -1,59 +1,24 @@
-//! Interactive browse functionality using skim fuzzy finder
+//! Interactive browse functionality
 //!
 //! Provides a two-stage fuzzy finder interface:
 //! 1. Select tags using fuzzy finder (multi-select supported)
 //! 2. View and select files matching those tags (multi-select supported)
+//!
+//! Uses abstracted UI layer for easy backend swapping.
 
 use super::error::SearchError;
 use crate::cli::SearchParams;
 use crate::config::PathFormat;
 use crate::db::{Database, query};
+use crate::preview::FilePreviewProvider;
+use crate::ui::{
+    DisplayItem, FinderConfig, FuzzyFinder, ItemMetadata, PreviewConfig,
+    skim_adapter::SkimFinder,
+};
 use colored::Colorize;
-use skim::prelude::*;
-use std::borrow::Cow;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-/// Build skim options with common defaults
-///
-/// Creates a configured `SkimOptions` instance with standardized settings
-/// for the fuzzy finder UI. Uses full-screen mode with alternate buffer
-/// to avoid leaving UI artifacts in the terminal.
-///
-/// # Arguments
-/// * `multi` - Whether multi-select is enabled
-/// * `prompt` - Prompt text to display
-/// * `ansi` - Whether to enable ANSI color support
-///
-/// # Errors
-///
-/// Returns `SearchError::BuildError` if the skim options cannot be constructed
-/// (this is rare and usually indicates an internal skim configuration issue).
-fn build_skim_options(multi: bool, prompt: &str, ansi: bool) -> Result<SkimOptions, SearchError> {
-    let mut builder = SkimOptionsBuilder::default();
-    builder
-        .multi(multi)
-        .prompt(prompt.to_string())
-        .reverse(true);
 
-    if ansi {
-        builder.ansi(true).color(Some("dark".to_string()));
-    }
-
-    builder
-        .build()
-        .map_err(|e| SearchError::BuildError(format!("Failed to build skim options: {e}")))
-}
-
-/// Format a path according to the specified format for display
-///
-/// # Arguments
-/// * `path` - The path to format
-/// * `format` - Whether to display as absolute or relative
-///
-/// # Returns
-/// A string representation of the path
 fn format_path_for_display(path: &Path, format: PathFormat) -> String {
     match format {
         PathFormat::Absolute => path.display().to_string(),
@@ -65,48 +30,6 @@ fn format_path_for_display(path: &Path, format: PathFormat) -> String {
             }
             path.display().to_string()
         }
-    }
-}
-
-// File selection rendering & multi-select:
-// We use a custom `FileItem` so skim handles ANSI via `AnsiString::parse`.
-// Earlier issues with multi-select arose when the output string included tags
-// (making the logical selection key differ per file+tags). We now keep `output()`
-// strictly to the raw path while exposing tags only in `display()` and in the
-// searchable `text()` payload. This preserves multi-select correctness and ANSI colors.
-
-#[derive(Debug, Clone)]
-struct FileItem {
-    path: String,
-    display_path: String,
-    tags: Vec<String>,
-    exists: bool,
-    index: usize,
-}
-
-impl SkimItem for FileItem {
-    fn text(&self) -> Cow<'_, str> {
-        // Limit searchable text to just the display path to avoid unintended bulk selection side-effects.
-        Cow::Borrowed(&self.display_path)
-    }
-
-    fn display<'a>(&'a self, _context: DisplayContext<'a>) -> AnsiString<'a> {
-        let file_colored = if self.exists {
-            self.display_path.green()
-        } else {
-            self.display_path.red()
-        };
-        let line = format!("{} [{}]", file_colored, self.tags.join(", "));
-        AnsiString::parse(&line)
-    }
-
-    fn output(&self) -> Cow<'_, str> {
-        // Raw absolute path only for stable multi-select key.
-        Cow::Borrowed(&self.path)
-    }
-
-    fn get_index(&self) -> usize {
-        self.index
     }
 }
 
@@ -137,7 +60,7 @@ pub struct BrowseResult {
 /// Returns `SearchError` if database operations fail, UI interactions fail,
 /// or if skim selection is interrupted.
 pub fn browse(db: &Database, path_format: PathFormat) -> Result<Option<BrowseResult>, SearchError> {
-    browse_with_params(db, None, path_format)
+    browse_with_params(db, None, None, path_format)
 }
 
 /// Run interactive browse mode with optional pre-populated search parameters
@@ -165,6 +88,7 @@ pub fn browse(db: &Database, path_format: PathFormat) -> Result<Option<BrowseRes
 pub fn browse_with_params(
     db: &Database,
     search_params: Option<SearchParams>,
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
 ) -> Result<Option<BrowseResult>, SearchError> {
     let (selected_tags, matching_files) = if let Some(params) = search_params {
@@ -186,7 +110,7 @@ pub fn browse_with_params(
         return Ok(None);
     }
 
-    let selected_files = select_files_from_list(db, &matching_files, path_format)?;
+    let selected_files = select_files_from_list(db, &matching_files, preview_overrides, path_format)?;
 
     if selected_files.is_empty() {
         return Ok(None);
@@ -236,29 +160,37 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
         return Ok(Vec::new());
     }
 
-    let tag_list = all_tags.join("\n");
-    let item_reader = SkimItemReader::default();
-    let items = item_reader.of_bufread(Cursor::new(tag_list));
+    let items: Vec<DisplayItem> = all_tags
+        .iter()
+        .enumerate()
+        .map(|(idx, tag)| {
+            DisplayItem::with_metadata(
+                tag.clone(),
+                tag.clone(),
+                tag.clone(),
+                ItemMetadata {
+                    tags: vec![],
+                    exists: true,
+                    index: Some(idx),
+                },
+            )
+        })
+        .collect();
 
-    let options = build_skim_options(
-        true,
-        "Select tags (TAB to select multiple, Enter to confirm): ",
-        false,
-    )?;
+    let config = FinderConfig::new(
+        items,
+        "Select tags (TAB to select multiple, Enter to confirm): ".to_string(),
+    )
+    .with_multi_select(true);
 
-    let output = Skim::run_with(&options, Some(items)).ok_or(SearchError::InterruptedError)?;
+    let finder = SkimFinder::new();
+    let result = finder.run(config).map_err(SearchError::UiError)?;
 
-    if output.is_abort {
+    if result.aborted {
         return Ok(Vec::new());
     }
 
-    let selected_tags: Vec<String> = output
-        .selected_items
-        .iter()
-        .map(|item| item.output().to_string())
-        .collect();
-
-    Ok(selected_tags)
+    Ok(result.selected)
 }
 
 /// Select files from a pre-filtered list (consolidated file selection logic)
@@ -282,6 +214,7 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
 fn select_files_from_list(
     db: &Database,
     files: &[PathBuf],
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
 ) -> Result<Vec<PathBuf>, SearchError> {
     if files.is_empty() {
@@ -289,37 +222,79 @@ fn select_files_from_list(
         return Ok(Vec::new());
     }
 
-    let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
-    for (idx, file) in files.iter().enumerate() {
-        if let Some(tags) = db.get_tags(file)? {
-            let item = Arc::new(FileItem {
-                path: file.to_string_lossy().to_string(),
-                display_path: format_path_for_display(file, path_format),
-                tags,
-                exists: Path::new(file).exists(),
-                index: idx,
-            });
-            let _ = tx.send(item);
+    // Start with default preview config
+    let mut preview_config = PreviewConfig::default();
+    
+    // Apply preview overrides from CLI
+    if let Some(overrides) = preview_overrides {
+        if overrides.no_preview {
+            preview_config.enabled = false;
+        }
+        if let Some(lines) = overrides.preview_lines {
+            preview_config.max_lines = lines;
+        }
+        if let Some(position) = overrides.preview_position {
+            preview_config.position = match position.to_lowercase().as_str() {
+                "right" => crate::ui::PreviewPosition::Right,
+                "bottom" => crate::ui::PreviewPosition::Bottom,
+                "top" => crate::ui::PreviewPosition::Top,
+                _ => preview_config.position,
+            };
+        }
+        if let Some(width) = overrides.preview_width {
+            preview_config.width_percent = width.min(100);
         }
     }
-    drop(tx);
 
-    let options = build_skim_options(
-        true,
-        "Select files (TAB to select multiple, Enter to confirm): ",
-        true,
-    )?;
+    let items: Vec<DisplayItem> = files
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, file)| {
+            let tags = db.get_tags(file).ok()??;
+            let display_path = format_path_for_display(file, path_format);
+            let exists = file.exists();
+            
+            let file_colored = if exists {
+                display_path.green()
+            } else {
+                display_path.red()
+            };
+            let display = format!("{} [{}]", file_colored, tags.join(", "));
 
-    let output = Skim::run_with(&options, Some(rx)).ok_or(SearchError::InterruptedError)?;
+            Some(DisplayItem::with_metadata(
+                file.to_string_lossy().to_string(),
+                display,
+                display_path,
+                ItemMetadata {
+                    tags,
+                    exists,
+                    index: Some(idx),
+                },
+            ))
+        })
+        .collect();
 
-    if output.is_abort {
+    let config = FinderConfig::new(
+        items,
+        "Select files (TAB to select multiple, Enter to confirm): ".to_string(),
+    )
+    .with_multi_select(true)
+    .with_ansi(true)
+    .with_preview(preview_config.clone());
+
+    // Create preview provider for file previews
+    let preview_provider = FilePreviewProvider::new(preview_config);
+    let finder = SkimFinder::with_preview_provider(preview_provider);
+    let result = finder.run(config).map_err(SearchError::UiError)?;
+
+    if result.aborted {
         return Ok(Vec::new());
     }
 
-    let selected_files: Vec<PathBuf> = output
-        .selected_items
+    let selected_files: Vec<PathBuf> = result
+        .selected
         .iter()
-        .map(|it| PathBuf::from(it.output().to_string()))
+        .map(PathBuf::from)
         .collect();
 
     Ok(selected_files)
@@ -371,7 +346,7 @@ pub fn browse_advanced(
         return Ok(None);
     }
 
-    let selected_files = select_files_from_list(db, &matching_files, path_format)?;
+    let selected_files = select_files_from_list(db, &matching_files, None, path_format)?;
 
     if selected_files.is_empty() {
         return Ok(None);
@@ -398,19 +373,35 @@ pub fn browse_advanced(
 /// Returns `SearchError::BuildError` if skim options cannot be built or
 /// `SearchError::InterruptedError` if the fuzzy finder is interrupted.
 fn select_search_mode() -> Result<bool, SearchError> {
-    let options_text = "ANY (files with any of these tags)\nALL (files with all of these tags)";
-    let item_reader = SkimItemReader::default();
-    let items = item_reader.of_bufread(Cursor::new(options_text));
+    let options = vec!["ANY (files with any of these tags)", "ALL (files with all of these tags)"];
+    
+    let items: Vec<DisplayItem> = options
+        .iter()
+        .enumerate()
+        .map(|(idx, opt)| {
+            DisplayItem::with_metadata(
+                opt.to_string(),
+                opt.to_string(),
+                opt.to_string(),
+                ItemMetadata {
+                    tags: vec![],
+                    exists: true,
+                    index: Some(idx),
+                },
+            )
+        })
+        .collect();
 
-    let options = build_skim_options(false, "Search mode: ", false)?;
+    let config = FinderConfig::new(items, "Search mode: ".to_string());
 
-    let output = Skim::run_with(&options, Some(items)).ok_or(SearchError::InterruptedError)?;
+    let finder = SkimFinder::new();
+    let result = finder.run(config).map_err(SearchError::UiError)?;
 
-    if output.is_abort || output.selected_items.is_empty() {
+    if result.aborted || result.selected.is_empty() {
         return Ok(false);
     }
 
-    let selection = output.selected_items[0].output().to_string();
+    let selection = &result.selected[0];
     Ok(selection.starts_with("ALL"))
 }
 

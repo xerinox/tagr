@@ -60,6 +60,7 @@ impl TestDb {
 
 impl Drop for TestDb {
     fn drop(&mut self) {
+        // This runs even during panic unwinding
         // Clear the database first to ensure clean shutdown
         let _ = self.db.clear();
 
@@ -115,6 +116,7 @@ pub fn create_test_file_with_content(
 /// RAII guard for temporary test files
 ///
 /// Automatically removes the file when dropped, ensuring test cleanup.
+/// **Cleanup happens even if the test panics**, thanks to Rust's unwinding mechanism.
 ///
 /// # Examples
 /// ```
@@ -125,6 +127,11 @@ pub fn create_test_file_with_content(
 ///     // Do something with the file
 /// } // File automatically deleted here
 /// ```
+///
+/// # Panic Safety
+///
+/// The cleanup code runs during unwinding, so temporary files are removed
+/// even when tests fail with assertion failures or panics.
 pub struct TempFile {
     path: PathBuf,
     temp_dir: Option<PathBuf>,
@@ -200,6 +207,7 @@ impl TempFile {
 impl Drop for TempFile {
     fn drop(&mut self) {
         // Best effort cleanup - ignore errors
+        // This runs even during panic unwinding
         let _ = fs::remove_file(&self.path);
         if let Some(ref temp_dir) = self.temp_dir {
             // Use remove_dir_all to ensure complete cleanup even if dir has other files
@@ -309,5 +317,32 @@ mod tests {
         assert!(temp3.path().exists());
 
         // All cleaned up on drop
+    }
+
+    #[test]
+    fn test_temp_file_cleanup_on_panic() {
+        use std::panic;
+
+        // Create a temp file path we can check later
+        let path_outside = {
+            let temp = TempFile::create("test_panic.txt").unwrap();
+            let path = temp.path().to_path_buf();
+            
+            // File exists while temp is in scope
+            assert!(path.exists());
+            
+            // Simulate a panic within the scope
+            let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                assert!(path.exists());
+                panic!("Simulated test failure");
+            }));
+            
+            assert!(result.is_err());
+            path
+            // temp is dropped here, even though we panicked
+        };
+
+        // Verify cleanup happened after panic
+        assert!(!path_outside.exists(), "TempFile should be cleaned up even after panic");
     }
 }

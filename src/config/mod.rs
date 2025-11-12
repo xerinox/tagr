@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::ui::PreviewPosition;
+
 /// Path display format
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -23,6 +25,118 @@ pub enum PathFormat {
     Absolute,
     /// Display relative paths (relative to current directory)
     Relative,
+}
+
+/// UI backend selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum UiBackend {
+    /// Use skim fuzzy finder (default)
+    #[default]
+    Skim,
+    /// Use custom TUI (future)
+    Custom,
+}
+
+/// UI configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UiConfig {
+    /// Fuzzy finder backend
+    #[serde(default)]
+    pub backend: UiBackend,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            backend: UiBackend::Skim,
+        }
+    }
+}
+
+/// Preview pane configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PreviewConfig {
+    /// Enable preview pane
+    #[serde(default = "default_preview_enabled")]
+    pub enabled: bool,
+    
+    /// Maximum file size to preview (bytes)
+    #[serde(default = "default_max_file_size")]
+    pub max_file_size: u64,
+    
+    /// Maximum lines to display
+    #[serde(default = "default_max_lines")]
+    pub max_lines: usize,
+    
+    /// Enable syntax highlighting
+    #[serde(default = "default_syntax_highlighting")]
+    pub syntax_highlighting: bool,
+    
+    /// Show line numbers
+    #[serde(default = "default_show_line_numbers")]
+    pub show_line_numbers: bool,
+    
+    /// Position of preview pane
+    #[serde(default)]
+    pub position: PreviewPosition,
+    
+    /// Width percentage (0-100)
+    #[serde(default = "default_width_percent")]
+    pub width_percent: u8,
+}
+
+impl Default for PreviewConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_preview_enabled(),
+            max_file_size: default_max_file_size(),
+            max_lines: default_max_lines(),
+            syntax_highlighting: default_syntax_highlighting(),
+            show_line_numbers: default_show_line_numbers(),
+            position: PreviewPosition::default(),
+            width_percent: default_width_percent(),
+        }
+    }
+}
+
+const fn default_preview_enabled() -> bool {
+    true
+}
+
+const fn default_max_file_size() -> u64 {
+    5_242_880 // 5MB
+}
+
+const fn default_max_lines() -> usize {
+    50
+}
+
+const fn default_syntax_highlighting() -> bool {
+    true
+}
+
+const fn default_show_line_numbers() -> bool {
+    true
+}
+
+const fn default_width_percent() -> u8 {
+    50
+}
+
+impl PreviewConfig {
+    /// Convert to UI trait `PreviewConfig`
+    #[must_use]
+    pub const fn to_ui_config(&self) -> crate::ui::PreviewConfig {
+        crate::ui::PreviewConfig {
+            enabled: self.enabled,
+            max_file_size: self.max_file_size,
+            max_lines: self.max_lines,
+            syntax_highlighting: self.syntax_highlighting,
+            show_line_numbers: self.show_line_numbers,
+            position: self.position,
+            width_percent: self.width_percent,
+        }
+    }
 }
 
 /// Application configuration structure
@@ -43,6 +157,14 @@ pub struct TagrConfig {
     /// Default format for displaying paths (absolute or relative)
     #[serde(default)]
     pub path_format: PathFormat,
+
+    /// UI configuration
+    #[serde(default)]
+    pub ui: UiConfig,
+
+    /// Preview pane configuration
+    #[serde(default)]
+    pub preview: PreviewConfig,
 }
 
 impl TagrConfig {
