@@ -71,12 +71,12 @@ impl SkimFinder {
     /// Convert display items to skim items
     fn convert_to_skim_items(
         items: Vec<DisplayItem>,
-        preview_provider: Option<Arc<dyn PreviewProvider>>,
+        preview_provider: Option<&Arc<dyn PreviewProvider>>,
     ) -> SkimItemReceiver {
         let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
 
         for item in items {
-            let skim_item = Arc::new(SkimDisplayItem::new(item, preview_provider.clone()));
+            let skim_item = Arc::new(SkimDisplayItem::new(item, preview_provider.cloned()));
             let _ = tx.send(skim_item);
         }
         drop(tx);
@@ -95,7 +95,7 @@ impl FuzzyFinder for SkimFinder {
     fn run(&self, config: FinderConfig) -> Result<FinderResult> {
         let options = self.build_skim_options(&config)?;
         let preview_provider = self.preview_provider.clone();
-        let rx = Self::convert_to_skim_items(config.items, preview_provider);
+        let rx = Self::convert_to_skim_items(config.items, preview_provider.as_ref());
 
         let output = Skim::run_with(&options, Some(rx)).ok_or(UiError::InterruptedError)?;
 
@@ -151,8 +151,9 @@ impl SkimItem for SkimDisplayItem {
 
     fn preview(&self, _context: PreviewContext) -> ItemPreview {
         // If we have a preview provider, use it to generate preview
-        if let Some(provider) = &self.preview_provider {
-            match provider.preview(&self.item.key) {
+        self.preview_provider.as_ref().map_or_else(
+            || ItemPreview::Text(String::new()),
+            |provider| match provider.preview(&self.item.key) {
                 Ok(preview_text) => {
                     if preview_text.has_ansi {
                         ItemPreview::AnsiText(preview_text.content)
@@ -161,10 +162,8 @@ impl SkimItem for SkimDisplayItem {
                     }
                 }
                 Err(_) => ItemPreview::Text(format!("Error generating preview for {}", self.item.key)),
-            }
-        } else {
-            ItemPreview::Text(String::new())
-        }
+            },
+        )
     }
 }
 
@@ -203,8 +202,15 @@ impl PreviewProvider for SkimPreviewProvider {
 }
 
 /// Alternative: Run skim with simple string items (for backwards compatibility)
+/// Simple wrapper around skim for backwards compatibility
+/// Returns the selected items or empty vec if aborted
+///
+/// # Errors
+///
+/// Returns `UiError::BuildError` if skim options cannot be built.
+/// Returns `UiError::ExecutionError` if skim fails to run.
 pub fn run_skim_simple(
-    items: Vec<String>,
+    items: &[String],
     multi: bool,
     prompt: &str,
 ) -> Result<FinderResult> {

@@ -45,6 +45,12 @@ impl PreviewGenerator {
             .is_ok()
     }
 
+    /// Generate preview content for a file
+    ///
+    /// # Errors
+    ///
+    /// Returns `PreviewError::FileTooLarge` if file exceeds `max_file_size` config.
+    /// Returns `PreviewError::IoError` if file cannot be read.
     pub fn generate(&self, path: &Path) -> Result<PreviewContent> {
         if !path.exists() {
             return Ok(PreviewContent::Error(format!(
@@ -70,7 +76,7 @@ impl PreviewGenerator {
         match self.generate_text_preview(path, file_size) {
             Ok(content) => Ok(content),
             Err(PreviewError::InvalidUtf8(_)) => {
-                Ok(self.generate_binary_preview(path, &metadata))
+                Ok(Self::generate_binary_preview(path, &metadata))
             }
             Err(e) => Err(e),
         }
@@ -174,20 +180,22 @@ impl PreviewGenerator {
             .collect()
     }
 
-    fn generate_binary_preview(&self, path: &Path, metadata: &fs::Metadata) -> PreviewContent {
+    fn generate_binary_preview(path: &Path, metadata: &fs::Metadata) -> PreviewContent {
         let file_metadata = FileMetadata {
             path: path.to_path_buf(),
             size: metadata.len(),
+            #[allow(clippy::cast_possible_wrap)]
             modified: metadata
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64),
-            permissions: Some(self.format_permissions(metadata)),
-            file_type: self.detect_file_type(path),
+            permissions: Some(Self::format_permissions(metadata)),
+            file_type: Self::detect_file_type(path),
         };
 
-        if self.is_image(path) && let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone()) {
+        if Self::is_image(path) {
+            let image_meta = Self::extract_image_metadata(path, file_metadata);
             return PreviewContent::Image {
                 metadata: image_meta,
             };
@@ -199,7 +207,7 @@ impl PreviewGenerator {
     }
 
     #[cfg(unix)]
-    fn format_permissions(&self, metadata: &fs::Metadata) -> String {
+    fn format_permissions(metadata: &fs::Metadata) -> String {
         use std::os::unix::fs::PermissionsExt;
         let mode = metadata.permissions().mode();
         format!(
@@ -217,7 +225,7 @@ impl PreviewGenerator {
     }
 
     #[cfg(not(unix))]
-    fn format_permissions(&self, metadata: &fs::Metadata) -> String {
+    fn format_permissions(metadata: &fs::Metadata) -> String {
         if metadata.permissions().readonly() {
             "readonly".to_string()
         } else {
@@ -225,35 +233,34 @@ impl PreviewGenerator {
         }
     }
 
-    fn detect_file_type(&self, path: &Path) -> Option<String> {
+    fn detect_file_type(path: &Path) -> Option<String> {
         path.extension()
             .and_then(|e| e.to_str())
             .map(str::to_uppercase)
     }
 
-    fn is_image(&self, path: &Path) -> bool {
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            matches!(
-                ext.to_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico"
-            )
-        } else {
-            false
-        }
+    fn is_image(path: &Path) -> bool {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico"
+                )
+            })
     }
 
     const fn extract_image_metadata(
-        &self,
         _path: &Path,
         file_metadata: FileMetadata,
-    ) -> Option<ImageMetadata> {
+    ) -> ImageMetadata {
         // TODO: Use image crate to extract actual dimensions
-        Some(ImageMetadata {
+        ImageMetadata {
             file_metadata,
             width: None,
             height: None,
             format: None,
-        })
+        }
     }
 }
 

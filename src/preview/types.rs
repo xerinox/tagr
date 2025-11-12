@@ -94,11 +94,13 @@ impl PreviewContent {
             } => {
                 let mut output = lines.join("\n");
                 if *truncated {
-                    output.push_str(&format!(
+                    use std::fmt::Write;
+                    let _ = write!(
+                        output,
                         "\n\n[... truncated, showing {} of {} lines ...]",
                         lines.len(),
                         total_lines
-                    ));
+                    );
                 }
                 output
             }
@@ -121,28 +123,29 @@ impl PreviewContent {
 /// Format file metadata for display
 fn format_file_metadata(metadata: &FileMetadata) -> String {
     use byte_unit::{Byte, UnitType};
+    use std::fmt::Write;
 
     let mut output = String::from("Binary file - cannot preview\n\n");
-    output.push_str(&format!("Path: {}\n", metadata.path.display()));
+    let _ = writeln!(output, "Path: {}", metadata.path.display());
 
     let size = Byte::from_u64(metadata.size)
         .get_appropriate_unit(UnitType::Binary)
         .to_string();
-    output.push_str(&format!("Size: {size}\n"));
+    let _ = writeln!(output, "Size: {size}");
 
     if let Some(modified) = metadata.modified {
         use chrono::{Local, TimeZone};
         if let Some(dt) = Local.timestamp_opt(modified, 0).single() {
-            output.push_str(&format!("Modified: {}\n", dt.format("%Y-%m-%d %H:%M:%S")));
+            let _ = writeln!(output, "Modified: {}", dt.format("%Y-%m-%d %H:%M:%S"));
         }
     }
 
     if let Some(perms) = &metadata.permissions {
-        output.push_str(&format!("Permissions: {perms}\n"));
+        let _ = writeln!(output, "Permissions: {perms}");
     }
 
     if let Some(file_type) = &metadata.file_type {
-        output.push_str(&format!("Type: {file_type}\n"));
+        let _ = writeln!(output, "Type: {file_type}");
     }
 
     output
@@ -150,15 +153,17 @@ fn format_file_metadata(metadata: &FileMetadata) -> String {
 
 /// Format image metadata for display
 fn format_image_metadata(metadata: &ImageMetadata) -> String {
+    use std::fmt::Write;
+
     let mut output = format_file_metadata(&metadata.file_metadata);
     output.push('\n');
 
     if let Some(format) = &metadata.format {
-        output.push_str(&format!("Format: {format}\n"));
+        let _ = writeln!(output, "Format: {format}");
     }
 
     if let (Some(width), Some(height)) = (metadata.width, metadata.height) {
-        output.push_str(&format!("Dimensions: {width} x {height} pixels\n"));
+        let _ = writeln!(output, "Dimensions: {width} x {height} pixels");
     }
 
     output
