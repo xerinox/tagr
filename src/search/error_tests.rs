@@ -102,7 +102,7 @@ mod tests {
                 SearchError::BuildError(msg) => {
                     assert_eq!(msg, "error1");
                 }
-                SearchError::InterruptedError | SearchError::DatabaseError(_) => {
+                SearchError::InterruptedError | SearchError::DatabaseError(_) | SearchError::UiError(_) => {
                     // Expected
                 }
             }
@@ -156,7 +156,6 @@ mod tests {
 
         assert_eq!(errors.len(), 3);
 
-        // Each should have different error messages
         let messages: Vec<String> = errors
             .iter()
             .map(std::string::ToString::to_string)
@@ -164,5 +163,16 @@ mod tests {
         assert!(messages[0].contains("interrupted"));
         assert!(messages[1].contains("UI options"));
         assert!(messages[2].contains("Database error"));
+    }
+
+    #[test]
+    fn test_ui_error_conversion() {
+        let ui_error = crate::ui::UiError::InterruptedError;
+        let search_error = SearchError::from(ui_error);
+
+        match search_error {
+            SearchError::UiError(_) => {},
+            _ => panic!("Expected UiError variant"),
+        }
     }
 }
