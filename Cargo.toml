@@ -1,7 +1,7 @@
 [package]
 name = "tagr"
 description = "A fast, tag-based file organizer and search tool for the command line."
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Rainer Kildal <rkildal@gmail.com>"]
 edition = "2024"
 readme = "README.md"
