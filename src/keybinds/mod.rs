@@ -10,4 +10,4 @@ pub mod prompts;
 
 pub use actions::{BrowseAction, ActionResult};
 pub use config::KeybindConfig;
-pub use executor::ActionExecutor;
+pub use executor::{ActionExecutor, ActionContext};

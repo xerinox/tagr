@@ -10,6 +10,7 @@ use super::error::SearchError;
 use crate::cli::SearchParams;
 use crate::config::PathFormat;
 use crate::db::{Database, query};
+use crate::keybinds::{ActionExecutor, ActionContext, ActionResult, BrowseAction};
 use crate::preview::FilePreviewProvider;
 use crate::ui::{
     DisplayItem, FinderConfig, FuzzyFinder, ItemMetadata, PreviewConfig,
@@ -91,6 +92,44 @@ pub fn browse_with_params(
     preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
 ) -> Result<Option<BrowseResult>, SearchError> {
+    browse_with_params_and_actions(db, search_params, preview_overrides, path_format, false)
+}
+
+/// Run interactive browse mode with keybind actions enabled
+///
+/// Experimental feature that adds an action menu after file selection.
+/// This is Phase 1 of keybind integration.
+pub fn browse_with_actions(
+    db: &Database,
+    search_params: Option<SearchParams>,
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
+    path_format: PathFormat,
+) -> Result<Option<BrowseResult>, SearchError> {
+    browse_with_params_and_actions(db, search_params, preview_overrides, path_format, true)
+}
+
+/// Run action menu on already-selected files
+///
+/// This is a simpler wrapper for when files have already been selected
+/// and you just want to show the action menu.
+pub fn show_actions_for_files(db: &Database, files: Vec<PathBuf>) -> Result<(), SearchError> {
+    loop {
+        if !show_action_menu(db, &files)? {
+            return Ok(());
+        }
+    }
+}
+
+/// Run interactive browse mode with optional actions enabled
+///
+/// Internal function that adds action menu support.
+fn browse_with_params_and_actions(
+    db: &Database,
+    search_params: Option<SearchParams>,
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
+    path_format: PathFormat,
+    enable_actions: bool,
+) -> Result<Option<BrowseResult>, SearchError> {
     let (selected_tags, matching_files) = if let Some(params) = search_params {
         let files = query::apply_search_params(db, &params).map_err(SearchError::DatabaseError)?;
         (params.tags, files)
@@ -110,16 +149,25 @@ pub fn browse_with_params(
         return Ok(None);
     }
 
-    let selected_files = select_files_from_list(db, &matching_files, preview_overrides, path_format)?;
+    loop {
+        let selected_files = select_files_from_list(db, &matching_files, preview_overrides.clone(), path_format)?;
 
-    if selected_files.is_empty() {
-        return Ok(None);
+        if selected_files.is_empty() {
+            return Ok(None);
+        }
+
+        if enable_actions {
+            let should_retry = show_action_menu(db, &selected_files)?;
+            if should_retry {
+                continue;
+            }
+        }
+
+        return Ok(Some(BrowseResult {
+            selected_tags: selected_tags.clone(),
+            selected_files,
+        }));
     }
-
-    Ok(Some(BrowseResult {
-        selected_tags,
-        selected_files,
-    }))
 }
 
 /// Apply search parameters to filter files from the database
@@ -298,6 +346,99 @@ fn select_files_from_list(
         .collect();
 
     Ok(selected_files)
+}
+
+/// Show action menu for selected files
+///
+/// After files are selected, present an optional action menu for quick operations.
+/// This is a simplified Phase 1 approach - full keybind integration will come later.
+///
+/// Returns true to continue browsing, false to exit with selections.
+fn show_action_menu(
+    db: &Database,
+    selected_files: &[PathBuf],
+) -> Result<bool, SearchError> {
+    let actions = vec![
+        "Continue (use selections)",
+        "Add tags to selected files",
+        "Remove tags from selected files",
+        "Delete from database",
+        "Cancel (re-select)",
+    ];
+    
+    let items: Vec<DisplayItem> = actions
+        .iter()
+        .enumerate()
+        .map(|(idx, action)| {
+            DisplayItem::with_metadata(
+                action.to_string(),
+                action.to_string(),
+                action.to_string(),
+                ItemMetadata {
+                    tags: vec![],
+                    exists: true,
+                    index: Some(idx),
+                },
+            )
+        })
+        .collect();
+
+    let config = FinderConfig::new(items, format!("Action for {} file(s): ", selected_files.len()));
+
+    let finder = SkimFinder::new();
+    let result = finder.run(config).map_err(SearchError::UiError)?;
+
+    if result.aborted || result.selected.is_empty() {
+        return Ok(false);
+    }
+
+    let selection = &result.selected[0];
+    let executor = ActionExecutor::new();
+    
+    let action_result = match selection.as_str() {
+        s if s.starts_with("Add tags") => {
+            let context = ActionContext {
+                selected_files,
+                current_file: None,
+                db,
+            };
+            executor.execute(&BrowseAction::AddTag, &context)
+        }
+        s if s.starts_with("Remove tags") => {
+            let context = ActionContext {
+                selected_files,
+                current_file: None,
+                db,
+            };
+            executor.execute(&BrowseAction::RemoveTag, &context)
+        }
+        s if s.starts_with("Delete from") => {
+            let context = ActionContext {
+                selected_files,
+                current_file: None,
+                db,
+            };
+            executor.execute(&BrowseAction::DeleteFromDb, &context)
+        }
+        s if s.starts_with("Cancel") => return Ok(true),
+        _ => return Ok(false),
+    };
+
+    match action_result {
+        Ok(ActionResult::Message(msg)) => {
+            println!("\n{}", msg);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            Ok(true)
+        }
+        Ok(ActionResult::Continue) => Ok(false),
+        Ok(ActionResult::Refresh) => Ok(true),
+        Ok(ActionResult::Exit(_)) => Ok(false),
+        Err(e) => {
+            eprintln!("\n❌ Action failed: {}", e);
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            Ok(true)
+        }
+    }
 }
 
 /// Advanced search with AND/OR logic for tag filtering

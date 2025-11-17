@@ -15,6 +15,7 @@ type Result<T> = std::result::Result<T, TagrError>;
 ///
 /// # Errors
 /// Returns an error if database operations fail or if the browse operation encounters issues
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
     db: &Database,
     mut search_params: Option<SearchParams>,
@@ -24,6 +25,7 @@ pub fn execute(
     preview_overrides: Option<PreviewOverrides>,
     path_format: config::PathFormat,
     quiet: bool,
+    with_actions: bool,
 ) -> Result<()> {
     if let Some(name) = filter_name {
         let filter_path = crate::filters::get_filter_path()?;
@@ -47,28 +49,42 @@ pub fn execute(
 
     match search::browse_with_params(db, search_params.clone(), preview_overrides, path_format) {
         Ok(Some(result)) => {
-            if !quiet {
-                println!("=== Selected Tags ===");
-                for tag in &result.selected_tags {
-                    println!("  - {tag}");
-                }
-
-                println!("\n=== Selected Files ===");
-            }
-            for file in &result.selected_files {
-                let formatted_path = output::format_path(file, path_format);
-                if quiet {
-                    println!("{formatted_path}");
-                } else {
-                    println!("  - {formatted_path}");
-                }
-            }
-
-            if let Some(cmd_template) = execute_cmd {
+            if with_actions {
                 if !quiet {
-                    println!("\n=== Executing Command ===");
+                    println!("=== Selected Files ===");
+                    for file in &result.selected_files {
+                        println!("  - {}", output::format_path(file, path_format));
+                    }
                 }
-                crate::cli::execute_command_on_files(&result.selected_files, &cmd_template, quiet);
+
+                match search::show_actions_for_files(db, result.selected_files) {
+                    Ok(()) => {}
+                    Err(e) => eprintln!("Action error: {e}"),
+                }
+            } else {
+                if !quiet {
+                    println!("=== Selected Tags ===");
+                    for tag in &result.selected_tags {
+                        println!("  - {tag}");
+                    }
+
+                    println!("\n=== Selected Files ===");
+                }
+                for file in &result.selected_files {
+                    let formatted_path = output::format_path(file, path_format);
+                    if quiet {
+                        println!("{formatted_path}");
+                    } else {
+                        println!("  - {formatted_path}");
+                    }
+                }
+
+                if let Some(cmd_template) = execute_cmd {
+                    if !quiet {
+                        println!("\n=== Executing Command ===");
+                    }
+                    crate::cli::execute_command_on_files(&result.selected_files, &cmd_template, quiet);
+                }
             }
 
             if let Some((name, desc)) = save_filter {

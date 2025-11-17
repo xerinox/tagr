@@ -8,5 +8,5 @@ pub mod browse;
 pub mod error;
 pub mod filter;
 
-pub use browse::{BrowseResult, browse, browse_advanced, browse_with_params};
+pub use browse::{BrowseResult, browse, browse_advanced, browse_with_params, browse_with_actions, show_actions_for_files};
 pub use error::SearchError;
