@@ -13,6 +13,7 @@ pub mod commands;
 pub mod config;
 pub mod db;
 pub mod filters;
+pub mod keybinds;
 pub mod output;
 pub mod preview;
 pub mod search;
