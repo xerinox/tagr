@@ -2,6 +2,24 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// Errors that can occur during configuration loading.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    /// IO error reading config file
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    
+    /// TOML parsing error
+    #[error("TOML parse error: {0}")]
+    TomlParse(#[from] toml::de::Error),
+    
+    /// Config directory not found
+    #[error("Could not determine config directory")]
+    NoConfigDir,
+}
 
 /// Configuration for keybinds and related settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -188,6 +206,48 @@ fn default_max_sessions() -> usize {
 }
 
 impl KeybindConfig {
+    /// Load keybind configuration from file.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the file cannot be read or parsed.
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+        let content = fs::read_to_string(path.as_ref())?;
+        let config: Self = toml::from_str(&content)?;
+        Ok(config)
+    }
+
+    /// Load keybind configuration from the default location.
+    ///
+    /// Returns the default configuration if the file doesn't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the file exists but cannot be read or parsed.
+    pub fn load_or_default() -> Result<Self, ConfigError> {
+        let config_path = Self::default_config_path()?;
+        
+        if config_path.exists() {
+            Self::load(&config_path)
+        } else {
+            Ok(Self::default())
+        }
+    }
+
+    /// Get the default configuration file path.
+    ///
+    /// Returns `~/.config/tagr/keybinds.toml` on Unix-like systems.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the config directory cannot be determined.
+    pub fn default_config_path() -> Result<PathBuf, ConfigError> {
+        let config_dir = dirs::config_dir()
+            .ok_or(ConfigError::NoConfigDir)?;
+        
+        Ok(config_dir.join("tagr").join("keybinds.toml"))
+    }
+
     /// Get the keybind(s) for a given action name.
     ///
     /// Returns an empty slice if the action is not configured.
@@ -256,5 +316,49 @@ mod tests {
     fn test_editor_default() {
         let config = EditorConfig::default();
         assert!(!config.command.is_empty());
+    }
+
+    #[test]
+    fn test_config_load_from_toml() {
+        use crate::testing::TempFile;
+        
+        let toml_content = r#"
+[keybinds]
+add_tag = "ctrl-t"
+remove_tag = ["ctrl-r", "F2"]
+
+[editor]
+command = "nvim"
+args = ["-n"]
+
+[actions]
+confirm_delete = false
+"#;
+        
+        let temp_file = TempFile::create_with_content("keybinds.toml", toml_content.as_bytes()).unwrap();
+        
+        let config = KeybindConfig::load(temp_file.path()).unwrap();
+        assert_eq!(config.get("add_tag"), vec!["ctrl-t"]);
+        assert_eq!(config.get("remove_tag"), vec!["ctrl-r", "F2"]);
+        assert_eq!(config.editor.command, "nvim");
+        assert_eq!(config.editor.args, vec!["-n"]);
+        assert!(!config.actions.confirm_delete);
+    }
+
+    #[test]
+    fn test_default_config_path() {
+        let path = KeybindConfig::default_config_path();
+        assert!(path.is_ok());
+        let path = path.unwrap();
+        assert!(path.to_string_lossy().contains("tagr"));
+        assert!(path.to_string_lossy().contains("keybinds.toml"));
+    }
+
+    #[test]
+    fn test_load_or_default_returns_default_when_missing() {
+        // This test assumes the config file doesn't exist
+        // If it does exist, it will load it instead
+        let result = KeybindConfig::load_or_default();
+        assert!(result.is_ok());
     }
 }

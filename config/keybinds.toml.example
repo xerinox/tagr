@@ -1,0 +1,76 @@
+# Tagr Keybind Configuration
+# Syntax: action = "key" or action = ["key1", "key2"]
+# Disable a keybind: action = "none"
+
+[keybinds]
+# Tag Management
+add_tag = "ctrl-t"          # Add tags to selected files
+remove_tag = "ctrl-r"       # Remove tags from selected files
+edit_tags = "ctrl-e"        # Edit tags in $EDITOR
+
+# File Operations
+open_default = "ctrl-o"     # Open in default application (xdg-open/open)
+open_editor = "ctrl-v"      # Open in $EDITOR
+copy_path = "ctrl-y"        # Copy file paths to clipboard
+copy_files = "ctrl-p"       # Copy files to directory
+delete_from_db = "ctrl-d"   # Delete from database
+
+# View Options
+toggle_tag_display = "ctrl-i"  # Toggle tag display mode
+show_details = "ctrl-l"        # Show file details
+filter_extension = "ctrl-f"    # Filter by extension
+
+# Navigation
+select_all = "ctrl-a"       # Select all files
+clear_selection = "ctrl-x"  # Clear selection
+
+# Search & Filter
+quick_search = "ctrl-s"     # Quick tag search
+goto_file = "ctrl-g"        # Go to file
+
+# History & Sessions
+show_history = "ctrl-h"     # Show recent selections
+bookmark_selection = "ctrl-b"  # Bookmark selection
+
+# System
+show_help = "f1"            # Show help (can also use ["f1", "ctrl-?"])
+
+[editor]
+# Editor command for tag editing and file opening
+# Falls back to $EDITOR environment variable if not set
+command = "vim"
+args = []
+
+# Examples:
+# command = "nvim"
+# command = "code"
+# args = ["--wait"]  # For VS Code
+
+[actions]
+# Custom clipboard command (optional)
+# Leave empty to use default system clipboard
+clipboard_command = ""
+
+# Examples:
+# clipboard_command = "xclip -selection clipboard"  # Linux
+# clipboard_command = "pbcopy"                      # macOS
+# clipboard_command = "clip"                        # Windows
+
+# Require confirmation for destructive actions
+confirm_delete = true
+confirm_copy = false
+
+[display]
+# Default tag display mode: inline, below, count, hidden
+default_tag_display = "inline"
+
+# Show keybind hints at bottom of screen
+show_hints = true
+
+[history]
+# Number of browse sessions to remember
+max_sessions = 50
+
+# Custom history file path (optional)
+# Defaults to ~/.cache/tagr/browse_history.json
+# history_file = "/custom/path/browse_history.json"
