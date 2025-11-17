@@ -56,7 +56,6 @@ impl ActionExecutor {
 
     /// Execute the AddTag action.
     fn execute_add_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        // Prompt for tags
         let input = prompt_for_input("Add tags (space-separated): ")?;
         
         if input.trim().is_empty() {
@@ -68,7 +67,6 @@ impl ActionExecutor {
             .map(ToString::to_string)
             .collect();
 
-        // Determine which files to tag
         let files_to_tag: Vec<&PathBuf> = if context.selected_files.is_empty() {
             // Use current file if no selection
             context.current_file.into_iter().collect()
@@ -76,20 +74,16 @@ impl ActionExecutor {
             context.selected_files.iter().collect()
         };
 
-        // Add tags to each file
         let mut tagged_count = 0;
         for file_path in &files_to_tag {
-            // Get existing tags
             let mut existing_tags = context.db.get_tags(file_path)?.unwrap_or_default();
             
-            // Add new tags (avoiding duplicates)
             for tag in &new_tags {
                 if !existing_tags.contains(tag) {
                     existing_tags.push(tag.clone());
                 }
             }
             
-            // Update in database
             context.db.insert(file_path, existing_tags)?;
             tagged_count += 1;
         }
@@ -101,7 +95,6 @@ impl ActionExecutor {
 
     /// Execute the RemoveTag action.
     fn execute_remove_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        // Determine which files we're working with
         let files_to_process: Vec<&PathBuf> = if context.selected_files.is_empty() {
             context.current_file.into_iter().collect()
         } else {
@@ -112,7 +105,6 @@ impl ActionExecutor {
             return Err(ExecutorError::NoSelection);
         }
 
-        // Collect all tags from selected files
         let mut all_tags = std::collections::HashSet::new();
         for file_path in &files_to_process {
             if let Some(tags) = context.db.get_tags(file_path)? {
@@ -124,7 +116,6 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No tags to remove".to_string()));
         }
 
-        // Show available tags and prompt for removal
         let tag_list: Vec<String> = all_tags.into_iter().collect();
         println!("\nAvailable tags:");
         for (i, tag) in tag_list.iter().enumerate() {
@@ -137,15 +128,13 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No tags selected for removal".to_string()));
         }
 
-        // Parse input - can be numbers or tag names
+        // Parse as numbers or tag names
         let tags_to_remove: Vec<String> = input
             .split_whitespace()
             .filter_map(|s| {
-                // Try to parse as number first
                 if let Ok(num) = s.parse::<usize>() {
                     tag_list.get(num.saturating_sub(1)).cloned()
                 } else {
-                    // Otherwise treat as tag name
                     Some(s.to_string())
                 }
             })
@@ -155,7 +144,6 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No valid tags selected".to_string()));
         }
 
-        // Remove tags from files
         let mut updated_count = 0;
         for file_path in &files_to_process {
             if let Some(mut tags) = context.db.get_tags(file_path)? {
@@ -187,7 +175,6 @@ impl ActionExecutor {
             return Err(ExecutorError::NoSelection);
         }
 
-        // Prompt for confirmation
         let confirm = prompt_for_confirmation(&format!(
             "Delete {} file(s) from database?",
             files_to_delete.len()
@@ -197,7 +184,6 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("Deletion cancelled".to_string()));
         }
 
-        // Delete from database
         let mut deleted_count = 0;
         for file_path in &files_to_delete {
             if context.db.remove(file_path)? {
