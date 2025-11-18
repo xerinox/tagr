@@ -264,7 +264,7 @@ impl KeybindConfig {
     /// Check if a keybind is disabled for an action.
     #[must_use]
     pub fn is_disabled(&self, action: &str) -> bool {
-        self.keybinds.get(action).map_or(false, |def| {
+        self.keybinds.get(action).is_some_and(|def| {
             match def {
                 KeybindDef::Single(key) => key == "none",
                 KeybindDef::Multiple(keys) => keys.iter().all(|k| k == "none"),
@@ -280,7 +280,7 @@ impl KeybindConfig {
     pub fn to_skim_bindings(&self) -> Vec<String> {
         let mut bindings = Vec::new();
 
-        for (_action, def) in &self.keybinds {
+        for def in self.keybinds.values() {
             let keys = match def {
                 KeybindDef::Single(key) if key != "none" => vec![key.clone()],
                 KeybindDef::Multiple(keys) => keys.iter().filter(|k| *k != "none").cloned().collect(),

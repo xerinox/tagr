@@ -16,7 +16,9 @@ pub struct ActionContext<'a> {
 }
 
 /// Executes actions triggered by keybinds.
-pub struct ActionExecutor {}
+pub struct ActionExecutor {
+    // Will be expanded with state in future commits
+}
 
 impl ActionExecutor {
     /// Create a new action executor.
@@ -35,6 +37,7 @@ impl ActionExecutor {
         action: &BrowseAction,
         context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
+        // Check if action requires selection
         if action.requires_selection() && context.selected_files.is_empty() && context.current_file.is_none() {
             return Err(ExecutorError::NoSelection);
         }
@@ -44,7 +47,10 @@ impl ActionExecutor {
             BrowseAction::RemoveTag => self.execute_remove_tag(context),
             BrowseAction::DeleteFromDb => self.execute_delete_from_db(context),
             BrowseAction::Cancel => Ok(ActionResult::Continue),
-            _ => Ok(ActionResult::Continue),
+            _ => {
+                // Other actions not yet implemented
+                Ok(ActionResult::Continue)
+            }
         }
     }
 
@@ -62,6 +68,7 @@ impl ActionExecutor {
             .collect();
 
         let files_to_tag: Vec<&PathBuf> = if context.selected_files.is_empty() {
+            // Use current file if no selection
             context.current_file.into_iter().collect()
         } else {
             context.selected_files.iter().collect()
@@ -121,6 +128,7 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No tags selected for removal".to_string()));
         }
 
+        // Parse as numbers or tag names
         let tags_to_remove: Vec<String> = input
             .split_whitespace()
             .filter_map(|s| {
@@ -249,6 +257,7 @@ mod tests {
             db: db.db(),
         };
         
+        // These actions should fail without selection
         let result = executor.execute(&BrowseAction::RemoveTag, &context);
         assert!(matches!(result, Err(ExecutorError::NoSelection)));
         
@@ -262,9 +271,12 @@ mod tests {
         let db = TestDb::new("test_delete_from_db");
         let temp_file = TempFile::create("test_delete.txt").unwrap();
         
+        // Insert test file
         db.db().insert(temp_file.path(), vec!["test".to_string()]).unwrap();
         assert!(db.db().contains(temp_file.path()).unwrap());
         
-        // TODO: Full integration test requires mocking prompt_for_confirmation
+        // Note: This test can't easily test the full delete flow because
+        // it requires user input via prompt_for_confirmation
+        // We would need to mock the prompt system for full integration testing
     }
 }
