@@ -6,7 +6,8 @@ use crate::{
     config,
     db::Database,
     filters::{FilterCriteria, FilterManager},
-    output, search,
+    output,
+    search::{BrowseState, BrowseVariant},
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -27,6 +28,7 @@ pub fn execute(
     quiet: bool,
     with_actions: bool,
 ) -> Result<()> {
+    // Handle filter loading
     if let Some(name) = filter_name {
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
@@ -47,17 +49,32 @@ pub fn execute(
         }
     }
 
-    // Load keybind configuration and use real-time keybinds
-    let keybind_config = crate::keybinds::KeybindConfig::load_or_default()
-        .map_err(|e| TagrError::InvalidInput(format!("Failed to load keybind config: {e}")))?;
-    
-    match search::browse_with_realtime_keybinds(
-        db,
-        search_params.clone(),
-        preview_overrides,
-        path_format,
-        &keybind_config,
-    ) {
+    // Build browse state with the new API
+    let mut browse = BrowseState::builder()
+        .db(db)
+        .path_format(path_format)
+        .quiet(quiet)
+        .build()
+        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+
+    // Apply search params if present
+    if let Some(params) = search_params.clone() {
+        browse.set_search_params(Some(params));
+    }
+
+    // Apply preview overrides if present
+    if let Some(overrides) = preview_overrides {
+        browse.set_preview_overrides(Some(overrides));
+    }
+
+    // Determine browse variant and execute
+    let variant = if with_actions {
+        BrowseVariant::WithActions
+    } else {
+        BrowseVariant::WithRealtimeKeybinds
+    };
+
+    match browse.run(variant) {
         Ok(Some(result)) => {
             if with_actions {
                 if !quiet {
@@ -67,7 +84,7 @@ pub fn execute(
                     }
                 }
 
-                match search::show_actions_for_files(db, result.selected_files) {
+                match crate::search::show_actions_for_files(db, result.selected_files) {
                     Ok(()) => {}
                     Err(e) => eprintln!("Action error: {e}"),
                 }

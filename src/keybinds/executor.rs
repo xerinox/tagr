@@ -494,7 +494,7 @@ HISTORY & SESSIONS:
   Ctrl+B    Bookmark selection
 
 SYSTEM:
-  F1        Show this help
+  F1        Show this help (press 'q' to return)
   Enter     Exit with selection
   ESC       Cancel and abort
 
@@ -502,10 +502,20 @@ BASIC NAVIGATION:
   TAB       Toggle file selection
   Up/Down   Navigate files
   /         Start search query
+
+Press 'q' to return to browse mode
         "#;
 
-        println!("{}", help_text);
-        Ok(ActionResult::Continue)
+        // Try to use a pager, fallback to direct print
+        match show_in_pager(help_text) {
+            Ok(()) => Ok(ActionResult::Continue),
+            Err(e) => {
+                eprintln!("⚠️  Pager unavailable: {}", e);
+                println!("{}", help_text);
+                prompt_for_input("Press Enter to continue...")?;
+                Ok(ActionResult::Continue)
+            }
+        }
     }
 }
 
@@ -578,6 +588,50 @@ fn format_modified_time(metadata: &std::fs::Metadata) -> String {
         }
         Err(_) => "unknown".to_string(),
     }
+}
+
+/// Display text in the minus pager with search support.
+fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
+    use minus::{ExitStrategy, Pager};
+    use std::io::Write;
+
+    let pager = Pager::new();
+    
+    // CRITICAL: Set exit strategy to PagerQuit so pressing 'q' only quits the pager,
+    // not the entire application. This ensures we return to browse mode after help.
+    pager.set_exit_strategy(ExitStrategy::PagerQuit).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to set exit strategy: {e}"),
+        )
+    })?;
+    
+    pager.push_str(text).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to write to pager: {e}"),
+        )
+    })?;
+
+    // Use page_all which blocks until user exits the pager
+    // This should return control to our code when 'q' is pressed
+    let result = minus::page_all(pager).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Pager error: {e}"),
+        )
+    });
+
+    // Ensure terminal is properly restored after pager exits
+    // Clear any residual state and flush output
+    println!();
+    std::io::stdout().flush().ok();
+    
+    // Clear the screen to ensure clean return to skim
+    print!("\x1B[2J\x1B[1;1H");
+    std::io::stdout().flush().ok();
+
+    result
 }
 
 #[cfg(test)]

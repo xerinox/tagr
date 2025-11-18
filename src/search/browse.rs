@@ -5,8 +5,14 @@
 //! 2. View and select files matching those tags (multi-select supported)
 //!
 //! Uses abstracted UI layer for easy backend swapping.
+//!
+//! # Note
+//!
+//! This module contains the legacy function-based API. For new code,
+//! prefer using `BrowseState` with the builder pattern from `super::state`.
 
 use super::error::SearchError;
+pub use super::state::BrowseResult;
 use crate::cli::SearchParams;
 use crate::config::PathFormat;
 use crate::db::{Database, query};
@@ -37,13 +43,6 @@ fn format_path_for_display(path: &Path, format: PathFormat) -> String {
             path.display().to_string()
         }
     }
-}
-
-/// Result of an interactive browse session
-#[derive(Debug)]
-pub struct BrowseResult {
-    pub selected_tags: Vec<String>,
-    pub selected_files: Vec<PathBuf>,
 }
 
 /// Run interactive browse mode
@@ -169,7 +168,7 @@ fn browse_with_params_and_actions(
         }
 
         return Ok(Some(BrowseResult {
-            selected_tags: selected_tags.clone(),
+            selected_tags,
             selected_files,
         }));
     }
@@ -253,8 +252,9 @@ pub fn browse_with_realtime_keybinds(
             }
 
             // Map key to action
-            if let Some(action_name) = keybind_config.action_for_key(&key_str) {
-                if let Some(action) = action_name_to_enum(&action_name) {
+            if let Some(action_name) = keybind_config.action_for_key(key_str)
+                && let Some(action) = action_name_to_enum(&action_name)
+            {
                     // Execute the action
                     let context = ActionContext {
                         db,
@@ -268,10 +268,8 @@ pub fn browse_with_realtime_keybinds(
 
                     match action_result {
                         ActionResult::Continue => {
-                            return Ok(Some(BrowseResult {
-                                selected_tags: selected_tags.clone(),
-                                selected_files: result.selected_files,
-                            }));
+                            // Continue browsing - loop back to file selection
+                            continue;
                         }
                         ActionResult::Refresh => {
                             // Loop back to file selection
@@ -279,7 +277,7 @@ pub fn browse_with_realtime_keybinds(
                         }
                         ActionResult::Exit(files) => {
                             return Ok(Some(BrowseResult {
-                                selected_tags: selected_tags.clone(),
+                                selected_tags,
                                 selected_files: files,
                             }));
                         }
@@ -289,12 +287,11 @@ pub fn browse_with_realtime_keybinds(
                         }
                     }
                 }
-            }
         }
 
         // Fallback: if no action detected or Enter pressed, return selections
         return Ok(Some(BrowseResult {
-            selected_tags: selected_tags.clone(),
+            selected_tags,
             selected_files: result.selected_files,
         }));
     }
@@ -589,7 +586,7 @@ fn show_action_menu(
     db: &Database,
     selected_files: &[PathBuf],
 ) -> Result<bool, SearchError> {
-    let actions = vec![
+    let actions = [
         "Continue (use selections)",
         "Add tags to selected files",
         "Remove tags from selected files",
@@ -602,9 +599,9 @@ fn show_action_menu(
         .enumerate()
         .map(|(idx, action)| {
             DisplayItem::with_metadata(
-                action.to_string(),
-                action.to_string(),
-                action.to_string(),
+                (*action).to_string(),
+                (*action).to_string(),
+                (*action).to_string(),
                 ItemMetadata {
                     tags: vec![],
                     exists: true,
@@ -657,7 +654,7 @@ fn show_action_menu(
 
     match action_result {
         Ok(ActionResult::Message(msg)) => {
-            println!("\n{}", msg);
+            println!("\n{msg}");
             std::thread::sleep(std::time::Duration::from_secs(1));
             Ok(true)
         }
@@ -665,7 +662,7 @@ fn show_action_menu(
         Ok(ActionResult::Refresh) => Ok(true),
         Ok(ActionResult::Exit(_)) => Ok(false),
         Err(e) => {
-            eprintln!("\n❌ Action failed: {}", e);
+            eprintln!("\n❌ Action failed: {e}");
             std::thread::sleep(std::time::Duration::from_secs(2));
             Ok(true)
         }
@@ -745,16 +742,16 @@ pub fn browse_advanced(
 /// Returns `SearchError::BuildError` if skim options cannot be built or
 /// `SearchError::InterruptedError` if the fuzzy finder is interrupted.
 fn select_search_mode() -> Result<bool, SearchError> {
-    let options = vec!["ANY (files with any of these tags)", "ALL (files with all of these tags)"];
+    let options = ["ANY (files with any of these tags)", "ALL (files with all of these tags)"];
     
     let items: Vec<DisplayItem> = options
         .iter()
         .enumerate()
         .map(|(idx, opt)| {
             DisplayItem::with_metadata(
-                opt.to_string(),
-                opt.to_string(),
-                opt.to_string(),
+                (*opt).to_string(),
+                (*opt).to_string(),
+                (*opt).to_string(),
                 ItemMetadata {
                     tags: vec![],
                     exists: true,
