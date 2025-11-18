@@ -99,24 +99,38 @@ pub struct FinderResult {
     pub selected: Vec<String>,
     /// Whether the operation was aborted by user
     pub aborted: bool,
+    /// The final key pressed (for keybind detection)
+    pub final_key: Option<String>,
 }
 
 impl FinderResult {
-    /// Create a result with selections
+    /// Create result with selections
     #[must_use]
-    pub const fn selected(items: Vec<String>) -> Self {
+    pub fn selected(items: Vec<String>) -> Self {
         Self {
             selected: items,
             aborted: false,
+            final_key: None,
         }
     }
 
-    /// Create an aborted result
+    /// Create result for aborted operation
     #[must_use]
     pub fn aborted() -> Self {
         Self {
             selected: Vec::new(),
             aborted: true,
+            final_key: None,
+        }
+    }
+
+    /// Create result with final key information
+    #[must_use]
+    pub fn with_key(items: Vec<String>, key: Option<String>) -> Self {
+        Self {
+            selected: items,
+            aborted: false,
+            final_key: key,
         }
     }
 }

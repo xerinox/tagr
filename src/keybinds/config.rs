@@ -271,6 +271,47 @@ impl KeybindConfig {
             }
         })
     }
+
+    /// Convert keybind configuration to skim bind strings.
+    ///
+    /// Returns a vector of strings in skim's --bind format: "key:accept"
+    /// Only includes actions that are not disabled.
+    #[must_use]
+    pub fn to_skim_bindings(&self) -> Vec<String> {
+        let mut bindings = Vec::new();
+
+        for (action, def) in &self.keybinds {
+            let keys = match def {
+                KeybindDef::Single(key) if key != "none" => vec![key.clone()],
+                KeybindDef::Multiple(keys) => keys.iter().filter(|k| *k != "none").cloned().collect(),
+                _ => continue,
+            };
+
+            for key in keys {
+                bindings.push(format!("{key}:accept"));
+            }
+        }
+
+        bindings
+    }
+
+    /// Get the action name mapped to a specific key string.
+    ///
+    /// Returns None if no action is mapped to this key.
+    #[must_use]
+    pub fn action_for_key(&self, key_str: &str) -> Option<String> {
+        for (action, def) in &self.keybinds {
+            let matches = match def {
+                KeybindDef::Single(k) => k == key_str,
+                KeybindDef::Multiple(keys) => keys.iter().any(|k| k == key_str),
+            };
+
+            if matches {
+                return Some(action.clone());
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]

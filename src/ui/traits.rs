@@ -16,6 +16,8 @@ pub struct FinderConfig {
     pub ansi: bool,
     /// Preview configuration (None = no preview)
     pub preview_config: Option<PreviewConfig>,
+    /// Custom keybinds (skim --bind format: "key:action")
+    pub bind: Vec<String>,
 }
 
 impl FinderConfig {
@@ -28,6 +30,7 @@ impl FinderConfig {
             prompt,
             ansi: false,
             preview_config: None,
+            bind: Vec::new(),
         }
     }
 
@@ -49,6 +52,13 @@ impl FinderConfig {
     #[must_use]
     pub fn with_preview(mut self, config: PreviewConfig) -> Self {
         self.preview_config = Some(config);
+        self
+    }
+
+    /// Set custom keybinds
+    #[must_use]
+    pub fn with_binds(mut self, bind: Vec<String>) -> Self {
+        self.bind = bind;
         self
     }
 }

@@ -11,6 +11,7 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 - 🎯 **Multi-select** - Select multiple tags and files at once
 - 🔮 **Virtual tags** - Query files by metadata (size, modification time, extension, etc.) without database storage
 - 💾 **Saved filters** - Save complex search criteria as named filters for quick recall
+- ⚙️ **Action menu** - Perform tag operations directly after file selection (experimental)
 - 🧹 **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
 - 💾 **Persistent storage** - Reliable embedded database with automatic flushing
 - 📊 **Multiple databases** - Manage separate databases for different projects
@@ -155,7 +156,30 @@ tagr browse -t tutorial -f "*.rs" -x "nvim {}"
 
 # Browse any doc format, excluding archived
 tagr browse -t documentation -e archived
+
+# Browse with experimental action menu (Phase 1)
+tagr browse --with-actions
 ```
+
+### Action Menu (Experimental)
+
+**New in v0.5.0** - Phase 1 of advanced keybinds feature
+
+Use `--with-actions` to enable an interactive action menu after file selection:
+
+```bash
+tagr browse --with-actions
+```
+
+After selecting files, you'll see an action menu with these options:
+
+- **Continue (use selections)** - Exit with your selected files
+- **Add tags to selected files** - Interactively add tags to all selected files
+- **Remove tags from selected files** - Choose tags to remove from selected files
+- **Delete from database** - Remove files from the database (with confirmation)
+- **Cancel (re-select)** - Go back and select different files
+
+**Why experimental?** This is Phase 1 of the keybinds feature, using a post-selection menu approach. Future phases will add real-time keybinds within the fuzzy finder, additional file operations (open, copy, edit), and full keybind customization.
 
 ## Preview Pane
 

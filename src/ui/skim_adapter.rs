@@ -48,6 +48,11 @@ impl SkimFinder {
             builder.ansi(true).color(Some("dark".to_string()));
         }
 
+        // Add custom keybinds
+        if !config.bind.is_empty() {
+            builder.bind(config.bind.clone());
+        }
+
                 // Preview configuration
         if let Some(preview_config) = &config.preview_config {
             if preview_config.enabled && self.preview_provider.is_some() {
@@ -110,7 +115,29 @@ impl FuzzyFinder for SkimFinder {
             .map(|item| item.output().to_string())
             .collect();
 
-        Ok(FinderResult::selected(selected))
+        // Convert skim Key to string format
+        let final_key = match output.final_key {
+            Key::Ctrl(c) => Some(format!("ctrl-{c}")),
+            Key::Alt(c) => Some(format!("alt-{c}")),
+            Key::F(n) => Some(format!("f{n}")),
+            Key::Enter => Some("enter".to_string()),
+            Key::ESC => Some("esc".to_string()),
+            Key::Backspace => Some("bspace".to_string()),
+            Key::Delete => Some("del".to_string()),
+            Key::Up => Some("up".to_string()),
+            Key::Down => Some("down".to_string()),
+            Key::Left => Some("left".to_string()),
+            Key::Right => Some("right".to_string()),
+            Key::Home => Some("home".to_string()),
+            Key::End => Some("end".to_string()),
+            Key::PageUp => Some("pgup".to_string()),
+            Key::PageDown => Some("pgdn".to_string()),
+            Key::Tab => Some("tab".to_string()),
+            Key::BackTab => Some("btab".to_string()),
+            _ => None,
+        };
+
+        Ok(FinderResult::with_key(selected, final_key))
     }
 }
 

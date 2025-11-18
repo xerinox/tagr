@@ -10,14 +10,16 @@ use super::error::SearchError;
 use crate::cli::SearchParams;
 use crate::config::PathFormat;
 use crate::db::{Database, query};
-use crate::keybinds::{ActionExecutor, ActionContext, ActionResult, BrowseAction};
+use crate::keybinds::{ActionExecutor, ActionContext, ActionResult, BrowseAction, KeybindConfig};
 use crate::preview::FilePreviewProvider;
 use crate::ui::{
     DisplayItem, FinderConfig, FuzzyFinder, ItemMetadata, PreviewConfig,
     skim_adapter::SkimFinder,
 };
 use colored::Colorize;
+use skim::prelude::*;
 use std::path::{Path, PathBuf};
+
 
 
 fn format_path_for_display(path: &Path, format: PathFormat) -> String {
@@ -161,6 +163,76 @@ fn browse_with_params_and_actions(
             if should_retry {
                 continue;
             }
+        }
+
+        return Ok(Some(BrowseResult {
+            selected_tags: selected_tags.clone(),
+            selected_files,
+        }));
+    }
+}
+
+/// Run interactive browse mode with real-time keybind support
+///
+/// Phase 1B implementation: Uses skim's native keybind support via --bind
+/// and detects which action was triggered via final_key in SkimOutput.
+///
+/// # Arguments
+/// * `db` - The database to query
+/// * `search_params` - Optional search parameters to pre-populate the browse
+/// * `preview_overrides` - Optional preview configuration overrides
+/// * `path_format` - Format to use for displaying file paths
+/// * `keybind_config` - Keybind configuration with action mappings
+///
+/// # Returns
+/// * `Ok(Some(BrowseResult))` - User made selections and confirmed
+/// * `Ok(None)` - User cancelled the operation
+/// * `Err(SearchError)` - An error occurred during the operation
+///
+/// # Errors
+///
+/// Returns `SearchError` if database operations fail, UI interactions fail,
+/// or if skim selection is interrupted.
+pub fn browse_with_realtime_keybinds(
+    db: &Database,
+    search_params: Option<SearchParams>,
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
+    path_format: PathFormat,
+    keybind_config: &KeybindConfig,
+) -> Result<Option<BrowseResult>, SearchError> {
+    // Get the files to browse
+    let (selected_tags, matching_files) = if let Some(params) = search_params {
+        let files = query::apply_search_params(db, &params).map_err(SearchError::DatabaseError)?;
+        (params.tags, files)
+    } else {
+        let selected_tags = select_tags(db)?;
+
+        if selected_tags.is_empty() {
+            return Ok(None);
+        }
+
+        let files = db.find_by_any_tag(&selected_tags)?;
+        (selected_tags, files)
+    };
+
+    if matching_files.is_empty() {
+        eprintln!("No files found matching the criteria");
+        return Ok(None);
+    }
+
+    // Main loop: select files → execute action → loop back or exit
+    loop {
+        let selected_files = select_files_from_list(db, &matching_files, preview_overrides.clone(), path_format)?;
+
+        if selected_files.is_empty() {
+            return Ok(None);
+        }
+
+        // TODO: Actually use skim's bind option and detect final_key
+        // For now, fall back to action menu
+        let should_retry = show_action_menu(db, &selected_files)?;
+        if should_retry {
+            continue;
         }
 
         return Ok(Some(BrowseResult {
@@ -544,6 +616,55 @@ fn select_search_mode() -> Result<bool, SearchError> {
 
     let selection = &result.selected[0];
     Ok(selection.starts_with("ALL"))
+}
+
+/// Convert skim Key enum to string format for keybind matching
+fn key_to_string(key: &Key) -> Option<String> {
+    match key {
+        Key::Ctrl(c) => Some(format!("ctrl-{c}")),
+        Key::Alt(c) => Some(format!("alt-{c}")),
+        Key::F(n) => Some(format!("f{n}")),
+        Key::Enter => Some("enter".to_string()),
+        Key::ESC => Some("esc".to_string()),
+        Key::Backspace => Some("bspace".to_string()),
+        Key::Delete => Some("del".to_string()),
+        Key::Up => Some("up".to_string()),
+        Key::Down => Some("down".to_string()),
+        Key::Left => Some("left".to_string()),
+        Key::Right => Some("right".to_string()),
+        Key::Home => Some("home".to_string()),
+        Key::End => Some("end".to_string()),
+        Key::PageUp => Some("pgup".to_string()),
+        Key::PageDown => Some("pgdn".to_string()),
+        Key::Tab => Some("tab".to_string()),
+        Key::BackTab => Some("btab".to_string()),
+        _ => None,
+    }
+}
+
+/// Map action name to BrowseAction enum
+fn action_name_to_enum(action: &str) -> Option<BrowseAction> {
+    match action {
+        "add_tag" => Some(BrowseAction::AddTag),
+        "remove_tag" => Some(BrowseAction::RemoveTag),
+        "edit_tags" => Some(BrowseAction::EditTags),
+        "delete_from_db" => Some(BrowseAction::DeleteFromDb),
+        "open_default" => Some(BrowseAction::OpenInDefault),
+        "open_editor" => Some(BrowseAction::OpenInEditor),
+        "copy_path" => Some(BrowseAction::CopyPath),
+        "copy_files" => Some(BrowseAction::CopyFiles),
+        "toggle_tag_display" => Some(BrowseAction::ToggleTagDisplay),
+        "show_details" => Some(BrowseAction::ShowDetails),
+        "filter_extension" => Some(BrowseAction::FilterExtension),
+        "select_all" => Some(BrowseAction::SelectAll),
+        "clear_selection" => Some(BrowseAction::ClearSelection),
+        "quick_search" => Some(BrowseAction::QuickTagSearch),
+        "goto_file" => Some(BrowseAction::GoToFile),
+        "show_history" => Some(BrowseAction::ShowHistory),
+        "bookmark_selection" => Some(BrowseAction::BookmarkSelection),
+        "show_help" => Some(BrowseAction::ShowHelp),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
