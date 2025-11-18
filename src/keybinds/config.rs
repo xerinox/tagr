@@ -295,6 +295,7 @@ impl KeybindConfig {
                 if key == "tab" || key == "btab" {
                     continue;
                 }
+                
                 bindings.push(format!("{key}:accept"));
             }
         }
