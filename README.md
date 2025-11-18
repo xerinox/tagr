@@ -181,6 +181,47 @@ After selecting files, you'll see an action menu with these options:
 
 **Why experimental?** This is Phase 1 of the keybinds feature, using a post-selection menu approach. Future phases will add real-time keybinds within the fuzzy finder, additional file operations (open, copy, edit), and full keybind customization.
 
+### Real-Time Keybinds
+
+**New in v0.5.0** - Real-time action keybinds are now enabled by default in browse mode!
+
+Browse mode now features real-time action keybinds directly within the fuzzy finder:
+
+```bash
+tagr browse
+```
+
+Trigger actions immediately while browsing without exiting the finder:
+
+| Keybind | Action | Description |
+|---------|--------|-------------|
+| **Ctrl+T** | Add Tag | Add tags to selected files and continue browsing |
+| **Ctrl+R** | Remove Tag | Remove tags from selected files and continue browsing |
+| **Ctrl+D** | Delete from DB | Remove files from database (with confirmation) |
+| **Enter** | Confirm | Exit with selected files |
+| **ESC** | Cancel | Abort and exit browse mode |
+
+**Workflow Example:**
+1. Browse and select files with TAB
+2. Press **Ctrl+T** to add tags (e.g., "urgent")
+3. Continue browsing the same file list
+4. Press **Ctrl+R** to remove unwanted tags
+5. Press **Enter** to confirm final selection
+
+**Keybind Customization:**
+Configure keybinds in `~/.config/tagr/keybinds.toml`:
+
+```toml
+[keybinds]
+add_tag = "ctrl-t"
+remove_tag = "ctrl-r"
+delete_from_db = "ctrl-d"
+# Set to "none" to disable an action
+# edit_tags = "none"
+```
+
+Future enhancements will add more actions (edit tags, open files, copy paths), better visual feedback, and help overlay.
+
 ## Preview Pane
 
 The preview pane displays file content when browsing files in interactive mode, helping you make informed selections without leaving the fuzzy finder.
