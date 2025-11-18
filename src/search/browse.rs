@@ -242,15 +242,13 @@ pub fn browse_with_realtime_keybinds(
             &skim_bindings,
         )?;
 
-        // User aborted (ESC)
-        if result.selected_files.is_empty() {
-            return Ok(None);
-        }
-
         // Check which key was pressed
         if let Some(ref key_str) = result.final_key {
-            // If Enter was pressed, just return the selections
+            // If Enter was pressed, return the selections (even if empty = abort)
             if key_str == "enter" {
+                if result.selected_files.is_empty() {
+                    return Ok(None);
+                }
                 return Ok(Some(BrowseResult {
                     selected_tags: selected_tags.clone(),
                     selected_files: result.selected_files,
@@ -292,14 +290,27 @@ pub fn browse_with_realtime_keybinds(
                             continue;
                         }
                     }
+                } else {
+                    // Unknown key - if no files selected, treat as abort
+                    if result.selected_files.is_empty() {
+                        return Ok(None);
+                    }
                 }
+        } else {
+            // No final_key detected - user aborted (ESC)
+            return Ok(None);
         }
 
-        // Fallback: if no action detected or Enter pressed, return selections
-        return Ok(Some(BrowseResult {
-            selected_tags,
-            selected_files: result.selected_files,
-        }));
+        // Fallback: if no action detected but Enter pressed with selection, return it
+        if !result.selected_files.is_empty() {
+            return Ok(Some(BrowseResult {
+                selected_tags,
+                selected_files: result.selected_files,
+            }));
+        }
+        
+        // Empty selection with unknown key - abort
+        return Ok(None);
     }
 }
 
