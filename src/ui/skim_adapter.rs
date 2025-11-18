@@ -50,7 +50,16 @@ impl SkimFinder {
 
         // Add custom keybinds
         if !config.bind.is_empty() {
-            builder.bind(config.bind.clone());
+            let mut bindings = config.bind.clone();
+            
+            // When custom bindings are added, skim's default Tab behavior
+            // (toggle multi-select) may be lost. Explicitly preserve it.
+            if config.multi_select {
+                bindings.push("tab:toggle".to_string());
+                bindings.push("btab:toggle".to_string());
+            }
+            
+            builder.bind(bindings);
         }
 
                 // Preview configuration

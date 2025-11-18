@@ -276,6 +276,9 @@ impl KeybindConfig {
     ///
     /// Returns a vector of strings in skim's --bind format: "key:accept"
     /// Only includes actions that are not disabled.
+    /// 
+    /// Note: Filters out Tab and BTab (Shift+Tab) to preserve skim's
+    /// default multi-select behavior.
     #[must_use]
     pub fn to_skim_bindings(&self) -> Vec<String> {
         let mut bindings = Vec::new();
@@ -288,6 +291,10 @@ impl KeybindConfig {
             };
 
             for key in keys {
+                // Skip Tab and BTab to preserve skim's multi-select behavior
+                if key == "tab" || key == "btab" {
+                    continue;
+                }
                 bindings.push(format!("{key}:accept"));
             }
         }
