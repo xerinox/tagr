@@ -17,10 +17,13 @@ use crate::ui::{
     skim_adapter::SkimFinder,
 };
 use colored::Colorize;
-use skim::prelude::*;
 use std::path::{Path, PathBuf};
 
-
+/// Result from file selection with keybind detection
+struct FileSelectionResult {
+    selected_files: Vec<PathBuf>,
+    final_key: Option<String>,
+}
 
 fn format_path_for_display(path: &Path, format: PathFormat) -> String {
     match format {
@@ -220,24 +223,79 @@ pub fn browse_with_realtime_keybinds(
         return Ok(None);
     }
 
-    // Main loop: select files → execute action → loop back or exit
+    // Convert keybinds to skim format
+    let skim_bindings = keybind_config.to_skim_bindings();
+    
+    // Main loop: select files → detect action → execute → loop back or exit
     loop {
-        let selected_files = select_files_from_list(db, &matching_files, preview_overrides.clone(), path_format)?;
+        // Select files with keybinds enabled
+        let result = select_files_from_list_with_keybinds(
+            db,
+            &matching_files,
+            preview_overrides.clone(),
+            path_format,
+            &skim_bindings,
+        )?;
 
-        if selected_files.is_empty() {
+        // User aborted (ESC)
+        if result.selected_files.is_empty() {
             return Ok(None);
         }
 
-        // TODO: Actually use skim's bind option and detect final_key
-        // For now, fall back to action menu
-        let should_retry = show_action_menu(db, &selected_files)?;
-        if should_retry {
-            continue;
+        // Check which key was pressed
+        if let Some(ref key_str) = result.final_key {
+            // If Enter was pressed, just return the selections
+            if key_str == "enter" {
+                return Ok(Some(BrowseResult {
+                    selected_tags: selected_tags.clone(),
+                    selected_files: result.selected_files,
+                }));
+            }
+
+            // Map key to action
+            if let Some(action_name) = keybind_config.action_for_key(&key_str) {
+                if let Some(action) = action_name_to_enum(&action_name) {
+                    // Execute the action
+                    let context = ActionContext {
+                        db,
+                        selected_files: &result.selected_files,
+                        current_file: result.selected_files.first(),
+                    };
+
+                    let executor = ActionExecutor::new();
+                    let action_result = executor.execute(&action, &context)
+                        .map_err(|e| SearchError::UiError(crate::ui::UiError::BuildError(e.to_string())))?;
+
+                    match action_result {
+                        ActionResult::Continue => {
+                            return Ok(Some(BrowseResult {
+                                selected_tags: selected_tags.clone(),
+                                selected_files: result.selected_files,
+                            }));
+                        }
+                        ActionResult::Refresh => {
+                            // Loop back to file selection
+                            continue;
+                        }
+                        ActionResult::Exit(files) => {
+                            return Ok(Some(BrowseResult {
+                                selected_tags: selected_tags.clone(),
+                                selected_files: files,
+                            }));
+                        }
+                        ActionResult::Message(msg) => {
+                            eprintln!("{msg}");
+                            continue;
+                        }
+                    }
+                }
+            }
         }
 
+        // Fallback: if no action detected or Enter pressed, return selections
         return Ok(Some(BrowseResult {
             selected_tags: selected_tags.clone(),
-            selected_files,
+            selected_files: result.selected_files,
         }));
     }
 }
@@ -331,6 +389,107 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
 ///
 /// Returns `SearchError::DatabaseError` if tag lookup fails or
 /// `SearchError::InterruptedError` if the fuzzy finder is interrupted.
+/// Select files from list with keybind detection enabled
+fn select_files_from_list_with_keybinds(
+    db: &Database,
+    files: &[PathBuf],
+    preview_overrides: Option<crate::cli::PreviewOverrides>,
+    path_format: PathFormat,
+    skim_bindings: &[String],
+) -> Result<FileSelectionResult, SearchError> {
+    if files.is_empty() {
+        eprintln!("No files found with the selected tags");
+        return Ok(FileSelectionResult {
+            selected_files: Vec::new(),
+            final_key: None,
+        });
+    }
+
+    // Start with default preview config
+    let mut preview_config = PreviewConfig::default();
+    
+    // Apply preview overrides from CLI
+    if let Some(overrides) = preview_overrides {
+        if overrides.no_preview {
+            preview_config.enabled = false;
+        }
+        if let Some(lines) = overrides.preview_lines {
+            preview_config.max_lines = lines;
+        }
+        if let Some(position) = overrides.preview_position {
+            preview_config.position = match position.to_lowercase().as_str() {
+                "right" => crate::ui::PreviewPosition::Right,
+                "bottom" => crate::ui::PreviewPosition::Bottom,
+                "top" => crate::ui::PreviewPosition::Top,
+                _ => preview_config.position,
+            };
+        }
+        if let Some(width) = overrides.preview_width {
+            preview_config.width_percent = width.min(100);
+        }
+    }
+
+    let items: Vec<DisplayItem> = files
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, file)| {
+            let tags = db.get_tags(file).ok()??;
+            let display_path = format_path_for_display(file, path_format);
+            let exists = file.exists();
+            
+            let file_colored = if exists {
+                display_path.green()
+            } else {
+                display_path.red()
+            };
+            let display = format!("{} [{}]", file_colored, tags.join(", "));
+
+            Some(DisplayItem::with_metadata(
+                file.to_string_lossy().to_string(),
+                display,
+                display_path,
+                ItemMetadata {
+                    tags,
+                    exists,
+                    index: Some(idx),
+                },
+            ))
+        })
+        .collect();
+
+    let config = FinderConfig::new(
+        items,
+        "Select files (TAB to select multiple, Enter to confirm): ".to_string(),
+    )
+    .with_multi_select(true)
+    .with_ansi(true)
+    .with_preview(preview_config.clone())
+    .with_binds(skim_bindings.to_vec());
+
+    // Create preview provider for file previews
+    let preview_provider = FilePreviewProvider::new(preview_config);
+    let finder = SkimFinder::with_preview_provider(preview_provider);
+    let result = finder.run(config).map_err(SearchError::UiError)?;
+
+    if result.aborted {
+        return Ok(FileSelectionResult {
+            selected_files: Vec::new(),
+            final_key: result.final_key,
+        });
+    }
+
+    let selected_files: Vec<PathBuf> = result
+        .selected
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+
+    Ok(FileSelectionResult {
+        selected_files,
+        final_key: result.final_key,
+    })
+}
+
 fn select_files_from_list(
     db: &Database,
     files: &[PathBuf],
@@ -616,30 +775,6 @@ fn select_search_mode() -> Result<bool, SearchError> {
 
     let selection = &result.selected[0];
     Ok(selection.starts_with("ALL"))
-}
-
-/// Convert skim Key enum to string format for keybind matching
-fn key_to_string(key: &Key) -> Option<String> {
-    match key {
-        Key::Ctrl(c) => Some(format!("ctrl-{c}")),
-        Key::Alt(c) => Some(format!("alt-{c}")),
-        Key::F(n) => Some(format!("f{n}")),
-        Key::Enter => Some("enter".to_string()),
-        Key::ESC => Some("esc".to_string()),
-        Key::Backspace => Some("bspace".to_string()),
-        Key::Delete => Some("del".to_string()),
-        Key::Up => Some("up".to_string()),
-        Key::Down => Some("down".to_string()),
-        Key::Left => Some("left".to_string()),
-        Key::Right => Some("right".to_string()),
-        Key::Home => Some("home".to_string()),
-        Key::End => Some("end".to_string()),
-        Key::PageUp => Some("pgup".to_string()),
-        Key::PageDown => Some("pgdn".to_string()),
-        Key::Tab => Some("tab".to_string()),
-        Key::BackTab => Some("btab".to_string()),
-        _ => None,
-    }
 }
 
 /// Map action name to BrowseAction enum

@@ -280,7 +280,7 @@ impl KeybindConfig {
     pub fn to_skim_bindings(&self) -> Vec<String> {
         let mut bindings = Vec::new();
 
-        for (action, def) in &self.keybinds {
+        for (_action, def) in &self.keybinds {
             let keys = match def {
                 KeybindDef::Single(key) if key != "none" => vec![key.clone()],
                 KeybindDef::Multiple(keys) => keys.iter().filter(|k| *k != "none").cloned().collect(),
