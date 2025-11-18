@@ -508,7 +508,11 @@ Press 'q' to return to browse mode
 
         // Try to use a pager, fallback to direct print
         match show_in_pager(help_text) {
-            Ok(()) => Ok(ActionResult::Continue),
+            Ok(()) => {
+                // Give terminal a moment to stabilize after pager exits
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                Ok(ActionResult::Continue)
+            }
             Err(e) => {
                 eprintln!("⚠️  Pager unavailable: {}", e);
                 println!("{}", help_text);
@@ -592,8 +596,7 @@ fn format_modified_time(metadata: &std::fs::Metadata) -> String {
 
 /// Display text in the minus pager with search support.
 fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
-    use minus::{ExitStrategy, Pager};
-    use std::io::Write;
+    use minus::{Pager, ExitStrategy};
 
     let pager = Pager::new();
     
@@ -606,32 +609,23 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
         )
     })?;
     
-    pager.push_str(text).map_err(|e| {
+    // Write the help text to the pager
+    pager.set_text(text).map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
-            format!("Failed to write to pager: {e}"),
+            format!("Failed to set pager text: {e}"),
         )
     })?;
 
-    // Use page_all which blocks until user exits the pager
-    // This should return control to our code when 'q' is pressed
-    let result = minus::page_all(pager).map_err(|e| {
+    // Run the pager in blocking mode - this will handle all terminal state
+    minus::page_all(pager).map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("Pager error: {e}"),
         )
-    });
+    })?;
 
-    // Ensure terminal is properly restored after pager exits
-    // Clear any residual state and flush output
-    println!();
-    std::io::stdout().flush().ok();
-    
-    // Clear the screen to ensure clean return to skim
-    print!("\x1B[2J\x1B[1;1H");
-    std::io::stdout().flush().ok();
-
-    result
+    Ok(())
 }
 
 #[cfg(test)]

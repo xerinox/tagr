@@ -54,6 +54,7 @@ fn format_path_for_display(path: &Path, format: PathFormat) -> String {
 /// # Arguments
 /// * `db` - The database to query
 /// * `path_format` - Format to use for displaying file paths
+/// * `keybind_config` - Optional keybind configuration
 ///
 /// # Returns
 /// * `Ok(Some(BrowseResult))` - User made selections and confirmed
@@ -64,8 +65,8 @@ fn format_path_for_display(path: &Path, format: PathFormat) -> String {
 ///
 /// Returns `SearchError` if database operations fail, UI interactions fail,
 /// or if skim selection is interrupted.
-pub fn browse(db: &Database, path_format: PathFormat) -> Result<Option<BrowseResult>, SearchError> {
-    browse_with_params(db, None, None, path_format)
+pub fn browse(db: &Database, path_format: PathFormat, keybind_config: Option<&KeybindConfig>) -> Result<Option<BrowseResult>, SearchError> {
+    browse_with_params(db, None, None, path_format, keybind_config)
 }
 
 /// Run interactive browse mode with optional pre-populated search parameters
@@ -79,7 +80,9 @@ pub fn browse(db: &Database, path_format: PathFormat) -> Result<Option<BrowseRes
 /// # Arguments
 /// * `db` - The database to query
 /// * `search_params` - Optional search parameters to pre-populate the browse
+/// * `preview_overrides` - Optional preview configuration overrides
 /// * `path_format` - Format to use for displaying file paths
+/// * `keybind_config` - Optional keybind configuration
 ///
 /// # Returns
 /// * `Ok(Some(BrowseResult))` - User made selections and confirmed
@@ -95,8 +98,9 @@ pub fn browse_with_params(
     search_params: Option<SearchParams>,
     preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
+    keybind_config: Option<&KeybindConfig>,
 ) -> Result<Option<BrowseResult>, SearchError> {
-    browse_with_params_and_actions(db, search_params, preview_overrides, path_format, false)
+    browse_with_params_and_actions(db, search_params, preview_overrides, path_format, false, keybind_config)
 }
 
 /// Run interactive browse mode with keybind actions enabled
@@ -108,17 +112,18 @@ pub fn browse_with_actions(
     search_params: Option<SearchParams>,
     preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
+    keybind_config: Option<&KeybindConfig>,
 ) -> Result<Option<BrowseResult>, SearchError> {
-    browse_with_params_and_actions(db, search_params, preview_overrides, path_format, true)
+    browse_with_params_and_actions(db, search_params, preview_overrides, path_format, true, keybind_config)
 }
 
 /// Run action menu on already-selected files
 ///
 /// This is a simpler wrapper for when files have already been selected
 /// and you just want to show the action menu.
-pub fn show_actions_for_files(db: &Database, files: Vec<PathBuf>) -> Result<(), SearchError> {
+pub fn show_actions_for_files(db: &Database, files: Vec<PathBuf>, keybind_config: Option<&KeybindConfig>) -> Result<(), SearchError> {
     loop {
-        if !show_action_menu(db, &files)? {
+        if !show_action_menu(db, &files, keybind_config)? {
             return Ok(());
         }
     }
@@ -133,12 +138,13 @@ fn browse_with_params_and_actions(
     preview_overrides: Option<crate::cli::PreviewOverrides>,
     path_format: PathFormat,
     enable_actions: bool,
+    keybind_config: Option<&KeybindConfig>,
 ) -> Result<Option<BrowseResult>, SearchError> {
     let (selected_tags, matching_files) = if let Some(params) = search_params {
         let files = query::apply_search_params(db, &params).map_err(SearchError::DatabaseError)?;
         (params.tags, files)
     } else {
-        let selected_tags = select_tags(db)?;
+        let selected_tags = select_tags(db, keybind_config)?;
 
         if selected_tags.is_empty() {
             return Ok(None);
@@ -161,7 +167,7 @@ fn browse_with_params_and_actions(
         }
 
         if enable_actions {
-            let should_retry = show_action_menu(db, &selected_files)?;
+            let should_retry = show_action_menu(db, &selected_files, keybind_config)?;
             if should_retry {
                 continue;
             }
@@ -207,7 +213,7 @@ pub fn browse_with_realtime_keybinds(
         let files = query::apply_search_params(db, &params).map_err(SearchError::DatabaseError)?;
         (params.tags, files)
     } else {
-        let selected_tags = select_tags(db)?;
+        let selected_tags = select_tags(db, Some(keybind_config))?;
 
         if selected_tags.is_empty() {
             return Ok(None);
@@ -318,6 +324,7 @@ pub fn browse_with_realtime_keybinds(
 ///
 /// # Arguments
 /// * `db` - Database to query for available tags
+/// * `keybind_config` - Optional keybind configuration
 ///
 /// # Returns
 /// * Empty vector if no tags exist or user cancelled
@@ -327,7 +334,7 @@ pub fn browse_with_realtime_keybinds(
 ///
 /// Returns `SearchError::DatabaseError` if tag listing fails or
 /// `SearchError::InterruptedError` if the fuzzy finder is interrupted.
-fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
+fn select_tags(db: &Database, keybind_config: Option<&KeybindConfig>) -> Result<Vec<String>, SearchError> {
     let all_tags = db.list_all_tags()?;
 
     if all_tags.is_empty() {
@@ -335,37 +342,84 @@ fn select_tags(db: &Database) -> Result<Vec<String>, SearchError> {
         return Ok(Vec::new());
     }
 
-    let items: Vec<DisplayItem> = all_tags
-        .iter()
-        .enumerate()
-        .map(|(idx, tag)| {
-            DisplayItem::with_metadata(
-                tag.clone(),
-                tag.clone(),
-                tag.clone(),
-                ItemMetadata {
-                    tags: vec![],
-                    exists: true,
-                    index: Some(idx),
-                },
-            )
-        })
-        .collect();
+    // Loop to handle keybind actions in tag selection
+    loop {
+        let items: Vec<DisplayItem> = all_tags
+            .iter()
+            .enumerate()
+            .map(|(idx, tag)| {
+                DisplayItem::with_metadata(
+                    tag.clone(),
+                    tag.clone(),
+                    tag.clone(),
+                    ItemMetadata {
+                        tags: vec![],
+                        exists: true,
+                        index: Some(idx),
+                    },
+                )
+            })
+            .collect();
 
-    let config = FinderConfig::new(
-        items,
-        "Select tags (TAB to select multiple, Enter to confirm): ".to_string(),
-    )
-    .with_multi_select(true);
+        let mut config = FinderConfig::new(
+            items,
+            "Select tags (TAB to select multiple, Enter to confirm): ".to_string(),
+        )
+        .with_multi_select(true);
 
-    let finder = SkimFinder::new();
-    let result = finder.run(config).map_err(SearchError::UiError)?;
+        // Add keybinds if provided
+        if let Some(keybind_cfg) = keybind_config {
+            config = config.with_binds(keybind_cfg.to_skim_bindings());
+        }
 
-    if result.aborted {
-        return Ok(Vec::new());
+        let finder = SkimFinder::new();
+        let result = finder.run(config).map_err(SearchError::UiError)?;
+
+        if result.aborted {
+            return Ok(Vec::new());
+        }
+
+        // Check if a keybind action was triggered
+        if let Some(keybind_cfg) = keybind_config
+            && let Some(ref key_str) = result.final_key
+            && key_str != "enter"
+        {
+            // Map key to action
+            if let Some(action_name) = keybind_cfg.action_for_key(key_str)
+                && let Some(action) = action_name_to_enum(&action_name)
+            {
+                // Execute the action (with empty file context for tag selection)
+                let context = ActionContext {
+                    db,
+                    selected_files: &[],
+                    current_file: None,
+                };
+
+                let executor = ActionExecutor::new();
+                match executor.execute(&action, &context) {
+                    Ok(ActionResult::Continue) | Ok(ActionResult::Refresh) => {
+                        // Loop back to tag selection
+                        continue;
+                    }
+                    Ok(ActionResult::Message(msg)) => {
+                        eprintln!("{msg}");
+                        continue;
+                    }
+                    Ok(ActionResult::Exit(_)) => {
+                        // Exit tag selection
+                        return Ok(Vec::new());
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Action failed: {e}");
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Normal selection (Enter key or no keybind matched)
+        return Ok(result.selected);
     }
-
-    Ok(result.selected)
 }
 
 /// Select files from a pre-filtered list (consolidated file selection logic)
@@ -585,6 +639,7 @@ fn select_files_from_list(
 fn show_action_menu(
     db: &Database,
     selected_files: &[PathBuf],
+    keybind_config: Option<&KeybindConfig>,
 ) -> Result<bool, SearchError> {
     let actions = [
         "Continue (use selections)",
@@ -611,7 +666,12 @@ fn show_action_menu(
         })
         .collect();
 
-    let config = FinderConfig::new(items, format!("Action for {} file(s): ", selected_files.len()));
+    let mut config = FinderConfig::new(items, format!("Action for {} file(s): ", selected_files.len()));
+
+    // Add keybinds if provided
+    if let Some(keybind_cfg) = keybind_config {
+        config = config.with_binds(keybind_cfg.to_skim_bindings());
+    }
 
     let finder = SkimFinder::new();
     let result = finder.run(config).map_err(SearchError::UiError)?;
@@ -678,6 +738,7 @@ fn show_action_menu(
 /// # Arguments
 /// * `db` - The database to query
 /// * `path_format` - Format to use for displaying file paths
+/// * `keybind_config` - Optional keybind configuration
 ///
 /// # Returns
 /// * `Ok(Some(BrowseResult))` - User made selections and confirmed
@@ -691,8 +752,9 @@ fn show_action_menu(
 pub fn browse_advanced(
     db: &Database,
     path_format: PathFormat,
+    keybind_config: Option<&KeybindConfig>,
 ) -> Result<Option<BrowseResult>, SearchError> {
-    let selected_tags = select_tags(db)?;
+    let selected_tags = select_tags(db, keybind_config)?;
 
     if selected_tags.is_empty() {
         return Ok(None);

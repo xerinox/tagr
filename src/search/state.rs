@@ -132,11 +132,12 @@ impl<'a> BrowseState<'a> {
             self.search_params.clone(),
             self.preview_overrides.clone(),
             self.path_format,
+            Some(&self.keybind_config),
         )
     }
 
     fn run_advanced(&self) -> Result<Option<BrowseResult>, SearchError> {
-        crate::search::browse::browse_advanced(self.db, self.path_format)
+        crate::search::browse::browse_advanced(self.db, self.path_format, Some(&self.keybind_config))
     }
 
     fn run_with_actions(&self) -> Result<Option<BrowseResult>, SearchError> {
@@ -145,6 +146,7 @@ impl<'a> BrowseState<'a> {
             self.search_params.clone(),
             self.preview_overrides.clone(),
             self.path_format,
+            Some(&self.keybind_config),
         )
     }
 

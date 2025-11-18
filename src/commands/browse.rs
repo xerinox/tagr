@@ -84,7 +84,7 @@ pub fn execute(
                     }
                 }
 
-                match crate::search::show_actions_for_files(db, result.selected_files) {
+                match crate::search::show_actions_for_files(db, result.selected_files, Some(browse.keybind_config())) {
                     Ok(()) => {}
                     Err(e) => eprintln!("Action error: {e}"),
                 }
