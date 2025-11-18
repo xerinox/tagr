@@ -26,6 +26,7 @@ pub fn execute(
     path_format: config::PathFormat,
     quiet: bool,
     with_actions: bool,
+    keybinds_enabled: bool,
 ) -> Result<()> {
     if let Some(name) = filter_name {
         let filter_path = crate::filters::get_filter_path()?;
@@ -47,7 +48,22 @@ pub fn execute(
         }
     }
 
-    match search::browse_with_params(db, search_params.clone(), preview_overrides, path_format) {
+    // Determine which browse function to use
+    let browse_result = if keybinds_enabled {
+        let keybind_config = crate::keybinds::KeybindConfig::load_or_default()
+            .map_err(|e| TagrError::InvalidInput(format!("Failed to load keybind config: {e}")))?;
+        search::browse_with_realtime_keybinds(
+            db,
+            search_params.clone(),
+            preview_overrides,
+            path_format,
+            &keybind_config,
+        )
+    } else {
+        search::browse_with_params(db, search_params.clone(), preview_overrides, path_format)
+    };
+
+    match browse_result {
         Ok(Some(result)) => {
             if with_actions {
                 if !quiet {

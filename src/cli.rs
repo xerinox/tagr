@@ -514,6 +514,10 @@ pub enum Commands {
         #[arg(long = "with-actions")]
         with_actions: bool,
 
+        /// Enable real-time keybinds for actions (ctrl-t to add tags, ctrl-r to remove, etc.)
+        #[arg(long = "keybinds")]
+        keybinds: bool,
+
         /// Disable preview pane
         #[arg(long = "no-preview")]
         no_preview: bool,
@@ -864,6 +868,7 @@ impl Cli {
             },
             execute: None,
             with_actions: false,
+            keybinds: false,
             no_preview: false,
             preview_lines: None,
             preview_position: None,
