@@ -15,5 +15,6 @@ pub mod models;
 
 pub use models::{
     ActionContext, ActionData, ActionOutcome, CachedMetadata, FileMetadata, ItemMetadata,
-    MetadataCache, SearchMode, SelectionState, TagMetadata, TagrItem,
+    MetadataCache, PairWithCache, PathWithDb, SearchMode, SelectionState, TagMetadata, TagWithDb,
+    TagrItem,
 };

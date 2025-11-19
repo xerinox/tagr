@@ -526,49 +526,55 @@ impl ActionOutcome {
 // Conversions - Database -> Domain Models
 // ============================================================================
 
-/// Convert database Pair to TagrItem (file)
-///
-/// Requires metadata cache for filesystem info
-impl TagrItem {
-    /// Create from database Pair and metadata cache
-    #[must_use]
-    pub fn from_pair_with_cache(pair: Pair, cache: &mut MetadataCache) -> Self {
-        let cached = cache.get_or_insert(&pair.file);
-        Self::file(pair.file, pair.tags, cached)
-    }
+/// Context for converting Pair to TagrItem
+pub struct PairWithCache<'a> {
+    pub pair: Pair,
+    pub cache: &'a mut MetadataCache,
+}
 
-    /// Batch convert from database Pairs
-    #[must_use]
-    pub fn batch_from_pairs(pairs: Vec<Pair>, cache: &mut MetadataCache) -> Vec<Self> {
-        pairs
-            .into_iter()
-            .map(|pair| Self::from_pair_with_cache(pair, cache))
-            .collect()
-    }
+/// Context for converting path to TagrItem with database lookup
+pub struct PathWithDb<'a> {
+    pub path: PathBuf,
+    pub db: &'a Database,
+    pub cache: &'a mut MetadataCache,
+}
 
-    /// Create from path with database lookup for tags
-    ///
-    /// # Errors
-    ///
-    /// Returns error if database query fails
-    pub fn from_path_with_db(
-        path: PathBuf,
-        db: &Database,
-        cache: &mut MetadataCache,
-    ) -> Result<Self, DbError> {
-        let tags = db.get_tags(&path)?.unwrap_or_default();
-        let cached = cache.get_or_insert(&path);
-        Ok(Self::file(path, tags, cached))
-    }
+/// Context for converting tag name to TagrItem with database lookup
+pub struct TagWithDb<'a> {
+    pub tag: String,
+    pub db: &'a Database,
+}
 
-    /// Create tag from database query
-    ///
-    /// # Errors
-    ///
-    /// Returns error if database query fails
-    pub fn tag_from_db(tag: String, db: &Database) -> Result<Self, DbError> {
-        let file_count = db.find_by_tag(&tag).map(|files| files.len()).unwrap_or(0);
-        Ok(Self::tag(tag, file_count))
+/// Convert database Pair to TagrItem using cache
+impl<'a> From<PairWithCache<'a>> for TagrItem {
+    fn from(ctx: PairWithCache<'a>) -> Self {
+        let cached = ctx.cache.get_or_insert(&ctx.pair.file);
+        Self::file(ctx.pair.file, ctx.pair.tags, cached)
+    }
+}
+
+/// Convert path with database context to TagrItem
+impl<'a> TryFrom<PathWithDb<'a>> for TagrItem {
+    type Error = DbError;
+
+    fn try_from(ctx: PathWithDb<'a>) -> Result<Self, Self::Error> {
+        let tags = ctx.db.get_tags(&ctx.path)?.unwrap_or_default();
+        let cached = ctx.cache.get_or_insert(&ctx.path);
+        Ok(Self::file(ctx.path, tags, cached))
+    }
+}
+
+/// Convert tag name with database context to TagrItem
+impl<'a> TryFrom<TagWithDb<'a>> for TagrItem {
+    type Error = DbError;
+
+    fn try_from(ctx: TagWithDb<'a>) -> Result<Self, Self::Error> {
+        let file_count = ctx
+            .db
+            .find_by_tag(&ctx.tag)
+            .map(|files| files.len())
+            .unwrap_or(0);
+        Ok(Self::tag(ctx.tag, file_count))
     }
 }
 
@@ -576,20 +582,24 @@ impl TagrItem {
 // Conversions - Domain Models -> UI Types
 // ============================================================================
 
-/// Convert TagrItem to DisplayItem for UI rendering
-///
-/// This is intentionally not a trait implementation to keep DisplayItem
-/// construction explicit and allow different formatting strategies.
-impl TagrItem {
-    /// Convert to DisplayItem with basic formatting
-    ///
-    /// For custom formatting, use direct field access and construct DisplayItem manually
-    #[must_use]
-    pub fn to_display_item(&self) -> DisplayItem {
-        DisplayItem::new(self.id.clone(), self.name.clone(), self.name.clone())
+/// Convert TagrItem to DisplayItem with basic formatting
+impl From<&TagrItem> for DisplayItem {
+    fn from(item: &TagrItem) -> Self {
+        DisplayItem::new(item.id.clone(), item.name.clone(), item.name.clone())
     }
+}
 
+/// Convert TagrItem to DisplayItem (owned version)
+impl From<TagrItem> for DisplayItem {
+    fn from(item: TagrItem) -> Self {
+        DisplayItem::from(&item)
+    }
+}
+
+impl TagrItem {
     /// Convert to DisplayItem with detailed text (for tags: shows file count)
+    ///
+    /// This is a method rather than a From impl since it's a non-standard formatting
     #[must_use]
     pub fn to_display_item_detailed(&self) -> DisplayItem {
         match &self.metadata {
@@ -597,7 +607,7 @@ impl TagrItem {
                 let display = format!("{} ({})", self.name, file_count);
                 DisplayItem::new(self.id.clone(), display.clone(), display)
             }
-            ItemMetadata::File(_) => self.to_display_item(),
+            ItemMetadata::File(_) => DisplayItem::from(self),
         }
     }
 }
@@ -764,5 +774,56 @@ mod tests {
         {
             assert!(meta1.cached.modified < meta2.cached.modified);
         }
+    }
+
+    #[test]
+    fn test_from_trait_conversions() {
+        let _db = crate::testing::TestDb::new("test_conversions");
+        let mut cache = MetadataCache::new();
+
+        // Test PairWithCache -> TagrItem
+        let pair = crate::Pair {
+            file: PathBuf::from("/tmp/test.txt"),
+            tags: vec!["rust".to_string()],
+        };
+
+        let item = TagrItem::from(PairWithCache {
+            pair: pair.clone(),
+            cache: &mut cache,
+        });
+
+        assert_eq!(item.name, "test.txt");
+        assert_eq!(item.file_tags(), Some(&["rust".to_string()][..]));
+
+        // Test DisplayItem conversion
+        let display_item = DisplayItem::from(&item);
+        assert_eq!(display_item.key, item.id);
+        assert_eq!(display_item.display, item.name);
+
+        // Test batch conversion
+        let pairs = vec![
+            crate::Pair {
+                file: PathBuf::from("/tmp/file1.txt"),
+                tags: vec!["tag1".to_string()],
+            },
+            crate::Pair {
+                file: PathBuf::from("/tmp/file2.txt"),
+                tags: vec!["tag2".to_string()],
+            },
+        ];
+
+        let items: Vec<TagrItem> = pairs
+            .into_iter()
+            .map(|pair| {
+                TagrItem::from(PairWithCache {
+                    pair,
+                    cache: &mut cache,
+                })
+            })
+            .collect();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "file1.txt");
+        assert_eq!(items[1].name, "file2.txt");
     }
 }
