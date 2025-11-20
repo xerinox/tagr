@@ -2,15 +2,28 @@
 
 use crate::{
     TagrError,
+    browse::{
+        session::{BrowseConfig, BrowseSession, PhaseSettings, HelpText},
+        ui::BrowseController,
+    },
     cli::{PreviewOverrides, SearchParams},
-    config,
+    config::{self, PreviewConfig},
     db::Database,
     filters::{FilterCriteria, FilterManager},
+    keybinds::config::KeybindConfig,
     output,
-    search::{BrowseState, BrowseVariant},
+    ui::skim_adapter::SkimFinder,
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
+
+/// Convert config::PathFormat to browse::session::PathFormat
+fn convert_path_format(format: config::PathFormat) -> crate::browse::session::PathFormat {
+    match format {
+        config::PathFormat::Absolute => crate::browse::session::PathFormat::Absolute,
+        config::PathFormat::Relative => crate::browse::session::PathFormat::Relative,
+    }
+}
 
 /// Execute the browse command
 ///
@@ -26,7 +39,7 @@ pub fn execute(
     preview_overrides: Option<PreviewOverrides>,
     path_format: config::PathFormat,
     quiet: bool,
-    with_actions: bool,
+    _with_actions: bool, // Deprecated: all file browsers have actions now
 ) -> Result<()> {
     // Handle filter loading
     if let Some(name) = filter_name {
@@ -49,71 +62,95 @@ pub fn execute(
         }
     }
 
-    // Build browse state with the new API
-    let mut browse = BrowseState::builder()
-        .db(db)
-        .path_format(path_format)
-        .quiet(quiet)
-        .build()
-        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
-
-    // Apply search params if present
-    if let Some(params) = search_params.clone() {
-        browse.set_search_params(Some(params));
-    }
-
-    // Apply preview overrides if present
-    if let Some(overrides) = preview_overrides {
-        browse.set_preview_overrides(Some(overrides));
-    }
-
-    // Determine browse variant and execute
-    let variant = if with_actions {
-        BrowseVariant::WithActions
+    // Build preview configuration
+    let preview_config = if preview_overrides.as_ref().map_or(false, |o| o.no_preview) {
+        None
     } else {
-        BrowseVariant::WithRealtimeKeybinds
+        let mut config = PreviewConfig::default();
+        if let Some(overrides) = &preview_overrides {
+            if let Some(lines) = overrides.preview_lines {
+                config.max_lines = lines;
+            }
+        }
+        Some(config)
     };
 
-    match browse.run(variant) {
+    // Load keybind configuration
+    let keybind_config = KeybindConfig::load_or_default()
+        .map_err(|e| TagrError::InvalidInput(format!("Failed to load keybinds: {e}")))?;
+
+    // Build phase settings
+    let tag_phase_settings = PhaseSettings {
+        preview_enabled: false, // Tags don't have preview
+        preview_config: None,
+        keybind_config: keybind_config.clone(),
+        help_text: HelpText::TagBrowser(vec![
+            ("TAB".to_string(), "Multi-select".to_string()),
+            ("Enter".to_string(), "Confirm selection".to_string()),
+            ("ESC".to_string(), "Cancel".to_string()),
+        ]),
+    };
+
+    let file_phase_settings = PhaseSettings {
+        preview_enabled: preview_config.is_some(),
+        preview_config,
+        keybind_config,
+        help_text: HelpText::FileBrowser(vec![
+            ("TAB".to_string(), "Multi-select".to_string()),
+            ("Enter".to_string(), "Confirm selection".to_string()),
+            ("ctrl+t".to_string(), "Add tags".to_string()),
+            ("ctrl+d".to_string(), "Delete from database".to_string()),
+            ("ctrl+o".to_string(), "Open file".to_string()),
+            ("ctrl+c".to_string(), "Copy path".to_string()),
+            ("ESC".to_string(), "Cancel".to_string()),
+        ]),
+    };
+
+    // Create browse configuration
+    let config = BrowseConfig {
+        initial_search: search_params.clone(),
+        path_format: convert_path_format(path_format),
+        tag_phase_settings,
+        file_phase_settings,
+    };
+
+    // Create session and controller
+    let session = BrowseSession::new(db, config)
+        .map_err(|e| TagrError::BrowseError(e.to_string()))?;
+    let finder = SkimFinder::new();
+    let controller = BrowseController::new(session, finder);
+
+    // Run browse workflow
+    match controller.run() {
         Ok(Some(result)) => {
-            if with_actions {
-                if !quiet {
-                    println!("=== Selected Files ===");
-                    for file in &result.selected_files {
-                        println!("  - {}", output::format_path(file, path_format));
-                    }
+            // Output results
+            if !quiet {
+                println!("=== Selected Tags ===");
+                for tag in &result.selected_tags {
+                    println!("  - {tag}");
                 }
 
-                match crate::search::show_actions_for_files(db, result.selected_files, Some(browse.keybind_config())) {
-                    Ok(()) => {}
-                    Err(e) => eprintln!("Action error: {e}"),
-                }
-            } else {
-                if !quiet {
-                    println!("=== Selected Tags ===");
-                    for tag in &result.selected_tags {
-                        println!("  - {tag}");
-                    }
-
-                    println!("\n=== Selected Files ===");
-                }
-                for file in &result.selected_files {
-                    let formatted_path = output::format_path(file, path_format);
-                    if quiet {
-                        println!("{formatted_path}");
-                    } else {
-                        println!("  - {formatted_path}");
-                    }
-                }
-
-                if let Some(cmd_template) = execute_cmd {
-                    if !quiet {
-                        println!("\n=== Executing Command ===");
-                    }
-                    crate::cli::execute_command_on_files(&result.selected_files, &cmd_template, quiet);
+                println!("\n=== Selected Files ===");
+            }
+            
+            for file in &result.selected_files {
+                let formatted_path = output::format_path(file, path_format);
+                if quiet {
+                    println!("{formatted_path}");
+                } else {
+                    println!("  - {formatted_path}");
                 }
             }
 
+            // Execute command if provided
+            if let Some(cmd_template) = execute_cmd {
+                if !quiet {
+                    println!("\n=== Executing Command ===");
+                }
+                crate::cli::execute_command_on_files(&result.selected_files, &cmd_template, quiet);
+            }
+
+            // Save filter if requested
             if let Some((name, desc)) = save_filter {
                 if let Some(params) = search_params {
                     let filter_path = crate::filters::get_filter_path()?;
@@ -130,13 +167,15 @@ pub fn execute(
                     println!("\nWarning: Cannot save filter with no search criteria");
                 }
             }
+
+            Ok(())
         }
         Ok(None) => {
             if !quiet {
                 println!("Browse cancelled.");
             }
+            Ok(())
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => Err(TagrError::BrowseError(e.to_string())),
     }
-    Ok(())
 }

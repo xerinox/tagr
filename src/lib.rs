@@ -33,6 +33,9 @@ pub enum TagrError {
     /// Search error
     #[error("Search error: {0}")]
     SearchError(#[from] search::SearchError),
+    /// Browse error
+    #[error("Browse error: {0}")]
+    BrowseError(String),
     /// Filter error
     #[error("Filter error: {0}")]
     FilterError(#[from] filters::FilterError),
