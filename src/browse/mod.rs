@@ -10,6 +10,7 @@
 //! - `query`: Business logic for data retrieval
 //! - `actions`: Pure action business logic
 //! - `session`: Unified browser session orchestration
+//! - `ui`: UI controller (presentation bridge)
 //! - Pure data structures with minimal business logic
 //! - Conversions via From/TryFrom traits
 //! - Idiomatic Rust patterns (direct field access for comparisons)
@@ -18,6 +19,7 @@ pub mod actions;
 pub mod models;
 pub mod query;
 pub mod session;
+pub mod ui;
 
 pub use actions::{
     execute_add_tag, execute_copy_files, execute_copy_path, execute_delete_from_db,
@@ -33,3 +35,4 @@ pub use session::{
     AcceptResult, BrowseConfig, BrowseError, BrowseResult, BrowseSession, BrowserPhase, HelpText,
     PathFormat, PhaseSettings, PhaseType,
 };
+pub use ui::BrowseController;
