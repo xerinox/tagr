@@ -335,7 +335,7 @@ fn main() -> Result<()> {
         };
 
         match &command {
-            Commands::Browse { filter_args, with_actions, .. } => {
+            Commands::Browse { filter_args, .. } => {
                 let search_params = command.get_search_params_from_browse();
                 let execute_cmd = command.get_execute_from_browse();
                 let preview_overrides = command.get_preview_overrides_from_browse();
@@ -354,7 +354,6 @@ fn main() -> Result<()> {
                     preview_overrides,
                     path_format,
                     quiet,
-                    *with_actions,
                 )?;
             }
             Commands::Tag { .. } => {

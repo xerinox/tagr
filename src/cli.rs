@@ -510,10 +510,6 @@ pub enum Commands {
         #[arg(short = 'x', long = "exec", value_name = "COMMAND")]
         execute: Option<String>,
 
-        /// Enable experimental action menu after file selection
-        #[arg(long = "with-actions")]
-        with_actions: bool,
-
         /// Disable preview pane
         #[arg(long = "no-preview")]
         no_preview: bool,
@@ -863,7 +859,6 @@ impl Cli {
                 all_virtual: false,
             },
             execute: None,
-            with_actions: false,
             no_preview: false,
             preview_lines: None,
             preview_position: None,

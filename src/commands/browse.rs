@@ -39,7 +39,6 @@ pub fn execute(
     preview_overrides: Option<PreviewOverrides>,
     path_format: config::PathFormat,
     quiet: bool,
-    _with_actions: bool, // Deprecated: all file browsers have actions now
 ) -> Result<()> {
     // Handle filter loading
     if let Some(name) = filter_name {
