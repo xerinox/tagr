@@ -1,6 +1,8 @@
 //! Action types for browse mode keybinds.
 
+use std::fmt;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 /// Actions that can be triggered by keybinds in browse mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,7 +13,7 @@ pub enum BrowseAction {
     RemoveTag,
     /// Edit tags in external editor - Ctrl+E
     EditTags,
-    
+
     /// Open file(s) in default application - Ctrl+O
     OpenInDefault,
     /// Open file(s) in configured editor - Ctrl+V
@@ -22,33 +24,83 @@ pub enum BrowseAction {
     CopyFiles,
     /// Delete file(s) from database - Ctrl+D
     DeleteFromDb,
-    
+
     /// Toggle tag display mode - Ctrl+I
     ToggleTagDisplay,
     /// Show detailed file information - Ctrl+L
     ShowDetails,
     /// Filter by file extension - Ctrl+F
     FilterExtension,
-    
+
     /// Select all visible files - Ctrl+A
     SelectAll,
     /// Clear current selection - Ctrl+X
     ClearSelection,
-    
+
     /// Quick tag search - Ctrl+S
     QuickTagSearch,
     /// Go to specific file - Ctrl+G
     GoToFile,
-    
+
     /// Show recent selections - Ctrl+H
     ShowHistory,
     /// Bookmark current selection - Ctrl+B
     BookmarkSelection,
-    
+
     /// Show help screen - Ctrl+? or F1
     ShowHelp,
     /// Cancel current operation
     Cancel,
+}
+
+/// Error type for parsing action names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseActionError {
+    action_name: String,
+}
+
+impl ParseActionError {
+    fn new(action_name: impl Into<String>) -> Self {
+        Self {
+            action_name: action_name.into(),
+        }
+    }
+}
+
+impl fmt::Display for ParseActionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Unknown action name: {}", self.action_name)
+    }
+}
+
+impl std::error::Error for ParseActionError {}
+
+impl FromStr for BrowseAction {
+    type Err = ParseActionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "add_tag" => Ok(Self::AddTag),
+            "remove_tag" => Ok(Self::RemoveTag),
+            "edit_tags" => Ok(Self::EditTags),
+            "open_default" => Ok(Self::OpenInDefault),
+            "open_editor" => Ok(Self::OpenInEditor),
+            "copy_path" => Ok(Self::CopyPath),
+            "copy_files" => Ok(Self::CopyFiles),
+            "delete_from_db" => Ok(Self::DeleteFromDb),
+            "toggle_tag_display" => Ok(Self::ToggleTagDisplay),
+            "show_details" => Ok(Self::ShowDetails),
+            "filter_extension" => Ok(Self::FilterExtension),
+            "select_all" => Ok(Self::SelectAll),
+            "clear_selection" => Ok(Self::ClearSelection),
+            "quick_search" => Ok(Self::QuickTagSearch),
+            "goto_file" => Ok(Self::GoToFile),
+            "show_history" => Ok(Self::ShowHistory),
+            "bookmark_selection" => Ok(Self::BookmarkSelection),
+            "show_help" => Ok(Self::ShowHelp),
+            _ => Err(ParseActionError::new(s)),
+        }
+    }
 }
 
 /// Result of executing a browse action.

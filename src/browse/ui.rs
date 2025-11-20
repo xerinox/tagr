@@ -109,7 +109,24 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 }
                 BrowserResult::Action { action, selected_ids } => {
                     // User pressed action keybind (ctrl+t, ctrl+d, etc.)
-                    // Only valid in file phase
+                    
+                    // Handle UI-only actions that don't need session
+                    match action {
+                        BrowseAction::ShowHelp => {
+                            self.show_help(&phase.settings.help_text);
+                            continue;
+                        }
+                        BrowseAction::SelectAll | BrowseAction::ClearSelection => {
+                            // These should be handled by skim directly via bindings
+                            // If we get here, it's a configuration issue
+                            eprintln!("Warning: {} should be handled by UI bindings", 
+                                action.description());
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    
+                    // Execute session-level action
                     let outcome = self.session.execute_action(action, &selected_ids)?;
 
                     // Handle action outcome (may need prompts from keybinds layer)
@@ -138,11 +155,12 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     fn run_browser_phase(&self) -> Result<BrowserResult, BrowseError> {
         let phase = self.session.current_phase();
 
-        // Convert domain models to UI display items
+        // Convert domain models to UI display items with indices
         let display_items: Vec<DisplayItem> = phase
             .items
             .iter()
-            .map(|item| self.format_for_display(item, &phase.phase_type))
+            .enumerate()
+            .map(|(idx, item)| self.format_for_display(item, &phase.phase_type, idx))
             .collect();
 
         // Build phase-specific finder config
@@ -153,9 +171,13 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
+        // Convert keybind config to skim bindings
+        let keybinds = phase.settings.keybind_config.to_skim_bindings();
+
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
-            .with_ansi(true);
+            .with_ansi(true)
+            .with_binds(keybinds);
 
         // Run finder - returns selection or action trigger
         let result = self.finder.run(config)?;
@@ -164,9 +186,22 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             return Ok(BrowserResult::Cancel);
         }
 
-        // Check if action was triggered via keybind (future integration)
-        // For now, final_key could be used to detect keybinds
-        // Currently we only handle Accept (Enter)
+        // Check if action was triggered via keybind
+        if let Some(key) = &result.final_key {
+            if key != "enter" {
+                // Look up action for this key
+                if let Some(action_name) = phase.settings.keybind_config.action_for_key(key) {
+                    // Try to convert action name to BrowseAction
+                    if let Ok(action) = action_name.parse::<BrowseAction>() {
+                        return Ok(BrowserResult::Action {
+                            action,
+                            selected_ids: result.selected,
+                        });
+                    }
+                }
+            }
+        }
+
         Ok(BrowserResult::Accept(result.selected))
     }
 
@@ -176,7 +211,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// - Colors and styling
     /// - Phase-specific formatting
     /// - Metadata annotations
-    fn format_for_display(&self, item: &TagrItem, phase_type: &PhaseType) -> DisplayItem {
+    fn format_for_display(&self, item: &TagrItem, phase_type: &PhaseType, index: usize) -> DisplayItem {
         match &item.metadata {
             ItemMetadata::Tag(tag_meta) => {
                 // Tag display: "tag_name (N files)"
@@ -186,7 +221,12 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     format!("({} files)", tag_meta.file_count).dimmed()
                 );
 
-                DisplayItem::new(item.id.clone(), display, item.name.clone())
+                let mut metadata = crate::ui::ItemMetadata::default();
+                metadata.index = Some(index);
+                metadata.tags = vec![];
+                metadata.exists = true;
+
+                DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
             }
             ItemMetadata::File(file_meta) => {
                 // File display: path [tags]
@@ -208,7 +248,12 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
                 let display = format!("{}{}", path_display, tags_display);
 
-                DisplayItem::new(item.id.clone(), display, path_str)
+                let mut metadata = crate::ui::ItemMetadata::default();
+                metadata.index = Some(index);
+                metadata.tags = file_meta.tags.clone();
+                metadata.exists = file_meta.cached.exists;
+
+                DisplayItem::with_metadata(item.id.clone(), display, path_str, metadata)
             }
         }
     }
@@ -296,6 +341,39 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
             ActionOutcome::Cancelled => Ok(()),
         }
+    }
+
+    /// Display help text to user
+    fn show_help(&self, help_text: &crate::browse::session::HelpText) {
+        use crate::browse::session::HelpText;
+        
+        println!("\n{}", "━".repeat(60).bright_blue());
+        
+        match help_text {
+            HelpText::TagBrowser(_) => {
+                println!("{}", "  TAG BROWSER HELP".bright_cyan().bold());
+            }
+            HelpText::FileBrowser(_) => {
+                println!("{}", "  FILE BROWSER HELP".bright_cyan().bold());
+            }
+        }
+        
+        println!("{}", "━".repeat(60).bright_blue());
+        
+        let keybinds = match help_text {
+            HelpText::TagBrowser(k) | HelpText::FileBrowser(k) => k,
+        };
+        
+        for (key, desc) in keybinds {
+            println!("  {:<15} {}", key.bright_yellow(), desc);
+        }
+        
+        println!("{}", "━".repeat(60).bright_blue());
+        println!("\nPress {} to continue (or {} to exit browse mode)...", 
+            "Enter".bright_green(), "ESC".bright_yellow());
+        
+        let mut input = String::new();
+        let _ = std::io::stdin().read_line(&mut input);
     }
 }
 
