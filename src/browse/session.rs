@@ -322,9 +322,14 @@ impl<'a> BrowseSession<'a> {
                     data: crate::browse::models::ActionData::None,
                 },
             }),
-            BrowseAction::DeleteFromDb => {
-                actions::execute_delete_from_db(self.db, &selected_files).map_err(|e| e.into())
-            }
+            BrowseAction::DeleteFromDb => Ok(ActionOutcome::NeedsConfirmation {
+                message: format!("Delete {} file(s) from database?", selected_files.len()),
+                action_id: "delete_from_db".into(),
+                context: crate::browse::models::ActionContext {
+                    files: selected_files,
+                    data: crate::browse::models::ActionData::None,
+                },
+            }),
             BrowseAction::OpenInDefault => Ok(actions::execute_open_in_default(&selected_files)),
             BrowseAction::OpenInEditor => {
                 // Get editor from environment
