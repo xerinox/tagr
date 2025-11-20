@@ -29,10 +29,12 @@
 
 use crate::browse::models::{ActionOutcome, ItemMetadata, TagrItem};
 use crate::browse::session::{AcceptResult, BrowseResult, BrowseSession, PathFormat, PhaseType};
+use crate::browse::actions;
 use crate::keybinds::actions::BrowseAction;
+use crate::keybinds::prompts::{prompt_for_input, prompt_for_confirmation};
 use crate::ui::{DisplayItem, FinderConfig, FuzzyFinder};
 use colored::Colorize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// UI controller - unified browser loop for tags and files
 pub struct BrowseController<'a, F: FuzzyFinder> {
@@ -289,12 +291,12 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// Handle action outcome from session
     ///
     /// Displays results to user with formatting and emoji symbols.
-    /// Note: Actions that need input (NeedsInput, NeedsConfirmation) should
-    /// be handled by the keybinds layer, not here.
+    /// For actions that need input or confirmation, prompts the user and
+    /// executes the action with the provided input.
     ///
     /// # Errors
     ///
-    /// Returns error if action failed or needs input (unexpected state)
+    /// Returns error if action failed or prompting failed
     fn handle_action_outcome(&self, outcome: ActionOutcome) -> Result<(), BrowseError> {
         match outcome {
             ActionOutcome::Success {
@@ -325,21 +327,114 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 eprintln!("❌ {}", msg);
                 Err(BrowseError::ActionFailed(msg))
             }
-            ActionOutcome::NeedsInput { prompt, .. } => {
-                // This shouldn't happen - inputs should be handled by keybinds layer
-                Err(BrowseError::UnexpectedState(format!(
-                    "Action requires input but controller doesn't handle prompts: {}",
-                    prompt
-                )))
+            ActionOutcome::NeedsInput { prompt, action_id, context } => {
+                // Prompt user for input
+                let input = prompt_for_input(&prompt)
+                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {}", e)))?;
+                
+                if input.trim().is_empty() {
+                    println!("Cancelled - no input provided");
+                    return Ok(());
+                }
+                
+                // Execute the action with the input
+                let result = self.execute_action_with_input(&action_id, context.files, &input)?;
+                
+                // Recursively handle the result (which should now be Success/Failed/Partial)
+                self.handle_action_outcome(result)
             }
-            ActionOutcome::NeedsConfirmation { message, .. } => {
-                // This shouldn't happen - confirmations should be handled by keybinds layer
-                Err(BrowseError::UnexpectedState(format!(
-                    "Action requires confirmation but controller doesn't handle prompts: {}",
-                    message
-                )))
+            ActionOutcome::NeedsConfirmation { message, action_id, context } => {
+                // Prompt user for confirmation
+                let confirmed = prompt_for_confirmation(&message)
+                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {}", e)))?;
+                
+                if !confirmed {
+                    println!("Cancelled by user");
+                    return Ok(());
+                }
+                
+                // Execute the action with confirmation
+                let result = self.execute_confirmed_action(&action_id, context.files)?;
+                
+                // Recursively handle the result
+                self.handle_action_outcome(result)
             }
             ActionOutcome::Cancelled => Ok(()),
+        }
+    }
+
+    /// Execute action that required user input
+    fn execute_action_with_input(
+        &self,
+        action_id: &str,
+        files: Vec<PathBuf>,
+        input: &str,
+    ) -> Result<ActionOutcome, BrowseError> {
+        match action_id {
+            "add_tag" => {
+                let tags: Vec<String> = input
+                    .split_whitespace()
+                    .map(ToString::to_string)
+                    .collect();
+                
+                if tags.is_empty() {
+                    return Ok(ActionOutcome::Failed("No tags specified".to_string()));
+                }
+                
+                actions::execute_add_tag(self.session.db(), &files, &tags)
+                    .map_err(|e| BrowseError::ActionFailed(e.to_string()))
+            }
+            "remove_tag" => {
+                let tags: Vec<String> = input
+                    .split_whitespace()
+                    .map(ToString::to_string)
+                    .collect();
+                
+                if tags.is_empty() {
+                    return Ok(ActionOutcome::Failed("No tags specified".to_string()));
+                }
+                
+                actions::execute_remove_tag(self.session.db(), &files, &tags)
+                    .map_err(|e| BrowseError::ActionFailed(e.to_string()))
+            }
+            "copy_files" => {
+                let dest_dir = PathBuf::from(input.trim());
+                
+                // Check if we need to create the directory
+                let create_dest = if !dest_dir.exists() {
+                    prompt_for_confirmation(&format!(
+                        "Directory '{}' doesn't exist. Create it?",
+                        dest_dir.display()
+                    ))
+                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {}", e)))?
+                } else {
+                    false
+                };
+                
+                Ok(actions::execute_copy_files(&files, &dest_dir, create_dest))
+            }
+            _ => Err(BrowseError::UnexpectedState(format!(
+                "Unknown action_id: {}",
+                action_id
+            ))),
+        }
+    }
+
+    /// Execute action that required confirmation
+    fn execute_confirmed_action(
+        &self,
+        action_id: &str,
+        files: Vec<PathBuf>,
+    ) -> Result<ActionOutcome, BrowseError> {
+        match action_id {
+            "delete_from_db" => {
+                actions::execute_delete_from_db(self.session.db(), &files)
+                    .map_err(|e| BrowseError::ActionFailed(e.to_string()))
+            }
+            _ => Err(BrowseError::UnexpectedState(format!(
+                "Unknown action_id: {}",
+                action_id
+            ))),
         }
     }
 
@@ -407,6 +502,9 @@ pub enum BrowseError {
 
     #[error("Unexpected state: {0}")]
     UnexpectedState(String),
+
+    #[error("Database error: {0}")]
+    Database(#[from] crate::db::DbError),
 }
 
 #[cfg(test)]
