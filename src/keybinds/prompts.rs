@@ -12,7 +12,7 @@ pub fn prompt_for_input(prompt: &str) -> Result<String, PromptError> {
         .with_prompt(prompt)
         .allow_empty(true)
         .interact_text()
-        .map_err(|e| PromptError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))
+        .map_err(|e| PromptError::Io(std::io::Error::other(e)))
 }
 
 /// Prompt the user for confirmation (yes/no).
@@ -25,7 +25,7 @@ pub fn prompt_for_confirmation(prompt: &str) -> Result<bool, PromptError> {
         .with_prompt(prompt)
         .default(false)
         .interact()
-        .map_err(|e| PromptError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))
+        .map_err(|e| PromptError::Io(std::io::Error::other(e)))
 }
 
 /// Errors that can occur during prompting.

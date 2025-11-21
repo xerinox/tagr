@@ -62,7 +62,7 @@ impl ActionExecutor {
         }
     }
 
-    /// Execute the AddTag action.
+    /// Execute the `AddTag` action.
     fn execute_add_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let input = prompt_for_input("Add tags (space-separated): ")?;
         
@@ -96,11 +96,11 @@ impl ActionExecutor {
         }
 
         let tag_list = new_tags.join(", ");
-        let message = format!("✓ Added [{}] to {} file(s)", tag_list, tagged_count);
+        let message = format!("✓ Added [{tag_list}] to {tagged_count} file(s)");
         Ok(ActionResult::Message(message))
     }
 
-    /// Execute the RemoveTag action.
+    /// Execute the `RemoveTag` action.
     fn execute_remove_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files_to_process: Vec<&PathBuf> = if context.selected_files.is_empty() {
             context.current_file.into_iter().collect()
@@ -165,11 +165,11 @@ impl ActionExecutor {
         }
 
         let removed_list = tags_to_remove.join(", ");
-        let message = format!("✓ Removed [{}] from {} file(s)", removed_list, updated_count);
+        let message = format!("✓ Removed [{removed_list}] from {updated_count} file(s)");
         Ok(ActionResult::Message(message))
     }
 
-    /// Execute the DeleteFromDb action.
+    /// Execute the `DeleteFromDb` action.
     fn execute_delete_from_db(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files_to_delete: Vec<&PathBuf> = if context.selected_files.is_empty() {
             context.current_file.into_iter().collect()
@@ -197,11 +197,11 @@ impl ActionExecutor {
             }
         }
 
-        let message = format!("✓ Deleted {} file(s) from database", deleted_count);
+        let message = format!("✓ Deleted {deleted_count} file(s) from database");
         Ok(ActionResult::Message(message))
     }
 
-    /// Execute the OpenInDefault action.
+    /// Execute the `OpenInDefault` action.
     fn execute_open_in_default(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files_to_open: Vec<&PathBuf> = if context.selected_files.is_empty() {
             context.current_file.into_iter().collect()
@@ -232,11 +232,11 @@ impl ActionExecutor {
             )));
         }
 
-        let message = format!("✓ Opened {} file(s) in default application", opened_count);
+        let message = format!("✓ Opened {opened_count} file(s) in default application");
         Ok(ActionResult::Message(message))
     }
 
-    /// Execute the OpenInEditor action.
+    /// Execute the `OpenInEditor` action.
     fn execute_open_in_editor(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files_to_open: Vec<&PathBuf> = if context.selected_files.is_empty() {
             context.current_file.into_iter().collect()
@@ -269,7 +269,7 @@ impl ActionExecutor {
         Ok(ActionResult::Message(message))
     }
 
-    /// Execute the CopyPath action.
+    /// Execute the `CopyPath` action.
     fn execute_copy_path(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files_to_copy: Vec<&PathBuf> = if context.selected_files.is_empty() {
             context.current_file.into_iter().collect()
@@ -290,15 +290,15 @@ impl ActionExecutor {
         match arboard::Clipboard::new() {
             Ok(mut clipboard) => {
                 clipboard.set_text(&paths_text).map_err(|e| {
-                    ExecutorError::ExecutionFailed(format!("Failed to copy to clipboard: {}", e))
+                    ExecutorError::ExecutionFailed(format!("Failed to copy to clipboard: {e}"))
                 })?;
                 
                 let message = format!("✓ Copied {} path(s) to clipboard", files_to_copy.len());
                 Ok(ActionResult::Message(message))
             }
             Err(e) => {
-                eprintln!("⚠️  Clipboard unavailable: {}", e);
-                println!("\nPath(s):\n{}", paths_text);
+                eprintln!("⚠️  Clipboard unavailable: {e}");
+                println!("\nPath(s):\n{paths_text}");
                 Ok(ActionResult::Message(format!(
                     "Clipboard unavailable - printed {} path(s) to stdout",
                     files_to_copy.len()
@@ -307,7 +307,7 @@ impl ActionExecutor {
         }
     }
 
-    /// Execute the CopyFiles action.
+    /// Execute the `CopyFiles` action.
     fn execute_copy_files(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files_to_copy: Vec<&PathBuf> = if context.selected_files.is_empty() {
             context.current_file.into_iter().collect()
@@ -380,14 +380,19 @@ impl ActionExecutor {
         Ok(ActionResult::Message(message))
     }
 
-    /// Execute the ToggleTagDisplay action.
+    /// Execute the `ToggleTagDisplay` action.
+    ///
+    /// **Note**: This is a stub implementation. The actual toggle functionality
+    /// will be handled by the UI layer. Returns `Result` for API consistency
+    /// with other action handlers.
+    #[allow(clippy::unnecessary_wraps)]
     fn execute_toggle_tag_display(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
             "Tag display toggling will be implemented in UI layer".to_string()
         ))
     }
 
-    /// Execute the ShowDetails action.
+    /// Execute the `ShowDetails` action.
     fn execute_show_details(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let file_to_show = if let Some(file) = context.current_file {
             file
@@ -421,12 +426,12 @@ impl ActionExecutor {
         details.push("─".repeat(60));
         
         let message = details.join("\n");
-        println!("{}", message);
+        println!("{message}");
         
         Ok(ActionResult::Continue)
     }
 
-    /// Execute the FilterExtension action.
+    /// Execute the `FilterExtension` action.
     fn execute_filter_extension(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let extension = prompt_for_input("Filter by extension (e.g., 'txt', '.rs'): ")?;
         
@@ -436,28 +441,35 @@ impl ActionExecutor {
 
         let ext = extension.trim().trim_start_matches('.');
         Ok(ActionResult::Message(format!(
-            "Extension filtering ({}) will be handled by browse UI layer",
-            ext
+            "Extension filtering ({ext}) will be handled by browse UI layer"
         )))
     }
 
-    /// Execute the SelectAll action.
+    /// Execute the `SelectAll` action.
+    ///
+    /// **Note**: This is a stub implementation. Selection state is managed
+    /// by the skim UI layer. Returns `Result` for API consistency.
+    #[allow(clippy::unnecessary_wraps)]
     fn execute_select_all(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
             "Select all will be handled by skim UI layer".to_string()
         ))
     }
 
-    /// Execute the ClearSelection action.
+    /// Execute the `ClearSelection` action.
+    ///
+    /// **Note**: This is a stub implementation. Selection state is managed
+    /// by the skim UI layer. Returns `Result` for API consistency.
+    #[allow(clippy::unnecessary_wraps)]
     fn execute_clear_selection(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
             "Clear selection will be handled by skim UI layer".to_string()
         ))
     }
 
-    /// Execute the ShowHelp action.
+    /// Execute the `ShowHelp` action.
     fn execute_show_help(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let help_text = r#"
+        let help_text = r"
 ╔═══════════════════════════════════════════════════════════╗
 ║                  Tagr Browse Mode Keybinds                ║
 ╚═══════════════════════════════════════════════════════════╝
@@ -500,7 +512,7 @@ BASIC NAVIGATION:
   /         Start search query
 
 Press 'q' to return to browse mode
-        "#;
+        ";
 
         match show_in_pager(help_text) {
             Ok(()) => {
@@ -509,8 +521,8 @@ Press 'q' to return to browse mode
                 Ok(ActionResult::Continue)
             }
             Err(e) => {
-                eprintln!("⚠️  Pager unavailable: {}", e);
-                println!("{}", help_text);
+                eprintln!("⚠️  Pager unavailable: {e}");
+                println!("{help_text}");
                 prompt_for_input("Press Enter to continue...")?;
                 Ok(ActionResult::Continue)
             }
@@ -561,7 +573,7 @@ fn format_file_size(bytes: u64) -> String {
     } else if bytes >= KB {
         format!("{:.2} KB", bytes as f64 / KB as f64)
     } else {
-        format!("{} bytes", bytes)
+        format!("{bytes} bytes")
     }
 }
 
@@ -573,7 +585,7 @@ fn format_modified_time(metadata: &std::fs::Metadata) -> String {
                 Ok(duration) => {
                     let secs = duration.as_secs();
                     if secs < 60 {
-                        format!("{} seconds ago", secs)
+                        format!("{secs} seconds ago")
                     } else if secs < 3600 {
                         format!("{} minutes ago", secs / 60)
                     } else if secs < 86400 {
@@ -599,16 +611,14 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
     // CRITICAL: Set exit strategy to PagerQuit so pressing 'q' only quits the pager,
     // not the entire application. This ensures we return to browse mode after help.
     pager.set_exit_strategy(ExitStrategy::PagerQuit).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
+        std::io::Error::other(
             format!("Failed to set exit strategy: {e}"),
         )
     })?;
     
     // Write the help text to the pager using push_str (for mutable pager)
     pager.push_str(text).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
+        std::io::Error::other(
             format!("Failed to write to pager: {e}"),
         )
     })?;
@@ -616,8 +626,7 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
     // Run the pager in blocking mode - this will handle all terminal state
     // This blocks until the user presses 'q' to quit the pager
     minus::page_all(pager).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
+        std::io::Error::other(
             format!("Pager error: {e}"),
         )
     })?;

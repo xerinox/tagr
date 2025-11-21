@@ -193,7 +193,7 @@ fn default_editor() -> String {
     std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string())
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
 
@@ -201,7 +201,7 @@ fn default_tag_display() -> String {
     "inline".to_string()
 }
 
-fn default_max_sessions() -> usize {
+const fn default_max_sessions() -> usize {
     50
 }
 
@@ -277,7 +277,7 @@ impl KeybindConfig {
     /// Returns a vector of strings in skim's --bind format: "key:accept"
     /// Only includes actions that are not disabled.
     /// 
-    /// Note: Filters out Tab and BTab (Shift+Tab) to preserve skim's
+    /// Note: Filters out Tab and `BTab` (Shift+Tab) to preserve skim's
     /// default multi-select behavior.
     #[must_use]
     pub fn to_skim_bindings(&self) -> Vec<String> {

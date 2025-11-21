@@ -25,7 +25,7 @@ use std::time::SystemTime;
 /// - **Data only**: No business logic methods
 /// - **Direct access**: Use `item.metadata.created > other_time` not helper methods
 /// - **Type safety**: Enum variants distinguish tags from files
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagrItem {
     /// Unique identifier (tag name for tags, path string for files)
     pub id: String,
@@ -38,7 +38,7 @@ pub struct TagrItem {
 }
 
 /// Type-specific metadata for tags or files
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemMetadata {
     /// Tag entity with statistics
     Tag(TagMetadata),
@@ -55,7 +55,7 @@ pub struct TagMetadata {
 }
 
 /// Metadata for file entities
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMetadata {
     /// Absolute file path
     pub path: PathBuf,
@@ -71,7 +71,7 @@ pub struct FileMetadata {
 ///
 /// Mirrors Tagr's vtags cache structure. Has TTL to avoid excessive syscalls.
 /// All fields are public for direct access (idiomatic Rust).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedMetadata {
     /// Whether the file exists on disk
     pub exists: bool,
@@ -159,7 +159,7 @@ pub struct CacheStats {
 ///
 /// Pure data structure with no presentation concerns (no colors, emojis).
 /// UI layer converts this to formatted messages.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionOutcome {
     /// Action succeeded on all items
     Success {
@@ -196,7 +196,7 @@ pub enum ActionOutcome {
 }
 
 /// Context for resumable actions
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionContext {
     /// Files to operate on
     pub files: Vec<PathBuf>,
@@ -206,7 +206,7 @@ pub struct ActionContext {
 }
 
 /// Action-specific data
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionData {
     /// No additional data
     None,
@@ -304,7 +304,7 @@ impl CachedMetadata {
         let extension = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|s| s.to_lowercase());
+            .map(str::to_lowercase);
 
         let mime_type = Self::detect_mime_type(path);
 
@@ -407,7 +407,7 @@ impl SearchMode {
     }
 
     /// Toggle between modes
-    pub fn toggle(&mut self) {
+    pub const fn toggle(&mut self) {
         *self = match self {
             Self::Any => Self::All,
             Self::All => Self::Any,
@@ -524,26 +524,26 @@ impl ActionOutcome {
 // Conversions - Database -> Domain Models
 // ============================================================================
 
-/// Context for converting Pair to TagrItem
+/// Context for converting Pair to `TagrItem`
 pub struct PairWithCache<'a> {
     pub pair: Pair,
     pub cache: &'a mut MetadataCache,
 }
 
-/// Context for converting path to TagrItem with database lookup
+/// Context for converting path to `TagrItem` with database lookup
 pub struct PathWithDb<'a> {
     pub path: PathBuf,
     pub db: &'a Database,
     pub cache: &'a mut MetadataCache,
 }
 
-/// Context for converting tag name to TagrItem with database lookup
+/// Context for converting tag name to `TagrItem` with database lookup
 pub struct TagWithDb<'a> {
     pub tag: String,
     pub db: &'a Database,
 }
 
-/// Convert database Pair to TagrItem using cache
+/// Convert database Pair to `TagrItem` using cache
 impl<'a> From<PairWithCache<'a>> for TagrItem {
     fn from(ctx: PairWithCache<'a>) -> Self {
         let cached = ctx.cache.get_or_insert(&ctx.pair.file);
@@ -551,7 +551,7 @@ impl<'a> From<PairWithCache<'a>> for TagrItem {
     }
 }
 
-/// Convert path with database context to TagrItem
+/// Convert path with database context to `TagrItem`
 impl<'a> TryFrom<PathWithDb<'a>> for TagrItem {
     type Error = DbError;
 
@@ -562,7 +562,7 @@ impl<'a> TryFrom<PathWithDb<'a>> for TagrItem {
     }
 }
 
-/// Convert tag name with database context to TagrItem
+/// Convert tag name with database context to `TagrItem`
 impl<'a> TryFrom<TagWithDb<'a>> for TagrItem {
     type Error = DbError;
 
@@ -580,22 +580,22 @@ impl<'a> TryFrom<TagWithDb<'a>> for TagrItem {
 // Conversions - Domain Models -> UI Types
 // ============================================================================
 
-/// Convert TagrItem to DisplayItem with basic formatting
+/// Convert `TagrItem` to `DisplayItem` with basic formatting
 impl From<&TagrItem> for DisplayItem {
     fn from(item: &TagrItem) -> Self {
-        DisplayItem::new(item.id.clone(), item.name.clone(), item.name.clone())
+        Self::new(item.id.clone(), item.name.clone(), item.name.clone())
     }
 }
 
-/// Convert TagrItem to DisplayItem (owned version)
+/// Convert `TagrItem` to `DisplayItem` (owned version)
 impl From<TagrItem> for DisplayItem {
     fn from(item: TagrItem) -> Self {
-        DisplayItem::from(&item)
+        Self::from(&item)
     }
 }
 
 impl TagrItem {
-    /// Convert to DisplayItem with detailed text (for tags: shows file count)
+    /// Convert to `DisplayItem` with detailed text (for tags: shows file count)
     ///
     /// This is a method rather than a From impl since it's a non-standard formatting
     #[must_use]

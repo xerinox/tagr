@@ -48,9 +48,9 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// # Arguments
     ///
     /// * `session` - Browse session with state management
-    /// * `finder` - UI adapter implementing FuzzyFinder trait
+    /// * `finder` - UI adapter implementing `FuzzyFinder` trait
     #[must_use]
-    pub fn new(session: BrowseSession<'a>, finder: F) -> Self {
+    pub const fn new(session: BrowseSession<'a>, finder: F) -> Self {
         Self { session, finder }
     }
 
@@ -185,8 +185,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         }
 
         // Check if action was triggered via keybind
-        if let Some(key) = &result.final_key {
-            if key != "enter" {
+        if let Some(key) = &result.final_key
+            && key != "enter" {
                 // Look up action for this key
                 if let Some(action_name) = phase.settings.keybind_config.action_for_key(key) {
                     // Try to convert action name to BrowseAction
@@ -198,12 +198,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     }
                 }
             }
-        }
 
         Ok(BrowserResult::Accept(result.selected))
     }
 
-    /// Format TagrItem for display (phase-aware presentation logic)
+    /// Format `TagrItem` for display (phase-aware presentation logic)
     ///
     /// Converts domain models to display items with:
     /// - Colors and styling
@@ -244,7 +243,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     format!(" {}", format!("[{}]", file_meta.tags.join(", ")).dimmed())
                 };
 
-                let display = format!("{}{}", path_display, tags_display);
+                let display = format!("{path_display}{tags_display}");
 
                 let mut metadata = crate::ui::ItemMetadata::default();
                 metadata.index = Some(index);
@@ -258,7 +257,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
     /// Format path based on session configuration
     ///
-    /// Applies PathFormat settings from session config
+    /// Applies `PathFormat` settings from session config
     fn format_path(&self, path: &Path, phase_type: &PhaseType) -> String {
         // Only use configured path format in file phase
         let path_format = match phase_type {
@@ -272,9 +271,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 // Try to make path relative to current directory
                 std::env::current_dir()
                     .ok()
-                    .and_then(|cwd| path.strip_prefix(&cwd).ok())
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| path.display().to_string())
+                    .and_then(|cwd| path.strip_prefix(&cwd).ok()).map_or_else(|| path.display().to_string(), |p| p.display().to_string())
             }
             PathFormat::Basename => path
                 .file_name()
@@ -299,7 +296,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 affected_count,
                 details,
             } => {
-                println!("✓ {} ({} files)", details, affected_count);
+                println!("✓ {details} ({affected_count} files)");
                 Ok(())
             }
             ActionOutcome::Partial {
@@ -308,11 +305,10 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 errors,
             } => {
                 println!(
-                    "⚠️  Partial success: {} succeeded, {} failed",
-                    succeeded, failed
+                    "⚠️  Partial success: {succeeded} succeeded, {failed} failed"
                 );
                 for error in errors.iter().take(5) {
-                    eprintln!("  - {}", error);
+                    eprintln!("  - {error}");
                 }
                 if errors.len() > 5 {
                     eprintln!("  ... and {} more errors", errors.len() - 5);
@@ -320,13 +316,13 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 Ok(())
             }
             ActionOutcome::Failed(msg) => {
-                eprintln!("❌ {}", msg);
+                eprintln!("❌ {msg}");
                 Err(BrowseError::ActionFailed(msg))
             }
             ActionOutcome::NeedsInput { prompt, action_id, context } => {
                 // Prompt user for input
                 let input = prompt_for_input(&prompt)
-                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {}", e)))?;
+                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
                 
                 if input.trim().is_empty() {
                     println!("Cancelled - no input provided");
@@ -342,7 +338,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             ActionOutcome::NeedsConfirmation { message, action_id, context } => {
                 // Prompt user for confirmation
                 let confirmed = prompt_for_confirmation(&message)
-                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {}", e)))?;
+                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
                 
                 if !confirmed {
                     println!("Cancelled by user");
@@ -397,21 +393,20 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 let dest_dir = PathBuf::from(input.trim());
                 
                 // Check if we need to create the directory
-                let create_dest = if !dest_dir.exists() {
+                let create_dest = if dest_dir.exists() {
+                    false
+                } else {
                     prompt_for_confirmation(&format!(
                         "Directory '{}' doesn't exist. Create it?",
                         dest_dir.display()
                     ))
-                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {}", e)))?
-                } else {
-                    false
+                    .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?
                 };
                 
                 Ok(actions::execute_copy_files(&files, &dest_dir, create_dest))
             }
             _ => Err(BrowseError::UnexpectedState(format!(
-                "Unknown action_id: {}",
-                action_id
+                "Unknown action_id: {action_id}"
             ))),
         }
     }
@@ -428,8 +423,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             _ => Err(BrowseError::UnexpectedState(format!(
-                "Unknown action_id: {}",
-                action_id
+                "Unknown action_id: {action_id}"
             ))),
         }
     }

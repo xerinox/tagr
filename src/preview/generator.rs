@@ -228,7 +228,7 @@ impl PreviewGenerator {
     fn detect_file_type(&self, path: &Path) -> Option<String> {
         path.extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.to_uppercase())
+            .map(str::to_uppercase)
     }
 
     fn is_image(&self, path: &Path) -> bool {
@@ -242,12 +242,20 @@ impl PreviewGenerator {
         }
     }
 
-    fn extract_image_metadata(
+    /// Extract image-specific metadata.
+    ///
+    /// **Note**: This is a stub implementation. Currently returns placeholder
+    /// metadata without actual image dimensions. Returns `Option` for API
+    /// consistency with future implementation using the `image` crate.
+    ///
+    /// # TODO
+    /// Use image crate to extract actual dimensions and format information.
+    #[allow(clippy::unnecessary_wraps)]
+    const fn extract_image_metadata(
         &self,
         _path: &Path,
         file_metadata: FileMetadata,
     ) -> Option<ImageMetadata> {
-        // TODO: Use image crate to extract actual dimensions
         Some(ImageMetadata {
             file_metadata,
             width: None,

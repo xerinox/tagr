@@ -63,8 +63,8 @@ impl SkimFinder {
         }
 
                 // Preview configuration
-        if let Some(preview_config) = &config.preview_config {
-            if preview_config.enabled && self.preview_provider.is_some() {
+        if let Some(preview_config) = &config.preview_config
+            && preview_config.enabled && self.preview_provider.is_some() {
                 // Skim requires a preview command to enable preview window
                 // Use empty string to signal we're using ItemPreview trait
                 builder.preview(Some(String::new()));
@@ -76,7 +76,6 @@ impl SkimFinder {
                 );
                 builder.preview_window(preview_window);
             }
-        }
 
         builder
             .build()

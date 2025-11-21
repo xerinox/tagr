@@ -17,8 +17,8 @@ use crate::{
 
 type Result<T> = std::result::Result<T, TagrError>;
 
-/// Convert config::PathFormat to browse::session::PathFormat
-fn convert_path_format(format: config::PathFormat) -> crate::browse::session::PathFormat {
+/// Convert `config::PathFormat` to `browse::session::PathFormat`
+const fn convert_path_format(format: config::PathFormat) -> crate::browse::session::PathFormat {
     match format {
         config::PathFormat::Absolute => crate::browse::session::PathFormat::Absolute,
         config::PathFormat::Relative => crate::browse::session::PathFormat::Relative,
@@ -62,15 +62,14 @@ pub fn execute(
     }
 
     // Build preview configuration
-    let preview_config = if preview_overrides.as_ref().map_or(false, |o| o.no_preview) {
+    let preview_config = if preview_overrides.as_ref().is_some_and(|o| o.no_preview) {
         None
     } else {
         let mut config = PreviewConfig::default();
-        if let Some(overrides) = &preview_overrides {
-            if let Some(lines) = overrides.preview_lines {
+        if let Some(overrides) = &preview_overrides
+            && let Some(lines) = overrides.preview_lines {
                 config.max_lines = lines;
             }
-        }
         Some(config)
     };
 

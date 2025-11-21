@@ -23,7 +23,7 @@ pub struct FinderConfig {
 impl FinderConfig {
     /// Create a basic finder configuration
     #[must_use]
-    pub fn new(items: Vec<DisplayItem>, prompt: String) -> Self {
+    pub const fn new(items: Vec<DisplayItem>, prompt: String) -> Self {
         Self {
             items,
             multi_select: false,
@@ -50,7 +50,7 @@ impl FinderConfig {
 
     /// Set preview configuration
     #[must_use]
-    pub fn with_preview(mut self, config: PreviewConfig) -> Self {
+    pub const fn with_preview(mut self, config: PreviewConfig) -> Self {
         self.preview_config = Some(config);
         self
     }
@@ -141,7 +141,7 @@ pub struct PreviewText {
 impl PreviewText {
     /// Create preview text without ANSI codes
     #[must_use]
-    pub fn plain(content: String) -> Self {
+    pub const fn plain(content: String) -> Self {
         Self {
             content,
             has_ansi: false,
@@ -150,7 +150,7 @@ impl PreviewText {
 
     /// Create preview text with ANSI codes
     #[must_use]
-    pub fn ansi(content: String) -> Self {
+    pub const fn ansi(content: String) -> Self {
         Self {
             content,
             has_ansi: true,

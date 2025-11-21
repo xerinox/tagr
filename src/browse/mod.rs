@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //!
-//! - `models`: Core data types (TagrItem, SelectionState, etc.)
+//! - `models`: Core data types (`TagrItem`, `SelectionState`, etc.)
 //! - `query`: Business logic for data retrieval
 //! - `actions`: Pure action business logic
 //! - `session`: Unified browser session orchestration
