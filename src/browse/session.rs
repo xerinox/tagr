@@ -287,7 +287,7 @@ impl<'a> BrowseSession<'a> {
             return Err(BrowseError::ActionNotAvailable);
         }
 
-        // Convert selected IDs to paths
+
         let selected_files: Vec<PathBuf> = self
             .current_phase
             .items
@@ -302,9 +302,6 @@ impl<'a> BrowseSession<'a> {
             })
             .collect();
 
-        // Delegate to action handlers
-        // Note: Actions that need input return ActionOutcome::NeedsInput
-        // The keybinds/executor layer handles prompting
         match action {
             BrowseAction::AddTag => Ok(ActionOutcome::NeedsInput {
                 prompt: "Enter tags to add (space-separated): ".into(),
@@ -332,7 +329,6 @@ impl<'a> BrowseSession<'a> {
             }),
             BrowseAction::OpenInDefault => Ok(actions::execute_open_in_default(&selected_files)),
             BrowseAction::OpenInEditor => {
-                // Get editor from environment
                 let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
                 Ok(actions::execute_open_in_editor(&selected_files, &editor))
             }

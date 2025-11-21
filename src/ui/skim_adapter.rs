@@ -172,12 +172,11 @@ impl SkimItem for SkimDisplayItem {
     }
 
     fn display<'a>(&'a self, _context: DisplayContext<'a>) -> AnsiString<'a> {
-        // Use display string (may contain ANSI codes)
         AnsiString::parse(&self.item.display)
     }
 
     fn output(&self) -> Cow<'_, str> {
-        // Return the key for selection
+
         Cow::Borrowed(&self.item.key)
     }
 
@@ -187,7 +186,6 @@ impl SkimItem for SkimDisplayItem {
     }
 
     fn preview(&self, _context: PreviewContext) -> ItemPreview {
-        // If we have a preview provider, use it to generate preview
         if let Some(provider) = &self.preview_provider {
             match provider.preview(&self.item.key) {
                 Ok(preview_text) => {

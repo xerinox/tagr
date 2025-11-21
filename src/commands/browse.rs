@@ -74,7 +74,6 @@ pub fn execute(
         Some(config)
     };
 
-    // Load keybind configuration
     let keybind_config = KeybindConfig::load_or_default()
         .map_err(|e| TagrError::InvalidInput(format!("Failed to load keybinds: {e}")))?;
 
@@ -105,7 +104,6 @@ pub fn execute(
         ]),
     };
 
-    // Create browse configuration
     let config = BrowseConfig {
         initial_search: search_params.clone(),
         path_format: convert_path_format(path_format),
@@ -113,13 +111,11 @@ pub fn execute(
         file_phase_settings,
     };
 
-    // Create session and controller
     let session = BrowseSession::new(db, config)
         .map_err(|e| TagrError::BrowseError(e.to_string()))?;
     let finder = SkimFinder::new();
     let controller = BrowseController::new(session, finder);
 
-    // Run browse workflow
     match controller.run() {
         Ok(Some(result)) => {
             // Output results
@@ -141,7 +137,6 @@ pub fn execute(
                 }
             }
 
-            // Execute command if provided
             if let Some(cmd_template) = execute_cmd {
                 if !quiet {
                     println!("\n=== Executing Command ===");
@@ -149,7 +144,6 @@ pub fn execute(
                 crate::cli::execute_command_on_files(&result.selected_files, &cmd_template, quiet);
             }
 
-            // Save filter if requested
             if let Some((name, desc)) = save_filter {
                 if let Some(params) = search_params {
                     let filter_path = crate::filters::get_filter_path()?;

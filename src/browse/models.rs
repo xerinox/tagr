@@ -433,14 +433,12 @@ impl MetadataCache {
 
     /// Get metadata from cache or fetch and cache it
     pub fn get_or_insert(&mut self, path: &Path) -> CachedMetadata {
-        // Check if we have a valid cached entry
         if let Some(cached) = self.entries.get(path)
             && !cached.is_expired(self.ttl)
         {
             return cached.clone();
         }
 
-        // Fetch fresh metadata
         let metadata = CachedMetadata::from_path(path);
         self.entries.insert(path.to_path_buf(), metadata.clone());
         metadata

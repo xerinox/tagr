@@ -37,7 +37,6 @@ impl ActionExecutor {
         action: &BrowseAction,
         context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
-        // Check if action requires selection
         if action.requires_selection() && context.selected_files.is_empty() && context.current_file.is_none() {
             return Err(ExecutorError::NoSelection);
         }
@@ -58,7 +57,6 @@ impl ActionExecutor {
             BrowseAction::ShowHelp => self.execute_show_help(context),
             BrowseAction::Cancel => Ok(ActionResult::Continue),
             _ => {
-                // Other actions not yet implemented
                 Ok(ActionResult::Continue)
             }
         }
@@ -78,7 +76,6 @@ impl ActionExecutor {
             .collect();
 
         let files_to_tag: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            // Use current file if no selection
             context.current_file.into_iter().collect()
         } else {
             context.selected_files.iter().collect()
@@ -138,7 +135,6 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No tags selected for removal".to_string()));
         }
 
-        // Parse as numbers or tag names
         let tags_to_remove: Vec<String> = input
             .split_whitespace()
             .filter_map(|s| {
@@ -506,7 +502,6 @@ BASIC NAVIGATION:
 Press 'q' to return to browse mode
         "#;
 
-        // Try to use a pager, fallback to direct print
         match show_in_pager(help_text) {
             Ok(()) => {
                 // Give terminal a moment to stabilize after pager exits

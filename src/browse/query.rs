@@ -38,7 +38,6 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
     let tags: Result<Vec<TagrItem>, DbError> = tag_names
         .into_iter()
         .map(|tag_name| {
-            // Use TryFrom trait with context struct
             TagrItem::try_from(TagWithDb {
                 tag: tag_name,
                 db,
@@ -78,21 +77,17 @@ pub fn get_matching_files(
     db: &Database,
     params: &SearchParams,
 ) -> Result<Vec<TagrItem>, DbError> {
-    // Delegate to existing shared query logic
     let file_paths = crate::db::query::apply_search_params(db, params)?;
 
-    // Convert PathBuf -> TagrItem using TryFrom
     let items: Result<Vec<TagrItem>, DbError> = file_paths
         .into_iter()
         .map(|path| {
-            // Create pairs with metadata for efficient conversion
             let tags = db.get_tags(&path)?.unwrap_or_default();
             let pair = crate::Pair {
                 file: path,
                 tags,
             };
 
-            // Use From trait with context
             let mut cache = crate::browse::models::MetadataCache::new();
             Ok(TagrItem::from(PairWithCache { pair, cache: &mut cache }))
         })
@@ -189,10 +184,8 @@ mod tests {
         // Query tags
         let tags = get_available_tags(db).unwrap();
 
-        // Should have 5 unique tags (rust, code, docs, python, script)
         assert_eq!(tags.len(), 5);
 
-        // Find rust tag and verify count
         let rust_tag = tags.iter().find(|t| t.name == "rust").unwrap();
         if let crate::browse::models::ItemMetadata::Tag(crate::browse::models::TagMetadata { file_count }) = rust_tag.metadata {
             assert_eq!(file_count, 2);

@@ -75,7 +75,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         loop {
             let phase = self.session.current_phase();
 
-            // Check if phase has data
             if phase.items.is_empty() {
                 match &phase.phase_type {
                     PhaseType::TagSelection => {
@@ -94,7 +93,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
             match browser_result {
                 BrowserResult::Accept(selected_ids) => {
-                    // User pressed Enter - handle phase transition or completion
                     match self.session.handle_accept(selected_ids)? {
                         AcceptResult::PhaseTransition => {
                             // Transitioned to file phase, loop continues
@@ -110,7 +108,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     }
                 }
                 BrowserResult::Action { action, selected_ids } => {
-                    // User pressed action keybind (ctrl+t, ctrl+d, etc.)
+
                     
                     // Handle UI-only actions that don't need session
                     match action {
@@ -131,10 +129,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     // Execute session-level action
                     let outcome = self.session.execute_action(action, &selected_ids)?;
 
-                    // Handle action outcome (may need prompts from keybinds layer)
                     self.handle_action_outcome(outcome)?;
 
-                    // Refresh data and continue browsing
                     self.session.refresh_current_phase()?;
                     continue;
                 }
