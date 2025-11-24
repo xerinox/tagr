@@ -948,12 +948,124 @@ This architecture enables rapid UI iteration while maintaining a stable, well-te
 
 ---
 
+## Additional Trait Abstractions Needed
+
+### Overview ✅ IMPLEMENTED
+
+A **complete ratatui migration** requires three trait abstractions:
+
+1. ✅ **FuzzyFinder trait** (COMPLETE) - The primary UI abstraction
+2. ✅ **UserInput trait** (COMPLETE) - Abstracts `dialoguer` prompts
+3. ✅ **OutputWriter trait** (COMPLETE) - Abstracts stdout/stderr output
+
+**All three core traits are now implemented!** The architecture is ready for ratatui.
+
+### 1. ✅ FuzzyFinder (This Guide)
+
+**Status**: Production-ready, documented in this guide
+
+**What it does**: Interactive item selection with fuzzy matching
+
+**Implementations**:
+- ✅ `SkimFinder` - Current skim-based implementation
+- 🔜 `RatatuiAdapter` - Future custom TUI (guide provided in this document)
+
+### 2. ✅ UserInput (IMPLEMENTED)
+
+**Status**: ✅ Implemented in `src/ui/input.rs`
+
+**Current:** Direct `dialoguer` dependency in `src/keybinds/prompts.rs`
+
+**Problem:** Ratatui can't break out to stdin for prompts - needs in-TUI input widgets
+
+**Solution:** `UserInput` trait with three methods:
+```rust
+pub trait UserInput: Send + Sync {
+    fn prompt_text(&self, prompt: &str, default: Option<&str>, allow_empty: bool) 
+        -> Result<Option<String>>;
+    fn prompt_confirm(&self, prompt: &str, default: bool) 
+        -> Result<Option<bool>>;
+    fn prompt_select(&self, prompt: &str, items: &[String], default: Option<usize>) 
+        -> Result<Option<usize>>;
+}
+```
+
+**Implementations**:
+- ✅ `DialoguerInput` - CLI adapter (implemented)
+- 🔜 `RatatuiInput` - TUI adapter (guide in additional-trait-abstractions.md)
+
+**Usage:**
+```rust
+use tagr::ui::input::{UserInput, DialoguerInput};
+
+let input = DialoguerInput::new();
+if let Some(tag) = input.prompt_text("Enter tag:", None, false)? {
+    println!("Adding tag: {}", tag);
+}
+```
+
+### 3. ✅ OutputWriter (IMPLEMENTED)
+
+**Status**: ✅ Implemented in `src/ui/output.rs`
+
+**Current:** Direct `println!`/`eprintln!` throughout commands
+
+**Problem:** Can't write to stdout when ratatui owns terminal
+
+**Solution:** `OutputWriter` trait with severity levels:
+```rust
+pub trait OutputWriter: Send + Sync {
+    fn write(&self, message: &str);
+    fn error(&self, message: &str);
+    fn success(&self, message: &str);
+    fn warning(&self, message: &str);
+    fn info(&self, message: &str);
+    fn clear(&self);
+}
+```
+
+**Implementations**:
+- ✅ `StdoutWriter` - Direct stdout/stderr (implemented)
+- ✅ `StatusBarWriter` - Buffered message queue for TUI (implemented)
+
+**Usage:**
+```rust
+use tagr::ui::output::{OutputWriter, StdoutWriter};
+
+let output = StdoutWriter::new();
+output.success("Tags added successfully");
+output.error("File not found");
+```
+
+### Complete Reference
+
+See **[docs/additional-trait-abstractions.md](additional-trait-abstractions.md)** for:
+- Detailed analysis of blocking issues
+- Complete trait implementations (CLI + TUI adapters)
+- Migration strategy and effort estimates
+- Example unified entry point with mode switching
+
+### Ratatui Readiness Checklist
+
+- ✅ FuzzyFinder trait - Already abstracted, skim adapter works
+- ✅ PreviewProvider trait - Already abstracted for file previews
+- ✅ UserInput trait - Implemented, dialoguer adapter ready
+- ✅ OutputWriter trait - Implemented, stdout + buffered adapters ready
+- 🔜 RatatuiAdapter - Implement FuzzyFinder for custom TUI (guide in this doc)
+- 🔜 RatatuiInput - Implement UserInput for in-TUI prompts (guide in additional-trait-abstractions.md)
+- 🔜 Unified entry point - Mode-based adapter selection (example in additional-trait-abstractions.md)
+
+**Architecture is 95% ready for ratatui!** Only remaining work is implementing the ratatui-specific adapters.
+
+---
+
 ## Further Resources
 
 - **Current Skim Implementation**: `src/ui/skim_adapter.rs` - Reference implementation
 - **Controller Logic**: `src/browse/ui.rs` - See how controller uses `FuzzyFinder`
 - **Session State**: `src/browse/session.rs` - Understand phase transitions
 - **Data Models**: `src/browse/models.rs` - Domain types
+- **Additional Abstractions**: `docs/additional-trait-abstractions.md` - Complete migration requirements
 - **Ratatui Documentation**: https://ratatui.rs/
 - **Crossterm Events**: https://docs.rs/crossterm/latest/crossterm/event/
 
