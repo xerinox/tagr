@@ -14,6 +14,94 @@
 //! - Pure data structures with minimal business logic
 //! - Conversions via From/TryFrom traits
 //! - Idiomatic Rust patterns (direct field access for comparisons)
+//!
+//! # Public API Examples
+//!
+//! ## Basic Browse Session
+//!
+//! ```no_run
+//! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
+//! use tagr::ui::skim_adapter::SkimFinder;
+//! use tagr::db::Database;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Open database
+//! let db = Database::open("mydb")?;
+//!
+//! // Create browse session with default config
+//! let config = BrowseConfig::default();
+//! let session = BrowseSession::new(&db, config)?;
+//!
+//! // Create controller with skim finder
+//! let finder = SkimFinder::new();
+//! let controller = BrowseController::new(session, finder);
+//!
+//! // Run interactive browse
+//! match controller.run()? {
+//!     Some(result) => {
+//!         println!("Selected {} files", result.selected_files.len());
+//!         for file in result.selected_files {
+//!             println!("  - {}", file.display());
+//!         }
+//!     }
+//!     None => println!("Cancelled"),
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Custom Configuration
+//!
+//! ```no_run
+//! use tagr::browse::{BrowseSession, BrowseConfig, PathFormat};
+//! use tagr::db::Database;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let db = Database::open("mydb")?;
+//!
+//! // Configure browse behavior
+//! let config = BrowseConfig {
+//!     path_format: PathFormat::Relative,
+//!     ..Default::default()
+//! };
+//!
+//! let session = BrowseSession::new(&db, config)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Using as a Library
+//!
+//! For external crates using tagr as a library:
+//!
+//! ```no_run
+//! use tagr::browse::{BrowseSession, BrowseController};
+//! use tagr::ui::FuzzyFinder;
+//! use tagr::db::Database;
+//!
+//! // Your custom finder implementation
+//! struct MyCustomFinder;
+//! impl FuzzyFinder for MyCustomFinder {
+//!     fn run(&self, config: tagr::ui::FinderConfig) 
+//!         -> tagr::ui::Result<tagr::ui::FinderResult> 
+//!     {
+//!         // Your implementation here
+//! #       unimplemented!()
+//!     }
+//! }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let db = Database::open("mydb")?;
+//! let session = BrowseSession::new(&db, Default::default())?;
+//! let finder = MyCustomFinder;
+//! let controller = BrowseController::new(session, finder);
+//!
+//! let result = controller.run()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! See `examples/custom_frontend.rs` for a complete working example.
 
 pub mod actions;
 pub mod models;

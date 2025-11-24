@@ -9,16 +9,15 @@
 //! The recommended API uses the unified browser pattern:
 //!
 //! ```no_run
-//! use tagr::browse::{BrowseSession, SkimController};
-//! use tagr::config::PathFormat;
+//! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
+//! use tagr::ui::skim_adapter::SkimFinder;
 //! # use tagr::db::Database;
 //! # fn example(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
-//! let session = BrowseSession::builder()
-//!     .db(db)
-//!     .path_format(PathFormat::Relative)
-//!     .build()?;
-//!
-//! let mut controller = SkimController::new(session);
+//! let config = BrowseConfig::default();
+//! let session = BrowseSession::new(db, config)?;
+//! 
+//! let finder = SkimFinder::new();
+//! let controller = BrowseController::new(session, finder);
 //! controller.run()?;
 //! # Ok(())
 //! # }
