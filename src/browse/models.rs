@@ -271,10 +271,8 @@ impl TagrItem {
     }
 }
 
-impl CachedMetadata {
-    /// Create from filesystem, marking when cached
-    #[must_use]
-    pub fn from_path(path: &Path) -> Self {
+impl From<&Path> for CachedMetadata {
+    fn from(path: &Path) -> Self {
         let exists = path.exists();
         let cached_at = SystemTime::now();
 
@@ -319,7 +317,9 @@ impl CachedMetadata {
             cached_at,
         }
     }
+}
 
+impl CachedMetadata {
     /// Check if cache has expired
     #[must_use]
     pub fn is_expired(&self, ttl: std::time::Duration) -> bool {
@@ -330,7 +330,7 @@ impl CachedMetadata {
 
     /// Refresh metadata from filesystem
     pub fn refresh(&mut self, path: &Path) {
-        *self = Self::from_path(path);
+        *self = path.into();
     }
 
     fn detect_mime_type(path: &Path) -> Option<String> {
@@ -439,7 +439,7 @@ impl MetadataCache {
             return cached.clone();
         }
 
-        let metadata = CachedMetadata::from_path(path);
+        let metadata: CachedMetadata = path.into();
         self.entries.insert(path.to_path_buf(), metadata.clone());
         metadata
     }
@@ -644,7 +644,7 @@ mod tests {
     #[test]
     fn test_cached_metadata_nonexistent() {
         let path = PathBuf::from("/nonexistent/file.txt");
-        let cached = CachedMetadata::from_path(&path);
+        let cached: CachedMetadata = path.as_path().into();
 
         assert!(!cached.exists);
         assert_eq!(cached.size, None);
@@ -668,15 +668,12 @@ mod tests {
         let mut cache = MetadataCache::with_ttl(std::time::Duration::from_secs(300));
         let path = PathBuf::from("/tmp/test.txt");
 
-        // First access - should cache
         let meta1 = cache.get_or_insert(&path);
         assert_eq!(cache.stats().total_entries, 1);
 
-        // Second access - should return cached
         let meta2 = cache.get_or_insert(&path);
         assert_eq!(meta1.cached_at, meta2.cached_at);
 
-        // Invalidate
         cache.invalidate(&path);
         assert_eq!(cache.stats().total_entries, 0);
     }
@@ -731,7 +728,6 @@ mod tests {
 
     #[test]
     fn test_mime_type_detection() {
-        // Test extension-based detection (doesn't require actual files)
         let test_cases = vec![
             (PathBuf::from("test.rs"), Some("text/x-rust")),
             (PathBuf::from("test.txt"), Some("text/plain")),
@@ -779,7 +775,6 @@ mod tests {
         let _db = crate::testing::TestDb::new("test_conversions");
         let mut cache = MetadataCache::new();
 
-        // Test PairWithCache -> TagrItem
         let pair = crate::Pair {
             file: PathBuf::from("/tmp/test.txt"),
             tags: vec!["rust".to_string()],
@@ -793,12 +788,10 @@ mod tests {
         assert_eq!(item.name, "test.txt");
         assert_eq!(item.file_tags(), Some(&["rust".to_string()][..]));
 
-        // Test DisplayItem conversion
         let display_item = DisplayItem::from(&item);
         assert_eq!(display_item.key, item.id);
         assert_eq!(display_item.display, item.name);
 
-        // Test batch conversion
         let pairs = vec![
             crate::Pair {
                 file: PathBuf::from("/tmp/file1.txt"),

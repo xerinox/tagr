@@ -132,7 +132,6 @@ pub fn get_files_by_tags(
     get_matching_files(db, &params)
 }
 
-// Implement conversion between browse::SearchMode and cli::SearchMode
 impl From<crate::browse::models::SearchMode> for crate::cli::SearchMode {
     fn from(mode: crate::browse::models::SearchMode) -> Self {
         match mode {
@@ -165,7 +164,6 @@ mod tests {
         let db = test_db.db();
         db.clear().unwrap();
 
-        // Create test files with tags
         let file1 = TempFile::create("file1.txt").unwrap();
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
@@ -181,7 +179,6 @@ mod tests {
         db.insert_pair(&pair2).unwrap();
         db.insert_pair(&pair3).unwrap();
 
-        // Query tags
         let tags = get_available_tags(db).unwrap();
 
         assert_eq!(tags.len(), 5);
@@ -193,7 +190,6 @@ mod tests {
             panic!("Expected Tag metadata");
         }
 
-        // Find python tag and verify count
         let python_tag = tags.iter().find(|t| t.name == "python").unwrap();
         if let crate::browse::models::ItemMetadata::Tag(crate::browse::models::TagMetadata { file_count }) = python_tag.metadata {
             assert_eq!(file_count, 1);
@@ -230,7 +226,6 @@ mod tests {
         db.insert_pair(&pair2).unwrap();
         db.insert_pair(&pair3).unwrap();
 
-        // Search for rust files
         let params = SearchParams {
             query: None,
             tags: vec!["rust".to_string()],
@@ -247,7 +242,6 @@ mod tests {
         let files = get_matching_files(db, &params).unwrap();
         assert_eq!(files.len(), 2);
 
-        // Verify file metadata
         for item in &files {
             if let crate::browse::models::ItemMetadata::File(ref file_meta) = item.metadata {
                 assert!(file_meta.tags.contains(&"rust".to_string()));
@@ -284,7 +278,6 @@ mod tests {
         ))
         .unwrap();
 
-        // Search for rust OR python (should get 2 files)
         let files = get_files_by_tags(db, &["rust".into(), "python".into()], SearchMode::Any)
             .unwrap();
         assert_eq!(files.len(), 2);
@@ -316,7 +309,6 @@ mod tests {
         ))
         .unwrap();
 
-        // Search for rust AND web (should get only 1 file)
         let files = get_files_by_tags(db, &["rust".into(), "web".into()], SearchMode::All)
             .unwrap();
         assert_eq!(files.len(), 1);
@@ -332,14 +324,12 @@ mod tests {
 
     #[test]
     fn test_search_mode_conversion() {
-        // Test browse::SearchMode -> cli::SearchMode
         let cli_any: crate::cli::SearchMode = SearchMode::Any.into();
         assert!(matches!(cli_any, crate::cli::SearchMode::Any));
 
         let cli_all: crate::cli::SearchMode = SearchMode::All.into();
         assert!(matches!(cli_all, crate::cli::SearchMode::All));
 
-        // Test cli::SearchMode -> browse::SearchMode
         let browse_any: SearchMode = crate::cli::SearchMode::Any.into();
         assert!(matches!(browse_any, SearchMode::Any));
 

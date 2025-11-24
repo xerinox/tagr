@@ -704,7 +704,6 @@ mod tests {
             let tags = db.get_tags(file.path()).unwrap();
             assert_eq!(tags, Some(vec!["saved".into()]));
 
-            // Clean up
             db.clear().unwrap();
         }
 

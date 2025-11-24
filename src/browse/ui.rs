@@ -109,8 +109,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 }
                 BrowserResult::Action { action, selected_ids } => {
 
-                    
-                    // Handle UI-only actions that don't need session
                     match action {
                         BrowseAction::ShowHelp => {
                             self.show_help(&phase.settings.help_text);
@@ -153,7 +151,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     fn run_browser_phase(&self) -> Result<BrowserResult, BrowseError> {
         let phase = self.session.current_phase();
 
-        // Convert domain models to UI display items with indices
         let display_items: Vec<DisplayItem> = phase
             .items
             .iter()
@@ -169,7 +166,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
-        // Convert keybind config to skim bindings
         let keybinds = phase.settings.keybind_config.to_skim_bindings();
 
         let config = FinderConfig::new(display_items, prompt.to_string())
@@ -184,7 +180,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             return Ok(BrowserResult::Cancel);
         }
 
-        // Check if action was triggered via keybind
         if let Some(key) = &result.final_key
             && key != "enter" {
                 // Look up action for this key
@@ -392,7 +387,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             "copy_files" => {
                 let dest_dir = PathBuf::from(input.trim());
                 
-                // Check if we need to create the directory
                 let create_dest = if dest_dir.exists() {
                     false
                 } else {

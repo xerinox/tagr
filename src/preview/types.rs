@@ -83,8 +83,16 @@ impl PreviewContent {
     }
 
     /// Get a display string for the content
+    ///
+    /// Note: Also available via the `Display` trait
     #[must_use]
     pub fn to_display_string(&self) -> String {
+        format!("{self}")
+    }
+}
+
+impl std::fmt::Display for PreviewContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Text {
                 lines,
@@ -92,28 +100,28 @@ impl PreviewContent {
                 total_lines,
                 has_ansi: _,
             } => {
-                let mut output = lines.join("\n");
+                write!(f, "{}", lines.join("\n"))?;
                 if *truncated {
-                    output.push_str(&format!(
+                    write!(
+                        f,
                         "\n\n[... truncated, showing {} of {} lines ...]",
                         lines.len(),
                         total_lines
-                    ));
+                    )?;
                 }
-                output
+                Ok(())
             }
-            Self::Binary { metadata } => format_file_metadata(metadata),
-            Self::Image { metadata } => format_image_metadata(metadata),
+            Self::Binary { metadata } => write!(f, "{}", format_file_metadata(metadata)),
+            Self::Image { metadata } => write!(f, "{}", format_image_metadata(metadata)),
             Self::Archive { contents, truncated } => {
-                let mut output = String::from("Archive contents:\n\n");
-                output.push_str(&contents.join("\n"));
+                write!(f, "Archive contents:\n\n{}" , contents.join("\n"))?;
                 if *truncated {
-                    output.push_str("\n\n[... more files ...]");
+                    write!(f, "\n\n[... more files ...]")?;
                 }
-                output
+                Ok(())
             }
-            Self::Empty => "Empty file (0 bytes)".to_string(),
-            Self::Error(msg) => format!("Error: {msg}"),
+            Self::Empty => write!(f, "Empty file (0 bytes)"),
+            Self::Error(msg) => write!(f, "Error: {msg}"),
         }
     }
 }

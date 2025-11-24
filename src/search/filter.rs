@@ -329,7 +329,6 @@ mod tests {
             PathBuf::from("README.md"),
         ];
 
-        // First filter: only .rs files
         let result = files
             .into_iter()
             .filter_glob_any(&["*.rs".to_string()])

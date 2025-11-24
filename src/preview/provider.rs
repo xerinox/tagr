@@ -63,7 +63,6 @@ impl PreviewProvider for FilePreviewProvider {
     fn preview(&self, item: &str) -> Result<PreviewText> {
         let path = PathBuf::from(item);
 
-        // Check cache first
         if let Some(content) = self.cache.get(&path) {
             let display = content.to_display_string();
             let has_ansi = matches!(content, PreviewContent::Text { has_ansi: true, .. });
@@ -124,16 +123,12 @@ mod tests {
         let config = PreviewConfig::default();
         let provider = FilePreviewProvider::new(config);
 
-        // First call should generate and cache
         let preview1 = provider.preview(temp.path().to_str().unwrap()).unwrap();
         
-        // Modify the file
         fs::write(temp.path(), "Modified content\n").unwrap();
         
-        // Second call should use cache (not see modification)
         let preview2 = provider.preview(temp.path().to_str().unwrap()).unwrap();
         
-        // Both should be identical because second one used cache
         assert_eq!(preview1, preview2);
         assert!(preview1.content.contains("Test content"));
         assert!(!preview2.content.contains("Modified content"));

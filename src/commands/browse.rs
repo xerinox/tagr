@@ -17,11 +17,12 @@ use crate::{
 
 type Result<T> = std::result::Result<T, TagrError>;
 
-/// Convert `config::PathFormat` to `browse::session::PathFormat`
-const fn convert_path_format(format: config::PathFormat) -> crate::browse::session::PathFormat {
-    match format {
-        config::PathFormat::Absolute => crate::browse::session::PathFormat::Absolute,
-        config::PathFormat::Relative => crate::browse::session::PathFormat::Relative,
+impl From<config::PathFormat> for crate::browse::session::PathFormat {
+    fn from(format: config::PathFormat) -> Self {
+        match format {
+            config::PathFormat::Absolute => Self::Absolute,
+            config::PathFormat::Relative => Self::Relative,
+        }
     }
 }
 
@@ -40,7 +41,6 @@ pub fn execute(
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
-    // Handle filter loading
     if let Some(name) = filter_name {
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
@@ -61,7 +61,6 @@ pub fn execute(
         }
     }
 
-    // Build preview configuration
     let preview_config = if preview_overrides.as_ref().is_some_and(|o| o.no_preview) {
         None
     } else {
@@ -76,9 +75,8 @@ pub fn execute(
     let keybind_config = KeybindConfig::load_or_default()
         .map_err(|e| TagrError::InvalidInput(format!("Failed to load keybinds: {e}")))?;
 
-    // Build phase settings
     let tag_phase_settings = PhaseSettings {
-        preview_enabled: false, // Tags don't have preview
+        preview_enabled: false,
         preview_config: None,
         keybind_config: keybind_config.clone(),
         help_text: HelpText::TagBrowser(vec![
@@ -105,7 +103,7 @@ pub fn execute(
 
     let config = BrowseConfig {
         initial_search: search_params.clone(),
-        path_format: convert_path_format(path_format),
+        path_format: path_format.into(),
         tag_phase_settings,
         file_phase_settings,
     };
@@ -117,7 +115,6 @@ pub fn execute(
 
     match controller.run() {
         Ok(Some(result)) => {
-            // Output results
             if !quiet {
                 println!("=== Selected Tags ===");
                 for tag in &result.selected_tags {

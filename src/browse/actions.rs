@@ -362,7 +362,6 @@ pub fn execute_copy_files(
         return ActionOutcome::Failed("No files specified".to_string());
     }
 
-    // Check/create destination
     if !dest_dir.exists() {
         if create_dest {
             if let Err(e) = std::fs::create_dir_all(dest_dir) {

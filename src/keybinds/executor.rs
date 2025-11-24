@@ -1,5 +1,9 @@
 //! Action execution logic for keybinds.
+//!
+//! This module handles UI concerns (prompting, formatting, emoji symbols)
+//! and delegates business logic to `browse::actions`.
 
+use crate::browse::{actions, models::ActionOutcome};
 use crate::db::Database;
 use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input, PromptError};
 use crate::keybinds::{ActionResult, BrowseAction};
@@ -75,45 +79,31 @@ impl ActionExecutor {
             .map(ToString::to_string)
             .collect();
 
-        let files_to_tag: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.into_iter().collect()
+        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
+            context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
-            context.selected_files.iter().collect()
+            context.selected_files.to_vec()
         };
 
-        let mut tagged_count = 0;
-        for file_path in &files_to_tag {
-            let mut existing_tags = context.db.get_tags(file_path)?.unwrap_or_default();
-            
-            for tag in &new_tags {
-                if !existing_tags.contains(tag) {
-                    existing_tags.push(tag.clone());
-                }
-            }
-            
-            context.db.insert(file_path, existing_tags)?;
-            tagged_count += 1;
-        }
-
-        let tag_list = new_tags.join(", ");
-        let message = format!("✓ Added [{tag_list}] to {tagged_count} file(s)");
-        Ok(ActionResult::Message(message))
+        let outcome = actions::execute_add_tag(context.db, &files, &new_tags)?;
+        
+        Ok(outcome.into())
     }
 
     /// Execute the `RemoveTag` action.
     fn execute_remove_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files_to_process: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.into_iter().collect()
+        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
+            context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
-            context.selected_files.iter().collect()
+            context.selected_files.to_vec()
         };
 
-        if files_to_process.is_empty() {
+        if files.is_empty() {
             return Err(ExecutorError::NoSelection);
         }
 
         let mut all_tags = std::collections::HashSet::new();
-        for file_path in &files_to_process {
+        for file_path in &files {
             if let Some(tags) = context.db.get_tags(file_path)? {
                 all_tags.extend(tags);
             }
@@ -150,234 +140,124 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No valid tags selected".to_string()));
         }
 
-        let mut updated_count = 0;
-        for file_path in &files_to_process {
-            if let Some(mut tags) = context.db.get_tags(file_path)? {
-                let original_count = tags.len();
-                
-                tags.retain(|tag| !tags_to_remove.contains(tag));
-                
-                if tags.len() < original_count {
-                    context.db.insert(file_path, tags)?;
-                    updated_count += 1;
-                }
-            }
-        }
-
-        let removed_list = tags_to_remove.join(", ");
-        let message = format!("✓ Removed [{removed_list}] from {updated_count} file(s)");
-        Ok(ActionResult::Message(message))
+        let outcome = actions::execute_remove_tag(context.db, &files, &tags_to_remove)?;
+        
+        Ok(outcome.into())
     }
 
     /// Execute the `DeleteFromDb` action.
     fn execute_delete_from_db(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files_to_delete: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.into_iter().collect()
+        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
+            context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
-            context.selected_files.iter().collect()
+            context.selected_files.to_vec()
         };
 
-        if files_to_delete.is_empty() {
+        if files.is_empty() {
             return Err(ExecutorError::NoSelection);
         }
 
         let confirm = prompt_for_confirmation(&format!(
             "Delete {} file(s) from database?",
-            files_to_delete.len()
+            files.len()
         ))?;
 
         if !confirm {
             return Ok(ActionResult::Message("Deletion cancelled".to_string()));
         }
 
-        let mut deleted_count = 0;
-        for file_path in &files_to_delete {
-            if context.db.remove(file_path)? {
-                deleted_count += 1;
-            }
-        }
-
-        let message = format!("✓ Deleted {deleted_count} file(s) from database");
-        Ok(ActionResult::Message(message))
+        let outcome = actions::execute_delete_from_db(context.db, &files)?;
+        
+        Ok(outcome.into())
     }
 
     /// Execute the `OpenInDefault` action.
     fn execute_open_in_default(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files_to_open: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.into_iter().collect()
+        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
+            context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
-            context.selected_files.iter().collect()
+            context.selected_files.to_vec()
         };
 
-        if files_to_open.is_empty() {
+        if files.is_empty() {
             return Err(ExecutorError::NoSelection);
         }
 
-        let mut opened_count = 0;
-        let mut errors = Vec::new();
-
-        for file_path in &files_to_open {
-            match open::that(file_path) {
-                Ok(()) => opened_count += 1,
-                Err(e) => errors.push(format!("{}: {}", file_path.display(), e)),
-            }
-        }
-
-        if !errors.is_empty() {
-            let error_msg = errors.join("\n");
-            return Err(ExecutorError::ExecutionFailed(format!(
-                "Failed to open {} file(s):\n{}",
-                errors.len(),
-                error_msg
-            )));
-        }
-
-        let message = format!("✓ Opened {opened_count} file(s) in default application");
-        Ok(ActionResult::Message(message))
+        let outcome = actions::execute_open_in_default(&files);
+        
+        Ok(outcome.into())
     }
 
     /// Execute the `OpenInEditor` action.
     fn execute_open_in_editor(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files_to_open: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.into_iter().collect()
+        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
+            context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
-            context.selected_files.iter().collect()
+            context.selected_files.to_vec()
         };
 
-        if files_to_open.is_empty() {
+        if files.is_empty() {
             return Err(ExecutorError::NoSelection);
         }
 
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+
+        let outcome = actions::execute_open_in_editor(&files, &editor);
         
-        let mut cmd = std::process::Command::new(&editor);
-        for file_path in &files_to_open {
-            cmd.arg(file_path);
-        }
-
-        let status = cmd.status()?;
-
-        if !status.success() {
-            return Err(ExecutorError::ExecutionFailed(format!(
-                "Editor '{}' exited with status: {:?}",
-                editor,
-                status.code()
-            )));
-        }
-
-        let message = format!("✓ Opened {} file(s) in {}", files_to_open.len(), editor);
-        Ok(ActionResult::Message(message))
+        Ok(outcome.into())
     }
 
     /// Execute the `CopyPath` action.
     fn execute_copy_path(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files_to_copy: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.into_iter().collect()
+        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
+            context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
-            context.selected_files.iter().collect()
+            context.selected_files.to_vec()
         };
 
-        if files_to_copy.is_empty() {
+        if files.is_empty() {
             return Err(ExecutorError::NoSelection);
         }
 
-        let paths_text = files_to_copy
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        match arboard::Clipboard::new() {
-            Ok(mut clipboard) => {
-                clipboard.set_text(&paths_text).map_err(|e| {
-                    ExecutorError::ExecutionFailed(format!("Failed to copy to clipboard: {e}"))
-                })?;
-                
-                let message = format!("✓ Copied {} path(s) to clipboard", files_to_copy.len());
-                Ok(ActionResult::Message(message))
-            }
+        match actions::execute_copy_path(&files) {
+            Ok(outcome) => Ok(outcome.into()),
             Err(e) => {
-                eprintln!("⚠️  Clipboard unavailable: {e}");
-                println!("\nPath(s):\n{paths_text}");
-                Ok(ActionResult::Message(format!(
-                    "Clipboard unavailable - printed {} path(s) to stdout",
-                    files_to_copy.len()
-                )))
+                let paths_text = files
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                eprintln!("⚠️  {e}");
+                println!("Path(s):\n{paths_text}");
+                Ok(ActionResult::Message(
+                    "⚠️  Clipboard unavailable, paths printed to stdout".to_string(),
+                ))
             }
         }
     }
 
     /// Execute the `CopyFiles` action.
     fn execute_copy_files(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files_to_copy: Vec<&PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.into_iter().collect()
+        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
+            context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
-            context.selected_files.iter().collect()
+            context.selected_files.to_vec()
         };
 
-        if files_to_copy.is_empty() {
+        if files.is_empty() {
             return Err(ExecutorError::NoSelection);
         }
 
-        let dest_input = prompt_for_input("Copy files to directory: ")?;
+        let dest_input = prompt_for_input("Enter destination directory: ")?;
+        let dest_dir = std::path::PathBuf::from(dest_input.trim());
+
+        if dest_dir.as_os_str().is_empty() {
+            return Ok(ActionResult::Message("No destination provided".to_string()));
+        }
+
+        let outcome = actions::execute_copy_files(&files, &dest_dir, true);
         
-        if dest_input.trim().is_empty() {
-            return Ok(ActionResult::Message("Copy cancelled - no destination specified".to_string()));
-        }
-
-        let dest_dir = PathBuf::from(dest_input.trim());
-        
-        if !dest_dir.exists() {
-            let create_confirm = prompt_for_confirmation(&format!(
-                "Directory '{}' doesn't exist. Create it?",
-                dest_dir.display()
-            ))?;
-            
-            if create_confirm {
-                std::fs::create_dir_all(&dest_dir)?;
-            } else {
-                return Ok(ActionResult::Message("Copy cancelled".to_string()));
-            }
-        }
-
-        if !dest_dir.is_dir() {
-            return Err(ExecutorError::ExecutionFailed(format!(
-                "'{}' is not a directory",
-                dest_dir.display()
-            )));
-        }
-
-        let mut copied_count = 0;
-        let mut errors = Vec::new();
-
-        for file_path in &files_to_copy {
-            if let Some(filename) = file_path.file_name() {
-                let dest_path = dest_dir.join(filename);
-                
-                match std::fs::copy(file_path, &dest_path) {
-                    Ok(_) => copied_count += 1,
-                    Err(e) => errors.push(format!("{}: {}", file_path.display(), e)),
-                }
-            } else {
-                errors.push(format!("{}: invalid filename", file_path.display()));
-            }
-        }
-
-        if !errors.is_empty() {
-            let error_msg = errors.join("\n");
-            return Err(ExecutorError::ExecutionFailed(format!(
-                "Failed to copy {} file(s):\n{}",
-                errors.len(),
-                error_msg
-            )));
-        }
-
-        let message = format!(
-            "✓ Copied {} file(s) to {}",
-            copied_count,
-            dest_dir.display()
-        );
-        Ok(ActionResult::Message(message))
+        Ok(outcome.into())
     }
 
     /// Execute the `ToggleTagDisplay` action.
@@ -536,6 +416,40 @@ impl Default for ActionExecutor {
     }
 }
 
+/// Convert `ActionOutcome` from business logic to `ActionResult` for UI
+impl From<ActionOutcome> for ActionResult {
+    fn from(outcome: ActionOutcome) -> Self {
+        match outcome {
+            ActionOutcome::Success { affected_count, details } => {
+                ActionResult::Message(format!("✓ {} ({} files)", details, affected_count))
+            }
+            ActionOutcome::Partial { succeeded, failed, errors } => {
+                let error_summary = if errors.len() > 3 {
+                    format!("{} errors (showing first 3):\n  {}", errors.len(), errors[..3].join("\n  "))
+                } else {
+                    errors.join("\n  ")
+                };
+                ActionResult::Message(format!(
+                    "⚠️  {} succeeded, {} failed:\n  {}",
+                    succeeded,
+                    failed,
+                    error_summary
+                ))
+            }
+            ActionOutcome::Failed(msg) => {
+                ActionResult::Message(format!("❌ {}", msg))
+            }
+            ActionOutcome::Cancelled => {
+                ActionResult::Continue
+            }
+            ActionOutcome::NeedsInput { .. } | ActionOutcome::NeedsConfirmation { .. } => {
+                // This shouldn't happen in executor context (prompting done before calling actions)
+                ActionResult::Message("❌ Unexpected state: action needs input".to_string())
+            }
+        }
+    }
+}
+
 /// Errors that can occur during action execution.
 #[derive(Debug, thiserror::Error)]
 pub enum ExecutorError {
@@ -605,7 +519,6 @@ fn format_modified_time(metadata: &std::fs::Metadata) -> String {
 fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
     use minus::{Pager, ExitStrategy};
 
-    // Create pager with static output mode
     let pager = Pager::new();
     
     // CRITICAL: Set exit strategy to PagerQuit so pressing 'q' only quits the pager,
@@ -616,15 +529,14 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
         )
     })?;
     
-    // Write the help text to the pager using push_str (for mutable pager)
+
     pager.push_str(text).map_err(|e| {
         std::io::Error::other(
             format!("Failed to write to pager: {e}"),
         )
     })?;
 
-    // Run the pager in blocking mode - this will handle all terminal state
-    // This blocks until the user presses 'q' to quit the pager
+
     minus::page_all(pager).map_err(|e| {
         std::io::Error::other(
             format!("Pager error: {e}"),
@@ -665,7 +577,6 @@ mod tests {
             db: db.db(),
         };
         
-        // These actions should fail without selection
         let result = executor.execute(&BrowseAction::RemoveTag, &context);
         assert!(matches!(result, Err(ExecutorError::NoSelection)));
         
@@ -679,12 +590,9 @@ mod tests {
         let db = TestDb::new("test_delete_from_db");
         let temp_file = TempFile::create("test_delete.txt").unwrap();
         
-        // Insert test file
         db.db().insert(temp_file.path(), vec!["test".to_string()]).unwrap();
         assert!(db.db().contains(temp_file.path()).unwrap());
         
-        // Note: This test can't easily test the full delete flow because
-        // it requires user input via prompt_for_confirmation
-        // We would need to mock the prompt system for full integration testing
+        // This test can't easily test the full delete flow without mocking the prompt system
     }
 }
