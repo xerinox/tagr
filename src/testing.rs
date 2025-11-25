@@ -87,10 +87,10 @@ impl TempFile {
     pub fn create(filename: impl AsRef<Path>) -> std::io::Result<Self> {
         let temp_dir = tempfile::tempdir()?;
         let path = temp_dir.path().join(filename.as_ref());
-        
+
         let mut file = std::fs::File::create(&path)?;
         file.write_all(b"test content")?;
-        
+
         Ok(Self { temp_dir, path })
     }
 
@@ -104,10 +104,10 @@ impl TempFile {
     ) -> std::io::Result<Self> {
         let temp_dir = tempfile::tempdir()?;
         let path = temp_dir.path().join(filename.as_ref());
-        
+
         let mut file = std::fs::File::create(&path)?;
         file.write_all(content)?;
-        
+
         Ok(Self { temp_dir, path })
     }
 
@@ -195,18 +195,21 @@ mod tests {
         let path_copy = {
             let temp = TempFile::create("test_panic.txt").unwrap();
             let path = temp.path().to_path_buf();
-            
+
             assert!(path.exists());
-            
+
             let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
                 assert!(path.exists());
                 panic!("Simulated test failure");
             }));
-            
+
             assert!(result.is_err());
             path
         };
 
-        assert!(!path_copy.exists(), "TempFile should be cleaned up even after panic");
+        assert!(
+            !path_copy.exists(),
+            "TempFile should be cleaned up even after panic"
+        );
     }
 }

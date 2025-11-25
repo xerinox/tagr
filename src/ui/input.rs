@@ -16,12 +16,12 @@ use std::io;
 /// use tagr::ui::input::{UserInput, DialoguerInput};
 ///
 /// let input = DialoguerInput::new();
-/// 
+///
 /// // Prompt for text
 /// if let Some(name) = input.prompt_text("Enter name:", None, false).unwrap() {
 ///     println!("Hello, {}!", name);
 /// }
-/// 
+///
 /// // Prompt for confirmation
 /// if let Some(true) = input.prompt_confirm("Delete files?", false).unwrap() {
 ///     println!("Deleting...");

@@ -10,10 +10,10 @@
 
 use std::fs;
 use std::path::PathBuf;
+use tagr::Pair;
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
 use tagr::ui::skim_adapter::SkimFinder;
-use tagr::Pair;
 
 /// Create sample files in a temporary directory
 fn create_sample_files(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
@@ -28,12 +28,21 @@ fn create_sample_files(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
             "lib.rs",
             "pub mod utils;\npub mod models;\n\npub use utils::*;\n",
         ),
-        ("utils.rs", "pub fn helper() -> String {\n    String::from(\"helper\")\n}\n"),
+        (
+            "utils.rs",
+            "pub fn helper() -> String {\n    String::from(\"helper\")\n}\n",
+        ),
         ("models.rs", "pub struct User {\n    pub name: String,\n}\n"),
         ("README.md", "# My Project\n\nThis is a sample project.\n"),
-        ("Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n"),
+        (
+            "Cargo.toml",
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        ),
         (".gitignore", "target/\n*.log\n"),
-        ("tests/integration_test.rs", "#[test]\nfn test_example() {\n    assert!(true);\n}\n"),
+        (
+            "tests/integration_test.rs",
+            "#[test]\nfn test_example() {\n    assert!(true);\n}\n",
+        ),
     ];
 
     let mut created_files = Vec::new();
@@ -120,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n=== Browse Results ===");
             println!("Selected tags: {:?}", result.selected_tags);
             println!("\nSelected {} files:", result.selected_files.len());
-            
+
             let has_files = !result.selected_files.is_empty();
             for file in result.selected_files {
                 let exists = file.exists();

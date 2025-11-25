@@ -71,13 +71,13 @@ pub struct BrowseSession<'a> {
 pub struct BrowseConfig {
     /// Initial search parameters (if provided via CLI)
     pub initial_search: Option<SearchParams>,
-    
+
     /// Path display format
     pub path_format: PathFormat,
-    
+
     /// Tag selection phase settings
     pub tag_phase_settings: PhaseSettings,
-    
+
     /// File selection phase settings
     pub file_phase_settings: PhaseSettings,
 }
@@ -87,10 +87,10 @@ pub struct BrowseConfig {
 pub enum PathFormat {
     /// Full absolute path
     Absolute,
-    
+
     /// Relative to current directory
     Relative,
-    
+
     /// Just the filename
     Basename,
 }
@@ -100,13 +100,13 @@ pub enum PathFormat {
 pub struct PhaseSettings {
     /// Whether preview is enabled
     pub preview_enabled: bool,
-    
+
     /// Preview configuration (if enabled)
     pub preview_config: Option<PreviewConfig>,
-    
+
     /// Keybind configuration for this phase
     pub keybind_config: KeybindConfig,
-    
+
     /// Help text for F1 key
     pub help_text: HelpText,
 }
@@ -116,7 +116,7 @@ pub struct PhaseSettings {
 pub enum HelpText {
     /// Tag browser help
     TagBrowser(Vec<(String, String)>), // (keybind, description)
-    
+
     /// File browser help
     FileBrowser(Vec<(String, String)>),
 }
@@ -125,10 +125,10 @@ pub enum HelpText {
 pub struct BrowserPhase {
     /// Type of phase (tag or file selection)
     pub phase_type: PhaseType,
-    
+
     /// Items to display
     pub items: Vec<TagrItem>,
-    
+
     /// Phase-specific settings
     pub settings: PhaseSettings,
 }
@@ -138,7 +138,7 @@ pub struct BrowserPhase {
 pub enum PhaseType {
     /// Selecting tags
     TagSelection,
-    
+
     /// Selecting files (with tags that were selected)
     FileSelection {
         /// Tags selected in previous phase (or from CLI)
@@ -160,7 +160,7 @@ impl<'a> BrowseSession<'a> {
         let current_phase = if let Some(ref search_params) = config.initial_search {
             // Skip tag selection, go directly to file browser
             let items = query::get_matching_files(db, search_params)?;
-            
+
             BrowserPhase {
                 phase_type: PhaseType::FileSelection {
                     selected_tags: search_params.tags.clone(),
@@ -171,7 +171,7 @@ impl<'a> BrowseSession<'a> {
         } else {
             // Start with tag selection
             let items = query::get_available_tags(db)?;
-            
+
             BrowserPhase {
                 phase_type: PhaseType::TagSelection,
                 items,
@@ -240,8 +240,7 @@ impl<'a> BrowseSession<'a> {
                     .iter()
                     .filter(|item| selected_ids.contains(&item.id))
                     .filter_map(|item| {
-                        if let crate::browse::models::ItemMetadata::File(file_meta) =
-                            &item.metadata
+                        if let crate::browse::models::ItemMetadata::File(file_meta) = &item.metadata
                         {
                             Some(file_meta.path.clone())
                         } else {
@@ -286,7 +285,6 @@ impl<'a> BrowseSession<'a> {
         ) {
             return Err(BrowseError::ActionNotAvailable);
         }
-
 
         let selected_files: Vec<PathBuf> = self
             .current_phase
@@ -362,7 +360,8 @@ impl<'a> BrowseSession<'a> {
                 self.current_phase.items = query::get_available_tags(self.db)?;
             }
             PhaseType::FileSelection { selected_tags } => {
-                self.current_phase.items = query::get_files_by_tags(self.db, selected_tags, SearchMode::Any)?;
+                self.current_phase.items =
+                    query::get_files_by_tags(self.db, selected_tags, SearchMode::Any)?;
             }
         }
         Ok(())

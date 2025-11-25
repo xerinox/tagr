@@ -125,7 +125,7 @@ pub enum MessageLevel {
 ///
 /// let writer = StatusBarWriter::new();
 /// writer.success("File saved");
-/// 
+///
 /// // Get recent messages for display
 /// let messages = writer.recent_messages();
 /// for (level, msg) in messages {

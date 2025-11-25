@@ -10,10 +10,10 @@
 
 use std::collections::HashSet;
 use std::io::{self, Write};
+use tagr::Pair;
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
 use tagr::ui::{DisplayItem, FinderConfig, FinderResult, FuzzyFinder, Result as UiResult};
-use tagr::Pair;
 
 /// Simple terminal-based finder without fuzzy matching
 ///
@@ -155,8 +155,7 @@ impl FuzzyFinder for FilteringFinder {
                 });
             } else if input.is_empty() {
                 // Enter pressed - finalize selection
-                let selected: Vec<String> = if selected_indices.is_empty() && !config.multi_select
-                {
+                let selected: Vec<String> = if selected_indices.is_empty() && !config.multi_select {
                     // Single-select mode: if nothing selected, return first filtered item
                     filtered
                         .first()

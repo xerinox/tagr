@@ -4,9 +4,9 @@
 //! via From/TryFrom traits. Direct field access is used for comparisons and
 //! filtering (idiomatic Rust style).
 
+use crate::Pair;
 use crate::db::{Database, DbError};
 use crate::ui::DisplayItem;
-use crate::Pair;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -447,9 +447,7 @@ impl MetadataCache {
     /// Get metadata from cache without fetching
     #[must_use]
     pub fn get(&self, path: &Path) -> Option<&CachedMetadata> {
-        self.entries
-            .get(path)
-            .filter(|m| !m.is_expired(self.ttl))
+        self.entries.get(path).filter(|m| !m.is_expired(self.ttl))
     }
 
     /// Invalidate a specific entry
@@ -512,9 +510,11 @@ impl ActionOutcome {
     #[must_use]
     pub const fn affected_count(&self) -> Option<usize> {
         match self {
-            Self::Success { affected_count, .. } | Self::Partial { succeeded: affected_count, .. } => {
-                Some(*affected_count)
-            }
+            Self::Success { affected_count, .. }
+            | Self::Partial {
+                succeeded: affected_count,
+                ..
+            } => Some(*affected_count),
             _ => None,
         }
     }

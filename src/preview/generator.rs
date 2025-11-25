@@ -26,7 +26,7 @@ impl PreviewGenerator {
     #[must_use]
     pub fn new(config: PreviewConfig) -> Self {
         let bat_available = Self::check_bat_available();
-        
+
         Self {
             config,
             #[cfg(feature = "syntax-highlighting")]
@@ -69,16 +69,17 @@ impl PreviewGenerator {
 
         match self.generate_text_preview(path, file_size) {
             Ok(content) => Ok(content),
-            Err(PreviewError::InvalidUtf8(_)) => {
-                Ok(self.generate_binary_preview(path, &metadata))
-            }
+            Err(PreviewError::InvalidUtf8(_)) => Ok(self.generate_binary_preview(path, &metadata)),
             Err(e) => Err(e),
         }
     }
 
     fn generate_text_preview(&self, path: &Path, _file_size: u64) -> Result<PreviewContent> {
         // Try bat first if available and syntax highlighting is enabled
-        if self.config.syntax_highlighting && self.bat_available && let Ok(highlighted) = self.generate_bat_preview(path) {
+        if self.config.syntax_highlighting
+            && self.bat_available
+            && let Ok(highlighted) = self.generate_bat_preview(path)
+        {
             return Ok(highlighted);
         }
 
@@ -168,8 +169,12 @@ impl PreviewGenerator {
         lines
             .iter()
             .map(|line| {
-                highlighter.highlight_line(line, &self.syntax_set)
-                    .map_or_else(|_| line.clone(), |ranges| as_24_bit_terminal_escaped(&ranges[..], false))
+                highlighter
+                    .highlight_line(line, &self.syntax_set)
+                    .map_or_else(
+                        |_| line.clone(),
+                        |ranges| as_24_bit_terminal_escaped(&ranges[..], false),
+                    )
             })
             .collect()
     }
@@ -187,7 +192,9 @@ impl PreviewGenerator {
             file_type: self.detect_file_type(path),
         };
 
-        if self.is_image(path) && let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone()) {
+        if self.is_image(path)
+            && let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone())
+        {
             return PreviewContent::Image {
                 metadata: image_meta,
             };
@@ -281,7 +288,12 @@ mod tests {
         let preview = generator.generate(temp.path()).unwrap();
 
         match preview {
-            PreviewContent::Text { lines, truncated, has_ansi, .. } => {
+            PreviewContent::Text {
+                lines,
+                truncated,
+                has_ansi,
+                ..
+            } => {
                 assert_eq!(lines.len(), 3);
                 assert_eq!(lines[0], "Line 1");
                 assert!(!truncated);
@@ -294,7 +306,10 @@ mod tests {
     #[test]
     fn test_generate_truncated_preview() {
         let temp = TempFile::create("test.txt").unwrap();
-        let content = (0..100).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+        let content = (0..100)
+            .map(|i| format!("Line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         fs::write(temp.path(), content).unwrap();
 
         let mut config = PreviewConfig::default();
@@ -335,7 +350,9 @@ mod tests {
     fn test_generate_nonexistent_file() {
         let config = PreviewConfig::default();
         let generator = PreviewGenerator::new(config);
-        let preview = generator.generate(Path::new("/nonexistent/file.txt")).unwrap();
+        let preview = generator
+            .generate(Path::new("/nonexistent/file.txt"))
+            .unwrap();
 
         assert!(matches!(preview, PreviewContent::Error(_)));
     }
@@ -352,7 +369,9 @@ mod tests {
         let preview = generator.generate(temp.path()).unwrap();
 
         match preview {
-            PreviewContent::Text { has_ansi, lines, .. } => {
+            PreviewContent::Text {
+                has_ansi, lines, ..
+            } => {
                 // Should have ANSI codes from bat or syntect
                 assert!(has_ansi || !lines.is_empty()); // Either ANSI or plain text fallback
             }

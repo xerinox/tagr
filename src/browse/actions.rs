@@ -185,10 +185,7 @@ fn remove_tags_from_file(
 ///
 /// # Errors
 /// Returns `DbError` if database operations fail
-pub fn execute_delete_from_db(
-    db: &Database,
-    files: &[PathBuf],
-) -> Result<ActionOutcome, DbError> {
+pub fn execute_delete_from_db(db: &Database, files: &[PathBuf]) -> Result<ActionOutcome, DbError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -353,11 +350,7 @@ pub fn execute_copy_path(files: &[PathBuf]) -> Result<ActionOutcome, String> {
 /// # Returns
 /// `ActionOutcome` describing the result
 #[must_use]
-pub fn execute_copy_files(
-    files: &[PathBuf],
-    dest_dir: &Path,
-    create_dest: bool,
-) -> ActionOutcome {
+pub fn execute_copy_files(files: &[PathBuf], dest_dir: &Path, create_dest: bool) -> ActionOutcome {
     if files.is_empty() {
         return ActionOutcome::Failed("No files specified".to_string());
     }
@@ -380,10 +373,7 @@ pub fn execute_copy_files(
     }
 
     if !dest_dir.is_dir() {
-        return ActionOutcome::Failed(format!(
-            "'{}' is not a directory",
-            dest_dir.display()
-        ));
+        return ActionOutcome::Failed(format!("'{}' is not a directory", dest_dir.display()));
     }
 
     let mut copied = 0;
@@ -470,7 +460,10 @@ mod tests {
         // Should succeed but with 0 affected since tag already exists
         assert!(matches!(
             outcome,
-            ActionOutcome::Success { affected_count: 0, .. }
+            ActionOutcome::Success {
+                affected_count: 0,
+                ..
+            }
         ));
     }
 

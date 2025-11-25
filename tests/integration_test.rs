@@ -63,7 +63,9 @@ fn test_tag_command_with_new_file() {
     let test_db = TestDb::new("tag_new");
     let _test_file = TestFile::create("test_tag_file.txt", "test content").unwrap();
 
-    let result = test_db.db().insert("test_tag_file.txt", vec!["rust".into(), "test".into()]);
+    let result = test_db
+        .db()
+        .insert("test_tag_file.txt", vec!["rust".into(), "test".into()]);
     assert!(result.is_ok());
 
     let tags = test_db.db().get_tags("test_tag_file.txt").unwrap();
@@ -76,9 +78,14 @@ fn test_tag_command_add_tags() {
     let test_db = TestDb::new("tag_add");
     let _test_file = TestFile::create("test_add_tags.txt", "content").unwrap();
 
-    test_db.db().insert("test_add_tags.txt", vec!["tag1".into()]).unwrap();
+    test_db
+        .db()
+        .insert("test_add_tags.txt", vec!["tag1".into()])
+        .unwrap();
 
-    test_db.db().add_tags("test_add_tags.txt", vec!["tag2".into(), "tag3".into()])
+    test_db
+        .db()
+        .add_tags("test_add_tags.txt", vec!["tag2".into(), "tag3".into()])
         .unwrap();
 
     let tags = test_db.db().get_tags("test_add_tags.txt").unwrap().unwrap();
@@ -100,10 +107,18 @@ fn test_search_command_single_tag() {
     let file2_path = fs::canonicalize(file2.path()).unwrap();
     let file3_path = fs::canonicalize(file3.path()).unwrap();
 
-    test_db.db().insert(&file1_path, vec!["rust".into()]).unwrap();
-    test_db.db().insert(&file2_path, vec!["rust".into(), "programming".into()])
+    test_db
+        .db()
+        .insert(&file1_path, vec!["rust".into()])
         .unwrap();
-    test_db.db().insert(&file3_path, vec!["python".into()]).unwrap();
+    test_db
+        .db()
+        .insert(&file2_path, vec!["rust".into(), "programming".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(&file3_path, vec!["python".into()])
+        .unwrap();
 
     let files = test_db.db().find_by_tag("rust").unwrap();
     assert_eq!(files.len(), 2);
@@ -117,7 +132,10 @@ fn test_search_command_nonexistent_tag() {
     let test_db = TestDb::new("search_nonexistent");
 
     let _test_file = TestFile::create("file1.txt", "content").unwrap();
-    test_db.db().insert("file1.txt", vec!["exists".into()]).unwrap();
+    test_db
+        .db()
+        .insert("file1.txt", vec!["exists".into()])
+        .unwrap();
 
     let files = test_db.db().find_by_tag("nonexistent").unwrap();
     assert!(files.is_empty());
@@ -133,11 +151,13 @@ fn test_untag_command_specific_tags() {
     let _test_file = TestFile::create("file_untag.txt", "content").unwrap();
     let canonical_path = std::fs::canonicalize("file_untag.txt").unwrap();
 
-    test_db.db().insert(
-        &canonical_path,
-        vec!["tag1".into(), "tag2".into(), "tag3".into()],
-    )
-    .unwrap();
+    test_db
+        .db()
+        .insert(
+            &canonical_path,
+            vec!["tag1".into(), "tag2".into(), "tag3".into()],
+        )
+        .unwrap();
 
     // Verify file is in database with 3 tags
     assert!(test_db.db().contains(&canonical_path).unwrap());
@@ -145,7 +165,9 @@ fn test_untag_command_specific_tags() {
     assert_eq!(initial_tags.len(), 3);
 
     // Remove two tags, leaving one
-    test_db.db().remove_tags(&canonical_path, &["tag1".into(), "tag3".into()])
+    test_db
+        .db()
+        .remove_tags(&canonical_path, &["tag1".into(), "tag3".into()])
         .unwrap();
 
     // File should still be in database with remaining tag
@@ -155,7 +177,10 @@ fn test_untag_command_specific_tags() {
     assert_eq!(remaining_tags[0], "tag2");
 
     // Now remove the last tag - file should be removed from database
-    test_db.db().remove_tags(&canonical_path, &["tag2".into()]).unwrap();
+    test_db
+        .db()
+        .remove_tags(&canonical_path, &["tag2".into()])
+        .unwrap();
 
     // Verify file is completely gone from database
     assert!(!test_db.db().contains(&canonical_path).unwrap());
@@ -172,7 +197,9 @@ fn test_untag_command_all_tags() {
     let _test_file = TestFile::create("file_untag_all.txt", "content").unwrap();
     let canonical_path = std::fs::canonicalize("file_untag_all.txt").unwrap();
 
-    test_db.db().insert(&canonical_path, vec!["tag1".into(), "tag2".into()])
+    test_db
+        .db()
+        .insert(&canonical_path, vec!["tag1".into(), "tag2".into()])
         .unwrap();
 
     // Verify file is in database before removal
@@ -201,10 +228,15 @@ fn test_tags_list_command() {
     let _test_file = TestFile::create("f2.txt", "c2").unwrap();
     let _test_file = TestFile::create("f3.txt", "c3").unwrap();
 
-    test_db.db().insert("f1.txt", vec!["rust".into(), "programming".into()])
+    test_db
+        .db()
+        .insert("f1.txt", vec!["rust".into(), "programming".into()])
         .unwrap();
     test_db.db().insert("f2.txt", vec!["rust".into()]).unwrap();
-    test_db.db().insert("f3.txt", vec!["python".into()]).unwrap();
+    test_db
+        .db()
+        .insert("f3.txt", vec!["python".into()])
+        .unwrap();
 
     let tags = test_db.db().list_all_tags().unwrap();
     assert_eq!(tags.len(), 3);
@@ -225,13 +257,24 @@ fn test_tags_remove_command() {
     let _test_file = TestFile::create("r1.txt", "c1").unwrap();
     let _test_file = TestFile::create("r2.txt", "c2").unwrap();
 
-    test_db.db().insert("r1.txt", vec!["removeme".into(), "keep".into()])
+    test_db
+        .db()
+        .insert("r1.txt", vec!["removeme".into(), "keep".into()])
         .unwrap();
-    test_db.db().insert("r2.txt", vec!["removeme".into()]).unwrap();
+    test_db
+        .db()
+        .insert("r2.txt", vec!["removeme".into()])
+        .unwrap();
 
     test_db.db().remove_tag_globally("removeme").unwrap();
 
-    assert!(!test_db.db().list_all_tags().unwrap().contains(&"removeme".into()));
+    assert!(
+        !test_db
+            .db()
+            .list_all_tags()
+            .unwrap()
+            .contains(&"removeme".into())
+    );
 
     let r1_tags = test_db.db().get_tags("r1.txt").unwrap();
     assert_eq!(r1_tags, Some(vec!["keep".into()]));
@@ -249,7 +292,10 @@ fn test_cleanup_command_missing_files() {
 
     let _test_file = TestFile::create("temp_file.txt", "temp").unwrap();
 
-    test_db.db().insert("temp_file.txt", vec!["tag".into()]).unwrap();
+    test_db
+        .db()
+        .insert("temp_file.txt", vec!["tag".into()])
+        .unwrap();
 
     fs::remove_file("temp_file.txt").unwrap();
 
@@ -270,8 +316,14 @@ fn test_cleanup_command_untagged_files() {
 
     let _test_file = TestFile::create("untagged.txt", "content").unwrap();
 
-    test_db.db().insert("untagged.txt", vec!["temp".into()]).unwrap();
-    test_db.db().remove_tags("untagged.txt", &["temp".into()]).unwrap();
+    test_db
+        .db()
+        .insert("untagged.txt", vec!["temp".into()])
+        .unwrap();
+    test_db
+        .db()
+        .remove_tags("untagged.txt", &["temp".into()])
+        .unwrap();
 
     assert!(!test_db.db().contains("untagged.txt").unwrap());
 
@@ -318,16 +370,24 @@ fn test_find_by_all_tags() {
     let _test_file = TestFile::create("multi2.txt", "c2").unwrap();
     let _test_file = TestFile::create("multi3.txt", "c3").unwrap();
 
-    test_db.db().insert("multi1.txt", vec!["rust".into(), "programming".into()])
+    test_db
+        .db()
+        .insert("multi1.txt", vec!["rust".into(), "programming".into()])
         .unwrap();
-    test_db.db().insert("multi2.txt", vec!["rust".into()]).unwrap();
-    test_db.db().insert(
-        "multi3.txt",
-        vec!["rust".into(), "programming".into(), "web".into()],
-    )
-    .unwrap();
+    test_db
+        .db()
+        .insert("multi2.txt", vec!["rust".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(
+            "multi3.txt",
+            vec!["rust".into(), "programming".into(), "web".into()],
+        )
+        .unwrap();
 
-    let files = test_db.db()
+    let files = test_db
+        .db()
         .find_by_all_tags(&["rust".into(), "programming".into()])
         .unwrap();
     assert_eq!(files.len(), 2);
@@ -348,11 +408,21 @@ fn test_find_by_any_tag() {
     let _test_file = TestFile::create("any2.txt", "c2").unwrap();
     let _test_file = TestFile::create("any3.txt", "c3").unwrap();
 
-    test_db.db().insert("any1.txt", vec!["rust".into()]).unwrap();
-    test_db.db().insert("any2.txt", vec!["python".into()]).unwrap();
-    test_db.db().insert("any3.txt", vec!["javascript".into()]).unwrap();
+    test_db
+        .db()
+        .insert("any1.txt", vec!["rust".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert("any2.txt", vec!["python".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert("any3.txt", vec!["javascript".into()])
+        .unwrap();
 
-    let files = test_db.db()
+    let files = test_db
+        .db()
         .find_by_any_tag(&["rust".into(), "python".into()])
         .unwrap();
     assert_eq!(files.len(), 2);
@@ -428,10 +498,16 @@ fn test_database_count() {
     let _test_file = TestFile::create("count1.txt", "c1").unwrap();
     let _test_file = TestFile::create("count2.txt", "c2").unwrap();
 
-    test_db.db().insert("count1.txt", vec!["tag".into()]).unwrap();
+    test_db
+        .db()
+        .insert("count1.txt", vec!["tag".into()])
+        .unwrap();
     assert_eq!(test_db.db().count(), 1);
 
-    test_db.db().insert("count2.txt", vec!["tag".into()]).unwrap();
+    test_db
+        .db()
+        .insert("count2.txt", vec!["tag".into()])
+        .unwrap();
     assert_eq!(test_db.db().count(), 2);
 
     test_db.db().remove("count1.txt").unwrap();
@@ -446,7 +522,9 @@ fn test_database_count() {
 fn test_insert_nonexistent_file() {
     let test_db = TestDb::new("nonexistent");
 
-    let result = test_db.db().insert("this_file_does_not_exist.txt", vec!["tag".into()]);
+    let result = test_db
+        .db()
+        .insert("this_file_does_not_exist.txt", vec!["tag".into()]);
 
     assert!(result.is_err());
     if let Err(e) = result {
@@ -462,7 +540,9 @@ fn test_get_pair() {
 
     let _test_file = TestFile::create("pair.txt", "content").unwrap();
 
-    test_db.db().insert("pair.txt", vec!["tag1".into(), "tag2".into()])
+    test_db
+        .db()
+        .insert("pair.txt", vec!["tag1".into(), "tag2".into()])
         .unwrap();
 
     let pair = test_db.db().get_pair("pair.txt").unwrap();

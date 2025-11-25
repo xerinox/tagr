@@ -3,7 +3,7 @@
 use crate::{
     TagrError,
     browse::{
-        session::{BrowseConfig, BrowseSession, PhaseSettings, HelpText},
+        session::{BrowseConfig, BrowseSession, HelpText, PhaseSettings},
         ui::BrowseController,
     },
     cli::{PreviewOverrides, SearchParams},
@@ -66,9 +66,10 @@ pub fn execute(
     } else {
         let mut config = PreviewConfig::default();
         if let Some(overrides) = &preview_overrides
-            && let Some(lines) = overrides.preview_lines {
-                config.max_lines = lines;
-            }
+            && let Some(lines) = overrides.preview_lines
+        {
+            config.max_lines = lines;
+        }
         Some(config)
     };
 
@@ -108,8 +109,8 @@ pub fn execute(
         file_phase_settings,
     };
 
-    let session = BrowseSession::new(db, config)
-        .map_err(|e| TagrError::BrowseError(e.to_string()))?;
+    let session =
+        BrowseSession::new(db, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
     let finder = SkimFinder::new();
     let controller = BrowseController::new(session, finder);
 
@@ -123,7 +124,7 @@ pub fn execute(
 
                 println!("\n=== Selected Files ===");
             }
-            
+
             for file in &result.selected_files {
                 let formatted_path = output::format_path(file, path_format);
                 if quiet {

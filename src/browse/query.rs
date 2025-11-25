@@ -37,12 +37,7 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
     let tags: Result<Vec<TagrItem>, DbError> = tag_names
         .into_iter()
-        .map(|tag_name| {
-            TagrItem::try_from(TagWithDb {
-                tag: tag_name,
-                db,
-            })
-        })
+        .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
         .collect();
 
     tags
@@ -73,23 +68,20 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 /// };
 /// let files = get_matching_files(&db, &params)?;
 /// ```
-pub fn get_matching_files(
-    db: &Database,
-    params: &SearchParams,
-) -> Result<Vec<TagrItem>, DbError> {
+pub fn get_matching_files(db: &Database, params: &SearchParams) -> Result<Vec<TagrItem>, DbError> {
     let file_paths = crate::db::query::apply_search_params(db, params)?;
 
     let items: Result<Vec<TagrItem>, DbError> = file_paths
         .into_iter()
         .map(|path| {
             let tags = db.get_tags(&path)?.unwrap_or_default();
-            let pair = crate::Pair {
-                file: path,
-                tags,
-            };
+            let pair = crate::Pair { file: path, tags };
 
             let mut cache = crate::browse::models::MetadataCache::new();
-            Ok(TagrItem::from(PairWithCache { pair, cache: &mut cache }))
+            Ok(TagrItem::from(PairWithCache {
+                pair,
+                cache: &mut cache,
+            }))
         })
         .collect();
 
@@ -153,10 +145,10 @@ impl From<crate::cli::SearchMode> for crate::browse::models::SearchMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Pair;
     use crate::browse::models::SearchMode;
     use crate::cli::SearchParams;
     use crate::testing::{TempFile, TestDb};
-    use crate::Pair;
 
     #[test]
     fn test_get_available_tags() {
@@ -168,8 +160,14 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        let pair1 = Pair::new(file1.path().to_path_buf(), vec!["rust".into(), "code".into()]);
-        let pair2 = Pair::new(file2.path().to_path_buf(), vec!["rust".into(), "docs".into()]);
+        let pair1 = Pair::new(
+            file1.path().to_path_buf(),
+            vec!["rust".into(), "code".into()],
+        );
+        let pair2 = Pair::new(
+            file2.path().to_path_buf(),
+            vec!["rust".into(), "docs".into()],
+        );
         let pair3 = Pair::new(
             file3.path().to_path_buf(),
             vec!["python".into(), "script".into()],
@@ -184,14 +182,20 @@ mod tests {
         assert_eq!(tags.len(), 5);
 
         let rust_tag = tags.iter().find(|t| t.name == "rust").unwrap();
-        if let crate::browse::models::ItemMetadata::Tag(crate::browse::models::TagMetadata { file_count }) = rust_tag.metadata {
+        if let crate::browse::models::ItemMetadata::Tag(crate::browse::models::TagMetadata {
+            file_count,
+        }) = rust_tag.metadata
+        {
             assert_eq!(file_count, 2);
         } else {
             panic!("Expected Tag metadata");
         }
 
         let python_tag = tags.iter().find(|t| t.name == "python").unwrap();
-        if let crate::browse::models::ItemMetadata::Tag(crate::browse::models::TagMetadata { file_count }) = python_tag.metadata {
+        if let crate::browse::models::ItemMetadata::Tag(crate::browse::models::TagMetadata {
+            file_count,
+        }) = python_tag.metadata
+        {
             assert_eq!(file_count, 1);
         } else {
             panic!("Expected Tag metadata");
@@ -219,7 +223,10 @@ mod tests {
         let file3 = TempFile::create("file3.txt").unwrap();
 
         let pair1 = Pair::new(file1.path().to_path_buf(), vec!["rust".into()]);
-        let pair2 = Pair::new(file2.path().to_path_buf(), vec!["rust".into(), "docs".into()]);
+        let pair2 = Pair::new(
+            file2.path().to_path_buf(),
+            vec!["rust".into(), "docs".into()],
+        );
         let pair3 = Pair::new(file3.path().to_path_buf(), vec!["python".into()]);
 
         db.insert_pair(&pair1).unwrap();
@@ -262,24 +269,18 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        db.insert_pair(&Pair::new(
-            file1.path().to_path_buf(),
-            vec!["rust".into()],
-        ))
-        .unwrap();
+        db.insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
+            .unwrap();
         db.insert_pair(&Pair::new(
             file2.path().to_path_buf(),
             vec!["python".into()],
         ))
         .unwrap();
-        db.insert_pair(&Pair::new(
-            file3.path().to_path_buf(),
-            vec!["go".into()],
-        ))
-        .unwrap();
-
-        let files = get_files_by_tags(db, &["rust".into(), "python".into()], SearchMode::Any)
+        db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["go".into()]))
             .unwrap();
+
+        let files =
+            get_files_by_tags(db, &["rust".into(), "python".into()], SearchMode::Any).unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -298,19 +299,12 @@ mod tests {
             vec!["rust".into(), "web".into()],
         ))
         .unwrap();
-        db.insert_pair(&Pair::new(
-            file2.path().to_path_buf(),
-            vec!["rust".into()],
-        ))
-        .unwrap();
-        db.insert_pair(&Pair::new(
-            file3.path().to_path_buf(),
-            vec!["web".into()],
-        ))
-        .unwrap();
-
-        let files = get_files_by_tags(db, &["rust".into(), "web".into()], SearchMode::All)
+        db.insert_pair(&Pair::new(file2.path().to_path_buf(), vec!["rust".into()]))
             .unwrap();
+        db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["web".into()]))
+            .unwrap();
+
+        let files = get_files_by_tags(db, &["rust".into(), "web".into()], SearchMode::All).unwrap();
         assert_eq!(files.len(), 1);
 
         let item = &files[0];

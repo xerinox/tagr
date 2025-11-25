@@ -15,7 +15,7 @@
 //! # fn example(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
 //! let config = BrowseConfig::default();
 //! let session = BrowseSession::new(db, config)?;
-//! 
+//!
 //! let finder = SkimFinder::new();
 //! let controller = BrowseController::new(session, finder);
 //! controller.run()?;

@@ -81,7 +81,7 @@ impl PreviewProvider for FilePreviewProvider {
                 return Ok(PreviewText::plain(format!("Preview error: {e}")));
             }
         };
-        
+
         // Cache the result
         self.cache.insert(path, content.clone());
 
@@ -124,11 +124,11 @@ mod tests {
         let provider = FilePreviewProvider::new(config);
 
         let preview1 = provider.preview(temp.path().to_str().unwrap()).unwrap();
-        
+
         fs::write(temp.path(), "Modified content\n").unwrap();
-        
+
         let preview2 = provider.preview(temp.path().to_str().unwrap()).unwrap();
-        
+
         assert_eq!(preview1, preview2);
         assert!(preview1.content.contains("Test content"));
         assert!(!preview2.content.contains("Modified content"));
@@ -148,10 +148,10 @@ mod tests {
 
         // Modify the file
         fs::write(temp.path(), "Modified content\n").unwrap();
-        
+
         // Clear cache
         provider.clear_cache();
-        
+
         // Should now see the modified content
         let preview2 = provider.preview(temp.path().to_str().unwrap()).unwrap();
         assert!(preview2.content.contains("Modified content"));

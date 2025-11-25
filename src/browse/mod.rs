@@ -82,8 +82,8 @@
 //! // Your custom finder implementation
 //! struct MyCustomFinder;
 //! impl FuzzyFinder for MyCustomFinder {
-//!     fn run(&self, config: tagr::ui::FinderConfig) 
-//!         -> tagr::ui::Result<tagr::ui::FinderResult> 
+//!     fn run(&self, config: tagr::ui::FinderConfig)
+//!         -> tagr::ui::Result<tagr::ui::FinderResult>
 //!     {
 //!         // Your implementation here
 //! #       unimplemented!()

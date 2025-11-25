@@ -5,7 +5,7 @@
 
 use crate::browse::{actions, models::ActionOutcome};
 use crate::db::Database;
-use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input, PromptError};
+use crate::keybinds::prompts::{PromptError, prompt_for_confirmation, prompt_for_input};
 use crate::keybinds::{ActionResult, BrowseAction};
 use std::path::PathBuf;
 
@@ -41,7 +41,10 @@ impl ActionExecutor {
         action: &BrowseAction,
         context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
-        if action.requires_selection() && context.selected_files.is_empty() && context.current_file.is_none() {
+        if action.requires_selection()
+            && context.selected_files.is_empty()
+            && context.current_file.is_none()
+        {
             return Err(ExecutorError::NoSelection);
         }
 
@@ -60,24 +63,19 @@ impl ActionExecutor {
             BrowseAction::ClearSelection => self.execute_clear_selection(context),
             BrowseAction::ShowHelp => self.execute_show_help(context),
             BrowseAction::Cancel => Ok(ActionResult::Continue),
-            _ => {
-                Ok(ActionResult::Continue)
-            }
+            _ => Ok(ActionResult::Continue),
         }
     }
 
     /// Execute the `AddTag` action.
     fn execute_add_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let input = prompt_for_input("Add tags (space-separated): ")?;
-        
+
         if input.trim().is_empty() {
             return Ok(ActionResult::Message("No tags entered".to_string()));
         }
 
-        let new_tags: Vec<String> = input
-            .split_whitespace()
-            .map(ToString::to_string)
-            .collect();
+        let new_tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
 
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
@@ -86,7 +84,7 @@ impl ActionExecutor {
         };
 
         let outcome = actions::execute_add_tag(context.db, &files, &new_tags)?;
-        
+
         Ok(outcome.into())
     }
 
@@ -118,11 +116,13 @@ impl ActionExecutor {
         for (i, tag) in tag_list.iter().enumerate() {
             println!("  {}. {}", i + 1, tag);
         }
-        
+
         let input = prompt_for_input("\nEnter tag numbers or names to remove (space-separated): ")?;
-        
+
         if input.trim().is_empty() {
-            return Ok(ActionResult::Message("No tags selected for removal".to_string()));
+            return Ok(ActionResult::Message(
+                "No tags selected for removal".to_string(),
+            ));
         }
 
         let tags_to_remove: Vec<String> = input
@@ -141,12 +141,15 @@ impl ActionExecutor {
         }
 
         let outcome = actions::execute_remove_tag(context.db, &files, &tags_to_remove)?;
-        
+
         Ok(outcome.into())
     }
 
     /// Execute the `DeleteFromDb` action.
-    fn execute_delete_from_db(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_delete_from_db(
+        &self,
+        context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -157,22 +160,23 @@ impl ActionExecutor {
             return Err(ExecutorError::NoSelection);
         }
 
-        let confirm = prompt_for_confirmation(&format!(
-            "Delete {} file(s) from database?",
-            files.len()
-        ))?;
+        let confirm =
+            prompt_for_confirmation(&format!("Delete {} file(s) from database?", files.len()))?;
 
         if !confirm {
             return Ok(ActionResult::Message("Deletion cancelled".to_string()));
         }
 
         let outcome = actions::execute_delete_from_db(context.db, &files)?;
-        
+
         Ok(outcome.into())
     }
 
     /// Execute the `OpenInDefault` action.
-    fn execute_open_in_default(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_open_in_default(
+        &self,
+        context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -184,12 +188,15 @@ impl ActionExecutor {
         }
 
         let outcome = actions::execute_open_in_default(&files);
-        
+
         Ok(outcome.into())
     }
 
     /// Execute the `OpenInEditor` action.
-    fn execute_open_in_editor(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_open_in_editor(
+        &self,
+        context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -203,7 +210,7 @@ impl ActionExecutor {
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
         let outcome = actions::execute_open_in_editor(&files, &editor);
-        
+
         Ok(outcome.into())
     }
 
@@ -256,7 +263,7 @@ impl ActionExecutor {
         }
 
         let outcome = actions::execute_copy_files(&files, &dest_dir, true);
-        
+
         Ok(outcome.into())
     }
 
@@ -266,9 +273,12 @@ impl ActionExecutor {
     /// will be handled by the UI layer. Returns `Result` for API consistency
     /// with other action handlers.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_toggle_tag_display(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_toggle_tag_display(
+        &self,
+        _context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
-            "Tag display toggling will be implemented in UI layer".to_string()
+            "Tag display toggling will be implemented in UI layer".to_string(),
         ))
     }
 
@@ -284,37 +294,46 @@ impl ActionExecutor {
 
         let metadata = std::fs::metadata(file_to_show)?;
         let tags = context.db.get_tags(file_to_show)?.unwrap_or_default();
-        
+
         let mut details = vec![
             format!("\n📄 File Details: {}", file_to_show.display()),
             "─".repeat(60),
             format!("Size: {}", format_file_size(metadata.len())),
             format!("Modified: {}", format_modified_time(&metadata)),
-            format!("Tags: {}", if tags.is_empty() { 
-                "(none)".to_string() 
-            } else { 
-                tags.join(", ") 
-            }),
+            format!(
+                "Tags: {}",
+                if tags.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    tags.join(", ")
+                }
+            ),
         ];
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            details.push(format!("Permissions: {:o}", metadata.permissions().mode() & 0o777));
+            details.push(format!(
+                "Permissions: {:o}",
+                metadata.permissions().mode() & 0o777
+            ));
         }
 
         details.push("─".repeat(60));
-        
+
         let message = details.join("\n");
         println!("{message}");
-        
+
         Ok(ActionResult::Continue)
     }
 
     /// Execute the `FilterExtension` action.
-    fn execute_filter_extension(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_filter_extension(
+        &self,
+        _context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
         let extension = prompt_for_input("Filter by extension (e.g., 'txt', '.rs'): ")?;
-        
+
         if extension.trim().is_empty() {
             return Ok(ActionResult::Message("Filter cancelled".to_string()));
         }
@@ -332,7 +351,7 @@ impl ActionExecutor {
     #[allow(clippy::unnecessary_wraps)]
     fn execute_select_all(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
-            "Select all will be handled by skim UI layer".to_string()
+            "Select all will be handled by skim UI layer".to_string(),
         ))
     }
 
@@ -341,9 +360,12 @@ impl ActionExecutor {
     /// **Note**: This is a stub implementation. Selection state is managed
     /// by the skim UI layer. Returns `Result` for API consistency.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_clear_selection(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_clear_selection(
+        &self,
+        _context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
-            "Clear selection will be handled by skim UI layer".to_string()
+            "Clear selection will be handled by skim UI layer".to_string(),
         ))
     }
 
@@ -420,28 +442,31 @@ impl Default for ActionExecutor {
 impl From<ActionOutcome> for ActionResult {
     fn from(outcome: ActionOutcome) -> Self {
         match outcome {
-            ActionOutcome::Success { affected_count, details } => {
-                ActionResult::Message(format!("✓ {} ({} files)", details, affected_count))
-            }
-            ActionOutcome::Partial { succeeded, failed, errors } => {
+            ActionOutcome::Success {
+                affected_count,
+                details,
+            } => ActionResult::Message(format!("✓ {} ({} files)", details, affected_count)),
+            ActionOutcome::Partial {
+                succeeded,
+                failed,
+                errors,
+            } => {
                 let error_summary = if errors.len() > 3 {
-                    format!("{} errors (showing first 3):\n  {}", errors.len(), errors[..3].join("\n  "))
+                    format!(
+                        "{} errors (showing first 3):\n  {}",
+                        errors.len(),
+                        errors[..3].join("\n  ")
+                    )
                 } else {
                     errors.join("\n  ")
                 };
                 ActionResult::Message(format!(
                     "⚠️  {} succeeded, {} failed:\n  {}",
-                    succeeded,
-                    failed,
-                    error_summary
+                    succeeded, failed, error_summary
                 ))
             }
-            ActionOutcome::Failed(msg) => {
-                ActionResult::Message(format!("❌ {}", msg))
-            }
-            ActionOutcome::Cancelled => {
-                ActionResult::Continue
-            }
+            ActionOutcome::Failed(msg) => ActionResult::Message(format!("❌ {}", msg)),
+            ActionOutcome::Cancelled => ActionResult::Continue,
             ActionOutcome::NeedsInput { .. } | ActionOutcome::NeedsConfirmation { .. } => {
                 // This shouldn't happen in executor context (prompting done before calling actions)
                 ActionResult::Message("❌ Unexpected state: action needs input".to_string())
@@ -456,19 +481,19 @@ pub enum ExecutorError {
     /// Action requires selection but none provided
     #[error("Action requires file selection")]
     NoSelection,
-    
+
     /// Database operation failed
     #[error("Database error: {0}")]
     Database(#[from] crate::db::DbError),
-    
+
     /// IO operation failed
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     /// Prompt operation failed
     #[error("Prompt error: {0}")]
     Prompt(#[from] PromptError),
-    
+
     /// Action execution failed
     #[error("Failed to execute action: {0}")]
     ExecutionFailed(String),
@@ -494,54 +519,42 @@ fn format_file_size(bytes: u64) -> String {
 /// Format modification time in human-readable format.
 fn format_modified_time(metadata: &std::fs::Metadata) -> String {
     match metadata.modified() {
-        Ok(time) => {
-            match time.elapsed() {
-                Ok(duration) => {
-                    let secs = duration.as_secs();
-                    if secs < 60 {
-                        format!("{secs} seconds ago")
-                    } else if secs < 3600 {
-                        format!("{} minutes ago", secs / 60)
-                    } else if secs < 86400 {
-                        format!("{} hours ago", secs / 3600)
-                    } else {
-                        format!("{} days ago", secs / 86400)
-                    }
+        Ok(time) => match time.elapsed() {
+            Ok(duration) => {
+                let secs = duration.as_secs();
+                if secs < 60 {
+                    format!("{secs} seconds ago")
+                } else if secs < 3600 {
+                    format!("{} minutes ago", secs / 60)
+                } else if secs < 86400 {
+                    format!("{} hours ago", secs / 3600)
+                } else {
+                    format!("{} days ago", secs / 86400)
                 }
-                Err(_) => "unknown".to_string(),
             }
-        }
+            Err(_) => "unknown".to_string(),
+        },
         Err(_) => "unknown".to_string(),
     }
 }
 
 /// Display text in the minus pager with search support.
 fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
-    use minus::{Pager, ExitStrategy};
+    use minus::{ExitStrategy, Pager};
 
     let pager = Pager::new();
-    
+
     // CRITICAL: Set exit strategy to PagerQuit so pressing 'q' only quits the pager,
     // not the entire application. This ensures we return to browse mode after help.
-    pager.set_exit_strategy(ExitStrategy::PagerQuit).map_err(|e| {
-        std::io::Error::other(
-            format!("Failed to set exit strategy: {e}"),
-        )
-    })?;
-    
+    pager
+        .set_exit_strategy(ExitStrategy::PagerQuit)
+        .map_err(|e| std::io::Error::other(format!("Failed to set exit strategy: {e}")))?;
 
-    pager.push_str(text).map_err(|e| {
-        std::io::Error::other(
-            format!("Failed to write to pager: {e}"),
-        )
-    })?;
+    pager
+        .push_str(text)
+        .map_err(|e| std::io::Error::other(format!("Failed to write to pager: {e}")))?;
 
-
-    minus::page_all(pager).map_err(|e| {
-        std::io::Error::other(
-            format!("Pager error: {e}"),
-        )
-    })?;
+    minus::page_all(pager).map_err(|e| std::io::Error::other(format!("Pager error: {e}")))?;
 
     Ok(())
 }
@@ -549,19 +562,19 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{TestDb, TempFile};
+    use crate::testing::{TempFile, TestDb};
 
     #[test]
     fn test_executor_creation() {
         let executor = ActionExecutor::new();
         let db = TestDb::new("test_executor_creation");
-        
+
         let context = ActionContext {
             selected_files: &[],
             current_file: None,
             db: db.db(),
         };
-        
+
         let result = executor.execute(&BrowseAction::Cancel, &context);
         assert!(result.is_ok());
     }
@@ -570,16 +583,16 @@ mod tests {
     fn test_action_requires_selection() {
         let executor = ActionExecutor::new();
         let db = TestDb::new("test_action_requires_selection");
-        
+
         let context = ActionContext {
             selected_files: &[],
             current_file: None,
             db: db.db(),
         };
-        
+
         let result = executor.execute(&BrowseAction::RemoveTag, &context);
         assert!(matches!(result, Err(ExecutorError::NoSelection)));
-        
+
         let result = executor.execute(&BrowseAction::CopyPath, &context);
         assert!(matches!(result, Err(ExecutorError::NoSelection)));
     }
@@ -589,10 +602,12 @@ mod tests {
         let _executor = ActionExecutor::new();
         let db = TestDb::new("test_delete_from_db");
         let temp_file = TempFile::create("test_delete.txt").unwrap();
-        
-        db.db().insert(temp_file.path(), vec!["test".to_string()]).unwrap();
+
+        db.db()
+            .insert(temp_file.path(), vec!["test".to_string()])
+            .unwrap();
         assert!(db.db().contains(temp_file.path()).unwrap());
-        
+
         // This test can't easily test the full delete flow without mocking the prompt system
     }
 }

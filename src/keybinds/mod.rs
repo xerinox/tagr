@@ -8,6 +8,6 @@ pub mod config;
 pub mod executor;
 pub mod prompts;
 
-pub use actions::{BrowseAction, ActionResult};
+pub use actions::{ActionResult, BrowseAction};
 pub use config::KeybindConfig;
-pub use executor::{ActionExecutor, ActionContext};
+pub use executor::{ActionContext, ActionExecutor};

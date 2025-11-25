@@ -113,8 +113,11 @@ impl std::fmt::Display for PreviewContent {
             }
             Self::Binary { metadata } => write!(f, "{}", format_file_metadata(metadata)),
             Self::Image { metadata } => write!(f, "{}", format_image_metadata(metadata)),
-            Self::Archive { contents, truncated } => {
-                write!(f, "Archive contents:\n\n{}" , contents.join("\n"))?;
+            Self::Archive {
+                contents,
+                truncated,
+            } => {
+                write!(f, "Archive contents:\n\n{}", contents.join("\n"))?;
                 if *truncated {
                     write!(f, "\n\n[... more files ...]")?;
                 }

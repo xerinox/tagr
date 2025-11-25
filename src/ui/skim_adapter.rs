@@ -38,7 +38,7 @@ impl SkimFinder {
     /// Build skim options from finder configuration
     fn build_skim_options(&self, config: &FinderConfig) -> Result<SkimOptions> {
         let mut builder = SkimOptionsBuilder::default();
-        
+
         builder
             .multi(config.multi_select)
             .prompt(config.prompt.clone())
@@ -51,31 +51,33 @@ impl SkimFinder {
         // Add custom keybinds
         if !config.bind.is_empty() {
             let mut bindings = config.bind.clone();
-            
+
             // When custom bindings are added, skim's default Tab behavior
             // (toggle multi-select) may be lost. Explicitly preserve it.
             if config.multi_select {
                 bindings.push("tab:toggle".to_string());
                 bindings.push("btab:toggle".to_string());
             }
-            
+
             builder.bind(bindings);
         }
 
-                // Preview configuration
+        // Preview configuration
         if let Some(preview_config) = &config.preview_config
-            && preview_config.enabled && self.preview_provider.is_some() {
-                // Skim requires a preview command to enable preview window
-                // Use empty string to signal we're using ItemPreview trait
-                builder.preview(Some(String::new()));
-                
-                let preview_window = format!(
-                    "{}:{}%",
-                    preview_config.position.as_str(),
-                    preview_config.width_percent
-                );
-                builder.preview_window(preview_window);
-            }
+            && preview_config.enabled
+            && self.preview_provider.is_some()
+        {
+            // Skim requires a preview command to enable preview window
+            // Use empty string to signal we're using ItemPreview trait
+            builder.preview(Some(String::new()));
+
+            let preview_window = format!(
+                "{}:{}%",
+                preview_config.position.as_str(),
+                preview_config.width_percent
+            );
+            builder.preview_window(preview_window);
+        }
 
         builder
             .build()
@@ -175,7 +177,6 @@ impl SkimItem for SkimDisplayItem {
     }
 
     fn output(&self) -> Cow<'_, str> {
-
         Cow::Borrowed(&self.item.key)
     }
 
@@ -194,7 +195,9 @@ impl SkimItem for SkimDisplayItem {
                         ItemPreview::Text(preview_text.content)
                     }
                 }
-                Err(_) => ItemPreview::Text(format!("Error generating preview for {}", self.item.key)),
+                Err(_) => {
+                    ItemPreview::Text(format!("Error generating preview for {}", self.item.key))
+                }
             }
         } else {
             ItemPreview::Text(String::new())
@@ -237,11 +240,7 @@ impl PreviewProvider for SkimPreviewProvider {
 }
 
 /// Alternative: Run skim with simple string items (for backwards compatibility)
-pub fn run_skim_simple(
-    items: Vec<String>,
-    multi: bool,
-    prompt: &str,
-) -> Result<FinderResult> {
+pub fn run_skim_simple(items: Vec<String>, multi: bool, prompt: &str) -> Result<FinderResult> {
     let items_text = items.join("\n");
     let item_reader = SkimItemReader::default();
     let items = item_reader.of_bufread(Cursor::new(items_text));

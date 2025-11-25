@@ -27,11 +27,11 @@
 //! │   └─ Cancel (ESC) → Exit
 //! ```
 
+use crate::browse::actions;
 use crate::browse::models::{ActionOutcome, ItemMetadata, TagrItem};
 use crate::browse::session::{AcceptResult, BrowseResult, BrowseSession, PathFormat, PhaseType};
-use crate::browse::actions;
 use crate::keybinds::actions::BrowseAction;
-use crate::keybinds::prompts::{prompt_for_input, prompt_for_confirmation};
+use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input};
 use crate::ui::{DisplayItem, FinderConfig, FuzzyFinder};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
@@ -107,8 +107,10 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         }
                     }
                 }
-                BrowserResult::Action { action, selected_ids } => {
-
+                BrowserResult::Action {
+                    action,
+                    selected_ids,
+                } => {
                     match action {
                         BrowseAction::ShowHelp => {
                             self.show_help(&phase.settings.help_text);
@@ -117,13 +119,15 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         BrowseAction::SelectAll | BrowseAction::ClearSelection => {
                             // These should be handled by skim directly via bindings
                             // If we get here, it's a configuration issue
-                            eprintln!("Warning: {} should be handled by UI bindings", 
-                                action.description());
+                            eprintln!(
+                                "Warning: {} should be handled by UI bindings",
+                                action.description()
+                            );
                             continue;
                         }
                         _ => {}
                     }
-                    
+
                     // Execute session-level action
                     let outcome = self.session.execute_action(action, &selected_ids)?;
 
@@ -181,18 +185,19 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         }
 
         if let Some(key) = &result.final_key
-            && key != "enter" {
-                // Look up action for this key
-                if let Some(action_name) = phase.settings.keybind_config.action_for_key(key) {
-                    // Try to convert action name to BrowseAction
-                    if let Ok(action) = action_name.parse::<BrowseAction>() {
-                        return Ok(BrowserResult::Action {
-                            action,
-                            selected_ids: result.selected,
-                        });
-                    }
+            && key != "enter"
+        {
+            // Look up action for this key
+            if let Some(action_name) = phase.settings.keybind_config.action_for_key(key) {
+                // Try to convert action name to BrowseAction
+                if let Ok(action) = action_name.parse::<BrowseAction>() {
+                    return Ok(BrowserResult::Action {
+                        action,
+                        selected_ids: result.selected,
+                    });
                 }
             }
+        }
 
         Ok(BrowserResult::Accept(result.selected))
     }
@@ -203,7 +208,12 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// - Colors and styling
     /// - Phase-specific formatting
     /// - Metadata annotations
-    fn format_for_display(&self, item: &TagrItem, phase_type: &PhaseType, index: usize) -> DisplayItem {
+    fn format_for_display(
+        &self,
+        item: &TagrItem,
+        phase_type: &PhaseType,
+        index: usize,
+    ) -> DisplayItem {
         match &item.metadata {
             ItemMetadata::Tag(tag_meta) => {
                 // Tag display: "tag_name (N files)"
@@ -266,7 +276,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 // Try to make path relative to current directory
                 std::env::current_dir()
                     .ok()
-                    .and_then(|cwd| path.strip_prefix(&cwd).ok()).map_or_else(|| path.display().to_string(), |p| p.display().to_string())
+                    .and_then(|cwd| path.strip_prefix(&cwd).ok())
+                    .map_or_else(|| path.display().to_string(), |p| p.display().to_string())
             }
             PathFormat::Basename => path
                 .file_name()
@@ -299,9 +310,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 failed,
                 errors,
             } => {
-                println!(
-                    "⚠️  Partial success: {succeeded} succeeded, {failed} failed"
-                );
+                println!("⚠️  Partial success: {succeeded} succeeded, {failed} failed");
                 for error in errors.iter().take(5) {
                     eprintln!("  - {error}");
                 }
@@ -314,35 +323,43 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 eprintln!("❌ {msg}");
                 Err(BrowseError::ActionFailed(msg))
             }
-            ActionOutcome::NeedsInput { prompt, action_id, context } => {
+            ActionOutcome::NeedsInput {
+                prompt,
+                action_id,
+                context,
+            } => {
                 // Prompt user for input
                 let input = prompt_for_input(&prompt)
                     .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
-                
+
                 if input.trim().is_empty() {
                     println!("Cancelled - no input provided");
                     return Ok(());
                 }
-                
+
                 // Execute the action with the input
                 let result = self.execute_action_with_input(&action_id, context.files, &input)?;
-                
+
                 // Recursively handle the result (which should now be Success/Failed/Partial)
                 self.handle_action_outcome(result)
             }
-            ActionOutcome::NeedsConfirmation { message, action_id, context } => {
+            ActionOutcome::NeedsConfirmation {
+                message,
+                action_id,
+                context,
+            } => {
                 // Prompt user for confirmation
                 let confirmed = prompt_for_confirmation(&message)
                     .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
-                
+
                 if !confirmed {
                     println!("Cancelled by user");
                     return Ok(());
                 }
-                
+
                 // Execute the action with confirmation
                 let result = self.execute_confirmed_action(&action_id, context.files)?;
-                
+
                 // Recursively handle the result
                 self.handle_action_outcome(result)
             }
@@ -359,34 +376,28 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
             "add_tag" => {
-                let tags: Vec<String> = input
-                    .split_whitespace()
-                    .map(ToString::to_string)
-                    .collect();
-                
+                let tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+
                 if tags.is_empty() {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
-                
+
                 actions::execute_add_tag(self.session.db(), &files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "remove_tag" => {
-                let tags: Vec<String> = input
-                    .split_whitespace()
-                    .map(ToString::to_string)
-                    .collect();
-                
+                let tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+
                 if tags.is_empty() {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
-                
+
                 actions::execute_remove_tag(self.session.db(), &files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "copy_files" => {
                 let dest_dir = PathBuf::from(input.trim());
-                
+
                 let create_dest = if dest_dir.exists() {
                     false
                 } else {
@@ -396,7 +407,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     ))
                     .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?
                 };
-                
+
                 Ok(actions::execute_copy_files(&files, &dest_dir, create_dest))
             }
             _ => Err(BrowseError::UnexpectedState(format!(
@@ -412,10 +423,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         files: Vec<PathBuf>,
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
-            "delete_from_db" => {
-                actions::execute_delete_from_db(self.session.db(), &files)
-                    .map_err(|e| BrowseError::ActionFailed(e.to_string()))
-            }
+            "delete_from_db" => actions::execute_delete_from_db(self.session.db(), &files)
+                .map_err(|e| BrowseError::ActionFailed(e.to_string())),
             _ => Err(BrowseError::UnexpectedState(format!(
                 "Unknown action_id: {action_id}"
             ))),
@@ -425,9 +434,9 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// Display help text to user
     fn show_help(&self, help_text: &crate::browse::session::HelpText) {
         use crate::browse::session::HelpText;
-        
+
         println!("\n{}", "━".repeat(60).bright_blue());
-        
+
         match help_text {
             HelpText::TagBrowser(_) => {
                 println!("{}", "  TAG BROWSER HELP".bright_cyan().bold());
@@ -436,21 +445,24 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 println!("{}", "  FILE BROWSER HELP".bright_cyan().bold());
             }
         }
-        
+
         println!("{}", "━".repeat(60).bright_blue());
-        
+
         let keybinds = match help_text {
             HelpText::TagBrowser(k) | HelpText::FileBrowser(k) => k,
         };
-        
+
         for (key, desc) in keybinds {
             println!("  {:<15} {}", key.bright_yellow(), desc);
         }
-        
+
         println!("{}", "━".repeat(60).bright_blue());
-        println!("\nPress {} to continue (or {} to exit browse mode)...", 
-            "Enter".bright_green(), "ESC".bright_yellow());
-        
+        println!(
+            "\nPress {} to continue (or {} to exit browse mode)...",
+            "Enter".bright_green(),
+            "ESC".bright_yellow()
+        );
+
         let mut input = String::new();
         let _ = std::io::stdin().read_line(&mut input);
     }
@@ -521,7 +533,7 @@ mod tests {
                 .get(*count)
                 .ok_or_else(|| crate::ui::UiError::BuildError("No more mock results".into()))?;
             *count += 1;
-            
+
             // Clone manually since FinderResult doesn't derive Clone
             Ok(FinderResult {
                 selected: result.selected.clone(),
