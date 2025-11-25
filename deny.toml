@@ -1,0 +1,37 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+# Check for security vulnerabilities in dependencies
+vulnerability = "deny"
+unmaintained = "warn"
+unsound = "warn"
+yanked = "warn"
+notice = "warn"
+
+[licenses]
+# Allow common open-source licenses
+unlicensed = "deny"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+]
+copyleft = "warn"
+allow-osi-fsf-free = "both"
+default = "deny"
+
+[bans]
+# Deny multiple versions of the same crate
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+
+[sources]
+# Only allow crates from crates.io
+unknown-registry = "deny"
+unknown-git = "deny"
