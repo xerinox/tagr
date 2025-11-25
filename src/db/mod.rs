@@ -194,7 +194,6 @@ impl Database {
         let path = file.as_ref();
         let existing = self.get_tags(path)?.unwrap_or_default();
 
-        // Use HashSet for efficient deduplication
         let mut tag_set: HashSet<String> = existing.into_iter().collect();
         tag_set.extend(new_tags);
 
@@ -705,7 +704,6 @@ mod tests {
             let tags = db.get_tags(file.path()).unwrap();
             assert_eq!(tags, Some(vec!["saved".into()]));
 
-            // Clean up
             db.clear().unwrap();
         }
 

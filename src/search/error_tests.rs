@@ -102,7 +102,9 @@ mod tests {
                 SearchError::BuildError(msg) => {
                     assert_eq!(msg, "error1");
                 }
-                SearchError::InterruptedError | SearchError::DatabaseError(_) | SearchError::UiError(_) => {
+                SearchError::InterruptedError
+                | SearchError::DatabaseError(_)
+                | SearchError::UiError(_) => {
                     // Expected
                 }
             }
@@ -171,7 +173,7 @@ mod tests {
         let search_error = SearchError::from(ui_error);
 
         match search_error {
-            SearchError::UiError(_) => {},
+            SearchError::UiError(_) => {}
             _ => panic!("Expected UiError variant"),
         }
     }

@@ -39,7 +39,6 @@ pub fn execute(
         }
     }
 
-    // Validate query mode doesn't mix with other flags
     if params.query.is_some() && (!params.tags.is_empty() || !params.file_patterns.is_empty()) {
         return Err(TagrError::InvalidInput(
             "Cannot use general query with -t or -f flags. Use either 'tagr search <query>' or 'tagr search -t <tag> -f <pattern>'.".into()

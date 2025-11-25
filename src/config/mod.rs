@@ -59,27 +59,27 @@ pub struct PreviewConfig {
     /// Enable preview pane
     #[serde(default = "default_preview_enabled")]
     pub enabled: bool,
-    
+
     /// Maximum file size to preview (bytes)
     #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
-    
+
     /// Maximum lines to display
     #[serde(default = "default_max_lines")]
     pub max_lines: usize,
-    
+
     /// Enable syntax highlighting
     #[serde(default = "default_syntax_highlighting")]
     pub syntax_highlighting: bool,
-    
+
     /// Show line numbers
     #[serde(default = "default_show_line_numbers")]
     pub show_line_numbers: bool,
-    
+
     /// Position of preview pane
     #[serde(default)]
     pub position: PreviewPosition,
-    
+
     /// Width percentage (0-100)
     #[serde(default = "default_width_percent")]
     pub width_percent: u8,
@@ -123,18 +123,16 @@ const fn default_width_percent() -> u8 {
     50
 }
 
-impl PreviewConfig {
-    /// Convert to UI trait `PreviewConfig`
-    #[must_use]
-    pub const fn to_ui_config(&self) -> crate::ui::PreviewConfig {
-        crate::ui::PreviewConfig {
-            enabled: self.enabled,
-            max_file_size: self.max_file_size,
-            max_lines: self.max_lines,
-            syntax_highlighting: self.syntax_highlighting,
-            show_line_numbers: self.show_line_numbers,
-            position: self.position,
-            width_percent: self.width_percent,
+impl From<&PreviewConfig> for crate::ui::PreviewConfig {
+    fn from(config: &PreviewConfig) -> Self {
+        Self {
+            enabled: config.enabled,
+            max_file_size: config.max_file_size,
+            max_lines: config.max_lines,
+            syntax_highlighting: config.syntax_highlighting,
+            show_line_numbers: config.show_line_numbers,
+            position: config.position,
+            width_percent: config.width_percent,
         }
     }
 }

@@ -83,8 +83,16 @@ impl PreviewContent {
     }
 
     /// Get a display string for the content
+    ///
+    /// Note: Also available via the `Display` trait
     #[must_use]
     pub fn to_display_string(&self) -> String {
+        format!("{self}")
+    }
+}
+
+impl std::fmt::Display for PreviewContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Text {
                 lines,
@@ -92,28 +100,31 @@ impl PreviewContent {
                 total_lines,
                 has_ansi: _,
             } => {
-                let mut output = lines.join("\n");
+                write!(f, "{}", lines.join("\n"))?;
                 if *truncated {
-                    output.push_str(&format!(
+                    write!(
+                        f,
                         "\n\n[... truncated, showing {} of {} lines ...]",
                         lines.len(),
                         total_lines
-                    ));
+                    )?;
                 }
-                output
+                Ok(())
             }
-            Self::Binary { metadata } => format_file_metadata(metadata),
-            Self::Image { metadata } => format_image_metadata(metadata),
-            Self::Archive { contents, truncated } => {
-                let mut output = String::from("Archive contents:\n\n");
-                output.push_str(&contents.join("\n"));
+            Self::Binary { metadata } => write!(f, "{}", format_file_metadata(metadata)),
+            Self::Image { metadata } => write!(f, "{}", format_image_metadata(metadata)),
+            Self::Archive {
+                contents,
+                truncated,
+            } => {
+                write!(f, "Archive contents:\n\n{}", contents.join("\n"))?;
                 if *truncated {
-                    output.push_str("\n\n[... more files ...]");
+                    write!(f, "\n\n[... more files ...]")?;
                 }
-                output
+                Ok(())
             }
-            Self::Empty => "Empty file (0 bytes)".to_string(),
-            Self::Error(msg) => format!("Error: {msg}"),
+            Self::Empty => write!(f, "Empty file (0 bytes)"),
+            Self::Error(msg) => write!(f, "Error: {msg}"),
         }
     }
 }
@@ -121,28 +132,29 @@ impl PreviewContent {
 /// Format file metadata for display
 fn format_file_metadata(metadata: &FileMetadata) -> String {
     use byte_unit::{Byte, UnitType};
+    use std::fmt::Write;
 
     let mut output = String::from("Binary file - cannot preview\n\n");
-    output.push_str(&format!("Path: {}\n", metadata.path.display()));
+    let _ = writeln!(output, "Path: {}", metadata.path.display());
 
     let size = Byte::from_u64(metadata.size)
         .get_appropriate_unit(UnitType::Binary)
         .to_string();
-    output.push_str(&format!("Size: {size}\n"));
+    let _ = writeln!(output, "Size: {size}");
 
     if let Some(modified) = metadata.modified {
         use chrono::{Local, TimeZone};
         if let Some(dt) = Local.timestamp_opt(modified, 0).single() {
-            output.push_str(&format!("Modified: {}\n", dt.format("%Y-%m-%d %H:%M:%S")));
+            let _ = writeln!(output, "Modified: {}", dt.format("%Y-%m-%d %H:%M:%S"));
         }
     }
 
     if let Some(perms) = &metadata.permissions {
-        output.push_str(&format!("Permissions: {perms}\n"));
+        let _ = writeln!(output, "Permissions: {perms}");
     }
 
     if let Some(file_type) = &metadata.file_type {
-        output.push_str(&format!("Type: {file_type}\n"));
+        let _ = writeln!(output, "Type: {file_type}");
     }
 
     output
@@ -150,15 +162,17 @@ fn format_file_metadata(metadata: &FileMetadata) -> String {
 
 /// Format image metadata for display
 fn format_image_metadata(metadata: &ImageMetadata) -> String {
+    use std::fmt::Write;
+
     let mut output = format_file_metadata(&metadata.file_metadata);
     output.push('\n');
 
     if let Some(format) = &metadata.format {
-        output.push_str(&format!("Format: {format}\n"));
+        let _ = writeln!(output, "Format: {format}");
     }
 
     if let (Some(width), Some(height)) = (metadata.width, metadata.height) {
-        output.push_str(&format!("Dimensions: {width} x {height} pixels\n"));
+        let _ = writeln!(output, "Dimensions: {width} x {height} pixels");
     }
 
     output

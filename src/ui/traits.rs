@@ -16,18 +16,21 @@ pub struct FinderConfig {
     pub ansi: bool,
     /// Preview configuration (None = no preview)
     pub preview_config: Option<PreviewConfig>,
+    /// Custom keybinds (skim --bind format: "key:action")
+    pub bind: Vec<String>,
 }
 
 impl FinderConfig {
     /// Create a basic finder configuration
     #[must_use]
-    pub fn new(items: Vec<DisplayItem>, prompt: String) -> Self {
+    pub const fn new(items: Vec<DisplayItem>, prompt: String) -> Self {
         Self {
             items,
             multi_select: false,
             prompt,
             ansi: false,
             preview_config: None,
+            bind: Vec::new(),
         }
     }
 
@@ -47,8 +50,15 @@ impl FinderConfig {
 
     /// Set preview configuration
     #[must_use]
-    pub fn with_preview(mut self, config: PreviewConfig) -> Self {
+    pub const fn with_preview(mut self, config: PreviewConfig) -> Self {
         self.preview_config = Some(config);
+        self
+    }
+
+    /// Set custom keybinds
+    #[must_use]
+    pub fn with_binds(mut self, bind: Vec<String>) -> Self {
+        self.bind = bind;
         self
     }
 }
@@ -131,7 +141,7 @@ pub struct PreviewText {
 impl PreviewText {
     /// Create preview text without ANSI codes
     #[must_use]
-    pub fn plain(content: String) -> Self {
+    pub const fn plain(content: String) -> Self {
         Self {
             content,
             has_ansi: false,
@@ -140,7 +150,7 @@ impl PreviewText {
 
     /// Create preview text with ANSI codes
     #[must_use]
-    pub fn ansi(content: String) -> Self {
+    pub const fn ansi(content: String) -> Self {
         Self {
             content,
             has_ansi: true,

@@ -46,9 +46,7 @@ impl FuzzyFinder for MockFinder {
         if self.should_abort {
             Ok(FinderResult::aborted())
         } else {
-            Ok(FinderResult::selected(
-                self.predetermined_selection.clone(),
-            ))
+            Ok(FinderResult::selected(self.predetermined_selection.clone()))
         }
     }
 }

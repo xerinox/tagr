@@ -129,6 +129,7 @@ mod tests {
         ExtTypeCategory, GitCondition, PermissionCondition, RangeCondition, SizeCategory,
         SizeCondition, TimeCondition,
     };
+    use std::path::Path;
 
     #[test]
     fn test_parse_modified_today() {
@@ -187,7 +188,7 @@ mod tests {
     #[test]
     fn test_parse_directory() {
         let tag: VirtualTag = "dir:/home/user".try_into().unwrap();
-        assert!(matches!(tag, VirtualTag::Directory(p) if p == PathBuf::from("/home/user")));
+        assert!(matches!(tag, VirtualTag::Directory(p) if p.as_path() == Path::new("/home/user")));
     }
 
     #[test]

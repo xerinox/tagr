@@ -11,6 +11,7 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 - 🎯 **Multi-select** - Select multiple tags and files at once
 - 🔮 **Virtual tags** - Query files by metadata (size, modification time, extension, etc.) without database storage
 - 💾 **Saved filters** - Save complex search criteria as named filters for quick recall
+- ⚙️ **Action menu** - Perform tag operations directly after file selection (experimental)
 - 🧹 **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
 - 💾 **Persistent storage** - Reliable embedded database with automatic flushing
 - 📊 **Multiple databases** - Manage separate databases for different projects
@@ -138,7 +139,7 @@ tagr browse -t config -x "cat {}"
 | ↑↓ or Ctrl+J/K | Navigate |
 | TAB | Select/deselect (multi-select) |
 | Enter | Confirm and proceed |
-| ESC / Ctrl+C | Cancel |
+| ESC | Cancel |
 | Type | Filter via fuzzy matching |
 
 ### Examples
@@ -155,7 +156,71 @@ tagr browse -t tutorial -f "*.rs" -x "nvim {}"
 
 # Browse any doc format, excluding archived
 tagr browse -t documentation -e archived
+
+# Browse with experimental action menu (Phase 1)
+tagr browse --with-actions
 ```
+
+### Action Menu (Experimental)
+
+**New in v0.5.0** - Phase 1 of advanced keybinds feature
+
+Use `--with-actions` to enable an interactive action menu after file selection:
+
+```bash
+tagr browse --with-actions
+```
+
+After selecting files, you'll see an action menu with these options:
+
+- **Continue (use selections)** - Exit with your selected files
+- **Add tags to selected files** - Interactively add tags to all selected files
+- **Remove tags from selected files** - Choose tags to remove from selected files
+- **Delete from database** - Remove files from the database (with confirmation)
+- **Cancel (re-select)** - Go back and select different files
+
+**Why experimental?** This is Phase 1 of the keybinds feature, using a post-selection menu approach. Future phases will add real-time keybinds within the fuzzy finder, additional file operations (open, copy, edit), and full keybind customization.
+
+### Real-Time Keybinds
+
+**New in v0.5.0** - Real-time action keybinds are now enabled by default in browse mode!
+
+Browse mode now features real-time action keybinds directly within the fuzzy finder:
+
+```bash
+tagr browse
+```
+
+Trigger actions immediately while browsing without exiting the finder:
+
+| Keybind | Action | Description |
+|---------|--------|-------------|
+| **Ctrl+T** | Add Tag | Add tags to selected files and continue browsing |
+| **Ctrl+R** | Remove Tag | Remove tags from selected files and continue browsing |
+| **Ctrl+D** | Delete from DB | Remove files from database (with confirmation) |
+| **Enter** | Confirm | Exit with selected files |
+| **ESC** | Cancel | Abort and exit browse mode |
+
+**Workflow Example:**
+1. Browse and select files with TAB
+2. Press **Ctrl+T** to add tags (e.g., "urgent")
+3. Continue browsing the same file list
+4. Press **Ctrl+R** to remove unwanted tags
+5. Press **Enter** to confirm final selection
+
+**Keybind Customization:**
+Configure keybinds in `~/.config/tagr/keybinds.toml`:
+
+```toml
+[keybinds]
+add_tag = "ctrl-t"
+remove_tag = "ctrl-r"
+delete_from_db = "ctrl-d"
+# Set to "none" to disable an action
+# edit_tags = "none"
+```
+
+Future enhancements will add more actions (edit tags, open files, copy paths), better visual feedback, and help overlay.
 
 ## Preview Pane
 
@@ -870,7 +935,9 @@ src/
 tagr can be used as a library in your Rust projects:
 
 ```rust
-use tagr::{db::Database, search, filters::FilterManager};
+use tagr::{db::Database, browse, filters::FilterManager};
+use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
+use tagr::ui::skim_adapter::SkimFinder;
 use std::path::PathBuf;
 
 // Database operations
@@ -882,14 +949,151 @@ let files = db.find_by_tag("tag1").unwrap();
 let filter_manager = FilterManager::new(PathBuf::from("~/.config/tagr/filters.toml"));
 let filters = filter_manager.list().unwrap();
 
-// Interactive browse
-match search::browse(&db) {
+// Interactive browse with skim
+let config = BrowseConfig::default();
+let session = BrowseSession::new(&db, config).unwrap();
+let finder = SkimFinder::new();
+let controller = BrowseController::new(session, finder);
+
+match controller.run() {
     Ok(Some(result)) => {
-        println!("Selected {} files", result.selected_files.len());
+        println!("Selected {} files from tags: {:?}", 
+            result.selected_files.len(),
+            result.selected_tags);
+        
+        for file in result.selected_files {
+            println!("  - {}", file.display());
+        }
     }
-    Ok(None) => println!("Cancelled"),
+    Ok(None) => println!("Browse cancelled"),
     Err(e) => eprintln!("Error: {}", e),
 }
+```
+
+### Interactive Browse API
+
+The browse functionality is cleanly separated into business logic and UI layers, making it easy to swap UI backends (e.g., skim → ratatui):
+
+```rust
+use tagr::browse::{BrowseSession, BrowseController, BrowseConfig, PathFormat};
+use tagr::ui::skim_adapter::SkimFinder;
+
+// Configure browse session
+let config = BrowseConfig {
+    initial_search: None,  // Start with tag selection
+    path_format: PathFormat::Relative,  // Show relative paths
+    tag_phase_settings: Default::default(),
+    file_phase_settings: Default::default(),
+};
+
+let session = BrowseSession::new(&db, config).unwrap();
+let controller = BrowseController::new(session, SkimFinder::new());
+
+if let Ok(Some(result)) = controller.run() {
+    // Process selected files
+    for file in result.selected_files {
+        println!("{}", file.display());
+    }
+}
+```
+
+### Direct Action Execution (without browse)
+
+You can execute actions directly without the interactive browser:
+
+```rust
+use tagr::browse::actions;
+use std::path::PathBuf;
+
+let files = vec![
+    PathBuf::from("src/main.rs"),
+    PathBuf::from("src/lib.rs"),
+];
+let tags = vec!["rust".to_string(), "important".to_string()];
+
+// Add tags to files
+match actions::execute_add_tag(&db, &files, &tags) {
+    Ok(outcome) => match outcome {
+        tagr::browse::models::ActionOutcome::Success { affected_count, details } => {
+            println!("✓ {} ({} files)", details, affected_count);
+        }
+        tagr::browse::models::ActionOutcome::Partial { succeeded, failed, errors } => {
+            println!("⚠️  {} succeeded, {} failed", succeeded, failed);
+            for error in &errors {
+                eprintln!("  - {}", error);
+            }
+        }
+        _ => {}
+    }
+    Err(e) => eprintln!("Error: {}", e),
+}
+
+// Other available actions
+actions::execute_remove_tag(&db, &files, &["old_tag".to_string()]).unwrap();
+actions::execute_delete_from_db(&db, &files).unwrap();
+actions::execute_open_in_default(&files);
+actions::execute_open_in_editor(&files, "vim");
+actions::execute_copy_path(&files).unwrap();
+actions::execute_copy_files(&files, &PathBuf::from("/dest"), false);
+```
+
+### Custom Frontend Implementation
+
+To implement a custom UI backend (e.g., ratatui), implement the `FuzzyFinder` trait:
+
+```rust
+use tagr::ui::{FuzzyFinder, FinderConfig, FinderResult};
+
+struct MyCustomFinder {
+    // Your UI state
+}
+
+impl FuzzyFinder for MyCustomFinder {
+    fn run(&self, config: FinderConfig) -> tagr::ui::Result<FinderResult> {
+        // Your custom UI implementation
+        // - Render config.items (Vec<DisplayItem>)
+        // - Handle user input
+        // - Return selected item IDs
+        
+        Ok(FinderResult {
+            selected: vec!["item1".to_string(), "item2".to_string()],
+            aborted: false,
+            final_key: Some("enter".to_string()),
+        })
+    }
+}
+
+// Use your custom finder
+let session = BrowseSession::new(&db, BrowseConfig::default()).unwrap();
+let controller = BrowseController::new(session, MyCustomFinder::new());
+controller.run().unwrap();
+```
+
+For a complete guide on implementing custom frontends, see [`docs/custom-frontend-guide.md`](docs/custom-frontend-guide.md).
+
+### Query Business Logic
+
+Access pure query functions without UI:
+
+```rust
+use tagr::browse::query;
+use tagr::browse::models::TagrItem;
+
+// Get all tags with file counts
+let tags: Vec<TagrItem> = query::get_available_tags(&db).unwrap();
+for tag in tags {
+    println!("{}: {} files", tag.name, /* extract file_count from metadata */);
+}
+
+// Get files by search parameters
+use tagr::cli::SearchParams;
+let search = SearchParams {
+    tags: vec!["rust".to_string()],
+    tag_mode: tagr::cli::SearchMode::Any,
+    ..Default::default()
+};
+
+let files = query::get_matching_files(&db, &search).unwrap();
 ```
 
 ### Filter Management API

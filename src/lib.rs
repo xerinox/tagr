@@ -8,11 +8,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
 
+pub mod browse;
 pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod db;
 pub mod filters;
+pub mod keybinds;
 pub mod output;
 pub mod preview;
 pub mod search;
@@ -31,6 +33,9 @@ pub enum TagrError {
     /// Search error
     #[error("Search error: {0}")]
     SearchError(#[from] search::SearchError),
+    /// Browse error
+    #[error("Browse error: {0}")]
+    BrowseError(String),
     /// Filter error
     #[error("Filter error: {0}")]
     FilterError(#[from] filters::FilterError),
