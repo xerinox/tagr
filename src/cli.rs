@@ -106,6 +106,41 @@ pub struct PreviewOverrides {
     pub preview_width: Option<u8>,
 }
 
+// ============================================================================
+// Command Context Types
+// ============================================================================
+
+/// Context for tag command execution
+#[derive(Debug, Clone)]
+pub struct TagContext {
+    /// File to tag
+    pub file: Option<PathBuf>,
+    /// Tags to add
+    pub tags: Vec<String>,
+}
+
+/// Context for untag command execution
+#[derive(Debug, Clone)]
+pub struct UntagContext {
+    /// File to untag
+    pub file: Option<PathBuf>,
+    /// Tags to remove (empty if removing all)
+    pub tags: Vec<String>,
+    /// Remove all tags from file
+    pub all: bool,
+}
+
+/// Context for browse command execution
+#[derive(Debug, Clone)]
+pub struct BrowseContext {
+    /// Initial search parameters
+    pub search_params: Option<SearchParams>,
+    /// Command to execute on selected files
+    pub execute_cmd: Option<String>,
+    /// Preview configuration overrides
+    pub preview_overrides: PreviewOverrides,
+}
+
 impl SearchParams {
     /// Merge with another `SearchParams` (typically from a loaded filter)
     ///
@@ -647,35 +682,26 @@ pub enum Commands {
 }
 
 impl Commands {
-    /// Helper method to get the file path from either flag or positional argument
+    /// Get tag command context
     #[must_use]
-    pub fn get_file_from_tag(&self) -> Option<PathBuf> {
+    pub fn get_tag_context(&self) -> Option<TagContext> {
         match self {
             Self::Tag {
                 file_flag,
                 file_pos,
-                ..
-            } => file_flag.clone().or_else(|| file_pos.clone()),
-            _ => None,
-        }
-    }
-
-    /// Helper method to get tags from either flag or positional arguments
-    #[must_use]
-    pub fn get_tags_from_tag(&self) -> &[String] {
-        match self {
-            Self::Tag {
                 tags_flag,
                 tags_pos,
                 ..
             } => {
-                if tags_flag.is_empty() {
-                    tags_pos
+                let file = file_flag.clone().or_else(|| file_pos.clone());
+                let tags = if tags_flag.is_empty() {
+                    tags_pos.clone()
                 } else {
-                    tags_flag
-                }
+                    tags_flag.clone()
+                };
+                Some(TagContext { file, tags })
             }
-            _ => &[],
+            _ => None,
         }
     }
 
@@ -713,44 +739,21 @@ impl Commands {
         }
     }
 
-    /// Helper method to get the execute command from browse
+    /// Get browse command context
     #[must_use]
-    pub fn get_execute_from_browse(&self) -> Option<String> {
-        match self {
-            Self::Browse { execute, .. } => execute.clone(),
-            _ => None,
-        }
-    }
-
-    /// Helper method to get preview configuration overrides from browse
-    #[must_use]
-    pub fn get_preview_overrides_from_browse(&self) -> Option<PreviewOverrides> {
+    pub fn get_browse_context(&self) -> Option<BrowseContext> {
         match self {
             Self::Browse {
+                query,
+                criteria,
+                execute,
                 no_preview,
                 preview_lines,
                 preview_position,
                 preview_width,
                 ..
-            } => Some(PreviewOverrides {
-                no_preview: *no_preview,
-                preview_lines: *preview_lines,
-                preview_position: preview_position.clone(),
-                preview_width: *preview_width,
-            }),
-            _ => None,
-        }
-    }
-
-    /// Helper method to get search parameters from browse command
-    #[must_use]
-    pub fn get_search_params_from_browse(&self) -> Option<SearchParams> {
-        match self {
-            Self::Browse {
-                query, criteria, ..
             } => {
-                // Only return search params if at least one filter is specified
-                if query.is_some()
+                let search_params = if query.is_some()
                     || !criteria.tags.is_empty()
                     || !criteria.file_patterns.is_empty()
                     || !criteria.excludes.is_empty()
@@ -759,7 +762,7 @@ impl Commands {
                     Some(SearchParams {
                         query: query.clone(),
                         tags: criteria.tags.clone(),
-                        tag_mode: SearchMode::Any, // Browse uses OR logic by default
+                        tag_mode: SearchMode::Any,
                         file_patterns: criteria.file_patterns.clone(),
                         file_mode: SearchMode::Any,
                         exclude_tags: criteria.excludes.clone(),
@@ -770,50 +773,48 @@ impl Commands {
                     })
                 } else {
                     None
-                }
+                };
+
+                Some(BrowseContext {
+                    search_params,
+                    execute_cmd: execute.clone(),
+                    preview_overrides: PreviewOverrides {
+                        no_preview: *no_preview,
+                        preview_lines: *preview_lines,
+                        preview_position: preview_position.clone(),
+                        preview_width: *preview_width,
+                    },
+                })
             }
             _ => None,
         }
     }
 
-    /// Helper method to get the file path from untag command
+    /// Get untag command context
     #[must_use]
-    pub fn get_file_from_untag(&self) -> Option<PathBuf> {
+    pub fn get_untag_context(&self) -> Option<UntagContext> {
         match self {
             Self::Untag {
                 file_flag,
                 file_pos,
-                ..
-            } => file_flag.clone().or_else(|| file_pos.clone()),
-            _ => None,
-        }
-    }
-
-    /// Helper method to get tags from untag command
-    #[must_use]
-    pub fn get_tags_from_untag(&self) -> &[String] {
-        match self {
-            Self::Untag {
                 tags_flag,
                 tags_pos,
+                all,
                 ..
             } => {
-                if tags_flag.is_empty() {
-                    tags_pos
+                let file = file_flag.clone().or_else(|| file_pos.clone());
+                let tags = if tags_flag.is_empty() {
+                    tags_pos.clone()
                 } else {
-                    tags_flag
-                }
+                    tags_flag.clone()
+                };
+                Some(UntagContext {
+                    file,
+                    tags,
+                    all: *all,
+                })
             }
-            _ => &[],
-        }
-    }
-
-    /// Helper method to check if untag should remove all tags
-    #[must_use]
-    pub const fn get_all_from_untag(&self) -> bool {
-        match self {
-            Self::Untag { all, .. } => *all,
-            _ => false,
+            _ => None,
         }
     }
 
@@ -893,10 +894,9 @@ mod tests {
     fn test_parse_tag_with_flags() {
         let cli = Cli::parse_from(["tagr", "tag", "-f", "test.txt", "-t", "tag1", "tag2"]);
         if let Some(Commands::Tag { .. }) = cli.command {
-            let file = cli.command.as_ref().unwrap().get_file_from_tag();
-            let tags = cli.command.as_ref().unwrap().get_tags_from_tag();
-            assert_eq!(file, Some(PathBuf::from("test.txt")));
-            assert_eq!(tags, vec!["tag1".to_string(), "tag2".to_string()]);
+            let ctx = cli.command.as_ref().unwrap().get_tag_context().unwrap();
+            assert_eq!(ctx.file, Some(PathBuf::from("test.txt")));
+            assert_eq!(ctx.tags, vec!["tag1".to_string(), "tag2".to_string()]);
         } else {
             panic!("Expected Tag command");
         }
@@ -906,10 +906,9 @@ mod tests {
     fn test_parse_tag_with_positional() {
         let cli = Cli::parse_from(["tagr", "tag", "test.txt", "tag1", "tag2"]);
         if let Some(Commands::Tag { .. }) = cli.command {
-            let file = cli.command.as_ref().unwrap().get_file_from_tag();
-            let tags = cli.command.as_ref().unwrap().get_tags_from_tag();
-            assert_eq!(file, Some(PathBuf::from("test.txt")));
-            assert_eq!(tags, vec!["tag1".to_string(), "tag2".to_string()]);
+            let ctx = cli.command.as_ref().unwrap().get_tag_context().unwrap();
+            assert_eq!(ctx.file, Some(PathBuf::from("test.txt")));
+            assert_eq!(ctx.tags, vec!["tag1".to_string(), "tag2".to_string()]);
         } else {
             panic!("Expected Tag command");
         }
@@ -1006,8 +1005,8 @@ mod tests {
     fn test_browse_with_exec() {
         let cli = Cli::parse_from(["tagr", "browse", "-x", "cat {}"]);
         if let Some(Commands::Browse { .. }) = cli.command {
-            let exec_cmd = cli.command.as_ref().unwrap().get_execute_from_browse();
-            assert_eq!(exec_cmd, Some("cat {}".to_string()));
+            let ctx = cli.command.as_ref().unwrap().get_browse_context().unwrap();
+            assert_eq!(ctx.execute_cmd, Some("cat {}".to_string()));
         } else {
             panic!("Expected Browse command");
         }
@@ -1017,13 +1016,9 @@ mod tests {
     fn test_browse_with_query() {
         let cli = Cli::parse_from(["tagr", "browse", "documents"]);
         if let Some(Commands::Browse { .. }) = cli.command {
-            let params = cli
-                .command
-                .as_ref()
-                .unwrap()
-                .get_search_params_from_browse();
-            assert!(params.is_some());
-            let params = params.unwrap();
+            let ctx = cli.command.as_ref().unwrap().get_browse_context().unwrap();
+            assert!(ctx.search_params.is_some());
+            let params = ctx.search_params.unwrap();
             assert_eq!(params.query, Some("documents".to_string()));
         } else {
             panic!("Expected Browse command");
@@ -1043,13 +1038,9 @@ mod tests {
             "*.md",
         ]);
         if let Some(Commands::Browse { .. }) = cli.command {
-            let params = cli
-                .command
-                .as_ref()
-                .unwrap()
-                .get_search_params_from_browse();
-            assert!(params.is_some());
-            let params = params.unwrap();
+            let ctx = cli.command.as_ref().unwrap().get_browse_context().unwrap();
+            assert!(ctx.search_params.is_some());
+            let params = ctx.search_params.unwrap();
             assert_eq!(params.tags, vec!["documents".to_string()]);
             assert_eq!(params.file_patterns, vec!["*.txt".to_string()]);
             assert_eq!(params.exclude_tags, vec!["*.md".to_string()]);

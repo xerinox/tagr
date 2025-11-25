@@ -336,9 +336,7 @@ fn main() -> Result<()> {
 
         match &command {
             Commands::Browse { filter_args, .. } => {
-                let search_params = command.get_search_params_from_browse();
-                let execute_cmd = command.get_execute_from_browse();
-                let preview_overrides = command.get_preview_overrides_from_browse();
+                let ctx = command.get_browse_context().unwrap();
 
                 let save_filter = filter_args
                     .save_filter
@@ -347,19 +345,18 @@ fn main() -> Result<()> {
 
                 commands::browse(
                     &db,
-                    search_params,
+                    ctx.search_params,
                     filter_args.filter.as_deref(),
                     save_filter,
-                    execute_cmd,
-                    preview_overrides.as_ref(),
+                    ctx.execute_cmd,
+                    Some(&ctx.preview_overrides),
                     path_format,
                     quiet,
                 )?;
             }
             Commands::Tag { .. } => {
-                let file = command.get_file_from_tag();
-                let tags = command.get_tags_from_tag();
-                commands::tag(&db, file, tags, quiet)?;
+                let ctx = command.get_tag_context().unwrap();
+                commands::tag(&db, ctx.file, &ctx.tags, quiet)?;
             }
             Commands::Search { filter_args, .. } => {
                 let params = command.get_search_params().ok_or_else(|| {
@@ -381,10 +378,8 @@ fn main() -> Result<()> {
                 )?;
             }
             Commands::Untag { .. } => {
-                let file = command.get_file_from_untag();
-                let tags = command.get_tags_from_untag();
-                let all = command.get_all_from_untag();
-                commands::tag::untag(&db, file, tags, all, quiet)?;
+                let ctx = command.get_untag_context().unwrap();
+                commands::tag::untag(&db, ctx.file, &ctx.tags, ctx.all, quiet)?;
             }
             Commands::Tags { command } => {
                 commands::tags(&db, command, quiet)?;
