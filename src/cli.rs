@@ -357,6 +357,68 @@ pub enum DbCommands {
     },
 }
 
+/// Bulk operation subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum BulkCommands {
+    /// Add tags to multiple files matching search criteria
+    Tag {
+        #[command(flatten)]
+        criteria: SearchCriteriaArgs,
+
+        /// Tags to add to matching files
+        #[arg(value_name = "TAG", required = true)]
+        add_tags: Vec<String>,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Remove tags from multiple files matching search criteria
+    Untag {
+        #[command(flatten)]
+        criteria: SearchCriteriaArgs,
+
+        /// Tags to remove (omit with --all to remove all tags)
+        #[arg(value_name = "TAG")]
+        remove_tags: Vec<String>,
+
+        /// Remove all tags from matching files
+        #[arg(short = 'a', long = "all")]
+        all: bool,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Rename a tag globally across all files in the database
+    #[command(visible_alias = "rename")]
+    RenameTag {
+        /// Current tag name
+        old_tag: String,
+
+        /// New tag name
+        new_tag: String,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+}
+
 /// Filter management subcommands
 #[derive(Subcommand, Debug, Clone)]
 pub enum FilterCommands {
@@ -665,6 +727,15 @@ pub enum Commands {
         command: TagsCommands,
     },
 
+    /// Perform bulk operations on multiple files
+    Bulk {
+        #[command(subcommand)]
+        command: BulkCommands,
+
+        #[command(flatten)]
+        db_args: DbArgs,
+    },
+
     /// Clean up database by removing missing files and files with no tags
     #[command(visible_alias = "c")]
     Cleanup {
@@ -828,9 +899,53 @@ impl Commands {
             | Self::Tag { db_args, .. }
             | Self::Search { db_args, .. }
             | Self::Untag { db_args, .. }
+            | Self::Bulk { db_args, .. }
             | Self::Cleanup { db_args }
             | Self::List { db_args, .. } => db_args.db.clone(),
             _ => None,
+        }
+    }
+
+    /// Helper method to convert SearchCriteriaArgs to SearchParams
+    fn search_criteria_to_params(criteria: &SearchCriteriaArgs) -> SearchParams {
+        SearchParams {
+            query: None,
+            tags: criteria.tags.clone(),
+            tag_mode: if criteria.any_tag {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+            file_patterns: criteria.file_patterns.clone(),
+            file_mode: if criteria.any_file {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+            exclude_tags: criteria.excludes.clone(),
+            regex_tag: criteria.regex_tag,
+            regex_file: criteria.regex_file,
+            virtual_tags: criteria.virtual_tags.clone(),
+            virtual_mode: if criteria.any_virtual {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+        }
+    }
+
+    /// Get bulk command details
+    #[must_use]
+    pub fn get_bulk_context(&self) -> Option<(&BulkCommands, bool, bool)> {
+        if let Self::Bulk { command, .. } = self {
+            let (dry_run, yes) = match command {
+                BulkCommands::Tag { dry_run, yes, .. } => (*dry_run, *yes),
+                BulkCommands::Untag { dry_run, yes, .. } => (*dry_run, *yes),
+                BulkCommands::RenameTag { dry_run, yes, .. } => (*dry_run, *yes),
+            };
+            Some((command, dry_run, yes))
+        } else {
+            None
         }
     }
 }

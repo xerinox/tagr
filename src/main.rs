@@ -384,6 +384,87 @@ fn main() -> Result<()> {
             Commands::Tags { command } => {
                 commands::tags(&db, command, quiet)?;
             }
+            Commands::Bulk { command, .. } => {
+                use tagr::cli::BulkCommands;
+
+                match command {
+                    BulkCommands::Tag {
+                        criteria,
+                        add_tags,
+                        dry_run,
+                        yes,
+                    } => {
+                        let params = tagr::cli::SearchParams {
+                            query: None,
+                            tags: criteria.tags.clone(),
+                            tag_mode: if criteria.any_tag {
+                                tagr::cli::SearchMode::Any
+                            } else {
+                                tagr::cli::SearchMode::All
+                            },
+                            file_patterns: criteria.file_patterns.clone(),
+                            file_mode: if criteria.any_file {
+                                tagr::cli::SearchMode::Any
+                            } else {
+                                tagr::cli::SearchMode::All
+                            },
+                            exclude_tags: criteria.excludes.clone(),
+                            regex_tag: criteria.regex_tag,
+                            regex_file: criteria.regex_file,
+                            virtual_tags: criteria.virtual_tags.clone(),
+                            virtual_mode: if criteria.any_virtual {
+                                tagr::cli::SearchMode::Any
+                            } else {
+                                tagr::cli::SearchMode::All
+                            },
+                        };
+                        commands::bulk::bulk_tag(&db, &params, add_tags, *dry_run, *yes, quiet)?;
+                    }
+                    BulkCommands::Untag {
+                        criteria,
+                        remove_tags,
+                        all,
+                        dry_run,
+                        yes,
+                    } => {
+                        let params = tagr::cli::SearchParams {
+                            query: None,
+                            tags: criteria.tags.clone(),
+                            tag_mode: if criteria.any_tag {
+                                tagr::cli::SearchMode::Any
+                            } else {
+                                tagr::cli::SearchMode::All
+                            },
+                            file_patterns: criteria.file_patterns.clone(),
+                            file_mode: if criteria.any_file {
+                                tagr::cli::SearchMode::Any
+                            } else {
+                                tagr::cli::SearchMode::All
+                            },
+                            exclude_tags: criteria.excludes.clone(),
+                            regex_tag: criteria.regex_tag,
+                            regex_file: criteria.regex_file,
+                            virtual_tags: criteria.virtual_tags.clone(),
+                            virtual_mode: if criteria.any_virtual {
+                                tagr::cli::SearchMode::Any
+                            } else {
+                                tagr::cli::SearchMode::All
+                            },
+                        };
+                        commands::bulk::bulk_untag(
+                            &db, &params, remove_tags, *all, *dry_run, *yes, quiet,
+                        )?;
+                    }
+                    BulkCommands::RenameTag {
+                        old_tag,
+                        new_tag,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::rename_tag(&db, old_tag, new_tag, *dry_run, *yes, quiet)?;
+                    }
+                }
+            }
             Commands::Cleanup { .. } => {
                 commands::cleanup(&db, path_format, quiet)?;
             }
