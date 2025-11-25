@@ -28,11 +28,13 @@
 //! let cli = Cli::parse_args();
 //! let command = cli.get_command();
 //!
-//! // Extract command-specific data
+//! // Extract command-specific data using context
 //! match command {
 //!     Commands::Tag { .. } => {
-//!         let file = command.get_file_from_tag();
-//!         let tags = command.get_tags_from_tag();
+//!         if let Some(ctx) = command.get_tag_context() {
+//!             let file = ctx.file;
+//!             let tags = ctx.tags;
+//!         }
 //!     }
 //!     _ => {}
 //! }
