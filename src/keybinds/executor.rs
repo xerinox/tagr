@@ -49,26 +49,25 @@ impl ActionExecutor {
         }
 
         match action {
-            BrowseAction::AddTag => self.execute_add_tag(context),
-            BrowseAction::RemoveTag => self.execute_remove_tag(context),
-            BrowseAction::DeleteFromDb => self.execute_delete_from_db(context),
-            BrowseAction::OpenInDefault => self.execute_open_in_default(context),
-            BrowseAction::OpenInEditor => self.execute_open_in_editor(context),
-            BrowseAction::CopyPath => self.execute_copy_path(context),
-            BrowseAction::CopyFiles => self.execute_copy_files(context),
-            BrowseAction::ToggleTagDisplay => self.execute_toggle_tag_display(context),
-            BrowseAction::ShowDetails => self.execute_show_details(context),
-            BrowseAction::FilterExtension => self.execute_filter_extension(context),
-            BrowseAction::SelectAll => self.execute_select_all(context),
-            BrowseAction::ClearSelection => self.execute_clear_selection(context),
-            BrowseAction::ShowHelp => self.execute_show_help(context),
-            BrowseAction::Cancel => Ok(ActionResult::Continue),
-            _ => Ok(ActionResult::Continue),
+            BrowseAction::AddTag => Self::execute_add_tag(context),
+            BrowseAction::RemoveTag => Self::execute_remove_tag(context),
+            BrowseAction::DeleteFromDb => Self::execute_delete_from_db(context),
+            BrowseAction::OpenInDefault => Self::execute_open_in_default(context),
+            BrowseAction::OpenInEditor => Self::execute_open_in_editor(context),
+            BrowseAction::CopyPath => Self::execute_copy_path(context),
+            BrowseAction::CopyFiles => Self::execute_copy_files(context),
+            BrowseAction::ToggleTagDisplay => Self::execute_toggle_tag_display(context),
+            BrowseAction::ShowDetails => Self::execute_show_details(context),
+            BrowseAction::FilterExtension => Self::execute_filter_extension(context),
+            BrowseAction::SelectAll => Self::execute_select_all(context),
+            BrowseAction::ClearSelection => Self::execute_clear_selection(context),
+            BrowseAction::ShowHelp => Self::execute_show_help(context),
+            BrowseAction::Cancel | _ => Ok(ActionResult::Continue),
         }
     }
 
     /// Execute the `AddTag` action.
-    fn execute_add_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_add_tag(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let input = prompt_for_input("Add tags (space-separated): ")?;
 
         if input.trim().is_empty() {
@@ -89,7 +88,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `RemoveTag` action.
-    fn execute_remove_tag(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_remove_tag(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -128,11 +127,10 @@ impl ActionExecutor {
         let tags_to_remove: Vec<String> = input
             .split_whitespace()
             .filter_map(|s| {
-                if let Ok(num) = s.parse::<usize>() {
-                    tag_list.get(num.saturating_sub(1)).cloned()
-                } else {
-                    Some(s.to_string())
-                }
+                s.parse::<usize>().map_or_else(
+                    |_| Some(s.to_string()),
+                    |num| tag_list.get(num.saturating_sub(1)).cloned(),
+                )
             })
             .collect();
 
@@ -147,7 +145,6 @@ impl ActionExecutor {
 
     /// Execute the `DeleteFromDb` action.
     fn execute_delete_from_db(
-        &self,
         context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
@@ -174,7 +171,6 @@ impl ActionExecutor {
 
     /// Execute the `OpenInDefault` action.
     fn execute_open_in_default(
-        &self,
         context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
@@ -194,7 +190,6 @@ impl ActionExecutor {
 
     /// Execute the `OpenInEditor` action.
     fn execute_open_in_editor(
-        &self,
         context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
@@ -215,7 +210,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `CopyPath` action.
-    fn execute_copy_path(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_copy_path(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -244,7 +239,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `CopyFiles` action.
-    fn execute_copy_files(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_copy_files(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -274,7 +269,6 @@ impl ActionExecutor {
     /// with other action handlers.
     #[allow(clippy::unnecessary_wraps)]
     fn execute_toggle_tag_display(
-        &self,
         _context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
@@ -283,7 +277,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `ShowDetails` action.
-    fn execute_show_details(&self, context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_show_details(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let file_to_show = if let Some(file) = context.current_file {
             file
         } else if let Some(file) = context.selected_files.first() {
@@ -329,7 +323,6 @@ impl ActionExecutor {
 
     /// Execute the `FilterExtension` action.
     fn execute_filter_extension(
-        &self,
         _context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
         let extension = prompt_for_input("Filter by extension (e.g., 'txt', '.rs'): ")?;
@@ -349,7 +342,7 @@ impl ActionExecutor {
     /// **Note**: This is a stub implementation. Selection state is managed
     /// by the skim UI layer. Returns `Result` for API consistency.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_select_all(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_select_all(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
             "Select all will be handled by skim UI layer".to_string(),
         ))
@@ -361,7 +354,6 @@ impl ActionExecutor {
     /// by the skim UI layer. Returns `Result` for API consistency.
     #[allow(clippy::unnecessary_wraps)]
     fn execute_clear_selection(
-        &self,
         _context: &ActionContext,
     ) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
@@ -370,7 +362,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `ShowHelp` action.
-    fn execute_show_help(&self, _context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_show_help(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let help_text = r"
 ╔═══════════════════════════════════════════════════════════╗
 ║                  Tagr Browse Mode Keybinds                ║
@@ -445,7 +437,7 @@ impl From<ActionOutcome> for ActionResult {
             ActionOutcome::Success {
                 affected_count,
                 details,
-            } => ActionResult::Message(format!("✓ {} ({} files)", details, affected_count)),
+            } => Self::Message(format!("✓ {details} ({affected_count} files)")),
             ActionOutcome::Partial {
                 succeeded,
                 failed,
@@ -460,16 +452,15 @@ impl From<ActionOutcome> for ActionResult {
                 } else {
                     errors.join("\n  ")
                 };
-                ActionResult::Message(format!(
-                    "⚠️  {} succeeded, {} failed:\n  {}",
-                    succeeded, failed, error_summary
+                Self::Message(format!(
+                    "⚠️  {succeeded} succeeded, {failed} failed:\n  {error_summary}"
                 ))
             }
-            ActionOutcome::Failed(msg) => ActionResult::Message(format!("❌ {}", msg)),
-            ActionOutcome::Cancelled => ActionResult::Continue,
+            ActionOutcome::Failed(msg) => Self::Message(format!("❌ {msg}")),
+            ActionOutcome::Cancelled => Self::Continue,
             ActionOutcome::NeedsInput { .. } | ActionOutcome::NeedsConfirmation { .. } => {
                 // This shouldn't happen in executor context (prompting done before calling actions)
-                ActionResult::Message("❌ Unexpected state: action needs input".to_string())
+                Self::Message("❌ Unexpected state: action needs input".to_string())
             }
         }
     }
@@ -518,24 +509,26 @@ fn format_file_size(bytes: u64) -> String {
 
 /// Format modification time in human-readable format.
 fn format_modified_time(metadata: &std::fs::Metadata) -> String {
-    match metadata.modified() {
-        Ok(time) => match time.elapsed() {
-            Ok(duration) => {
-                let secs = duration.as_secs();
-                if secs < 60 {
-                    format!("{secs} seconds ago")
-                } else if secs < 3600 {
-                    format!("{} minutes ago", secs / 60)
-                } else if secs < 86400 {
-                    format!("{} hours ago", secs / 3600)
-                } else {
-                    format!("{} days ago", secs / 86400)
-                }
-            }
-            Err(_) => "unknown".to_string(),
+    metadata.modified().map_or_else(
+        |_| "unknown".to_string(),
+        |time| {
+            time.elapsed().map_or_else(
+                |_| "unknown".to_string(),
+                |duration| {
+                    let secs = duration.as_secs();
+                    if secs < 60 {
+                        format!("{secs} seconds ago")
+                    } else if secs < 3600 {
+                        format!("{} minutes ago", secs / 60)
+                    } else if secs < 86400 {
+                        format!("{} hours ago", secs / 3600)
+                    } else {
+                        format!("{} days ago", secs / 86400)
+                    }
+                },
+            )
         },
-        Err(_) => "unknown".to_string(),
-    }
+    )
 }
 
 /// Display text in the minus pager with search support.

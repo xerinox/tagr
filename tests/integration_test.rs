@@ -22,7 +22,7 @@ impl TestDb {
         Self { db, path }
     }
 
-    fn db(&self) -> &Database {
+    const fn db(&self) -> &Database {
         &self.db
     }
 }

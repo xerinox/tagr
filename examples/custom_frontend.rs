@@ -1,4 +1,4 @@
-//! Example: Custom FuzzyFinder Implementation
+//! Example: Custom `FuzzyFinder` Implementation
 //!
 //! This example demonstrates how to implement a custom frontend for tagr's
 //! browse functionality by implementing the `FuzzyFinder` trait.
@@ -22,7 +22,7 @@ use tagr::ui::{DisplayItem, FinderConfig, FinderResult, FuzzyFinder, Result as U
 struct SimpleFinder;
 
 impl SimpleFinder {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self
     }
 }
@@ -84,7 +84,7 @@ impl FuzzyFinder for SimpleFinder {
 struct FilteringFinder;
 
 impl FilteringFinder {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self
     }
 
@@ -115,7 +115,7 @@ impl FuzzyFinder for FilteringFinder {
             // Clear screen and display
             print!("\x1B[2J\x1B[1;1H"); // ANSI clear screen
             println!("{}", config.prompt);
-            println!("Search: {}_", query);
+            println!("Search: {query}_");
             println!("{}", "─".repeat(60));
 
             if filtered.is_empty() {

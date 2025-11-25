@@ -45,6 +45,15 @@ impl PreviewGenerator {
             .is_ok()
     }
 
+    /// Generate preview content for a file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The file cannot be read (I/O error)
+    /// - The file path is invalid or contains non-UTF-8 characters
+    /// - The file exceeds the maximum size limit
+    /// - Image metadata cannot be extracted
     pub fn generate(&self, path: &Path) -> Result<PreviewContent> {
         if !path.exists() {
             return Ok(PreviewContent::Error(format!(
@@ -188,11 +197,11 @@ impl PreviewGenerator {
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64),
-            permissions: Some(self.format_permissions(metadata)),
-            file_type: self.detect_file_type(path),
+            permissions: Some(Self::format_permissions(metadata)),
+            file_type: Self::detect_file_type(path),
         };
 
-        if self.is_image(path)
+        if Self::is_image(path)
             && let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone())
         {
             return PreviewContent::Image {
@@ -206,7 +215,7 @@ impl PreviewGenerator {
     }
 
     #[cfg(unix)]
-    fn format_permissions(&self, metadata: &fs::Metadata) -> String {
+    fn format_permissions(metadata: &fs::Metadata) -> String {
         use std::os::unix::fs::PermissionsExt;
         let mode = metadata.permissions().mode();
         format!(
@@ -224,7 +233,7 @@ impl PreviewGenerator {
     }
 
     #[cfg(not(unix))]
-    fn format_permissions(&self, metadata: &fs::Metadata) -> String {
+    fn format_permissions(metadata: &fs::Metadata) -> String {
         if metadata.permissions().readonly() {
             "readonly".to_string()
         } else {
@@ -232,21 +241,21 @@ impl PreviewGenerator {
         }
     }
 
-    fn detect_file_type(&self, path: &Path) -> Option<String> {
+    fn detect_file_type(path: &Path) -> Option<String> {
         path.extension()
             .and_then(|e| e.to_str())
             .map(str::to_uppercase)
     }
 
-    fn is_image(&self, path: &Path) -> bool {
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            matches!(
-                ext.to_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico"
-            )
-        } else {
-            false
-        }
+    fn is_image(path: &Path) -> bool {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico"
+                )
+            })
     }
 
     /// Extract image-specific metadata.
@@ -392,7 +401,7 @@ mod tests {
     fn test_binary_file_preview() {
         let temp = TempFile::create("test.bin").unwrap();
         // Write invalid UTF-8
-        fs::write(temp.path(), &[0xFF, 0xFE, 0xFD]).unwrap();
+        fs::write(temp.path(), [0xFF, 0xFE, 0xFD]).unwrap();
 
         let mut config = PreviewConfig::default();
         config.syntax_highlighting = false; // Disable to ensure we test the fallback path
@@ -404,7 +413,7 @@ mod tests {
                 assert_eq!(metadata.size, 3);
                 assert!(metadata.permissions.is_some());
             }
-            _ => panic!("Expected Binary preview, got {:?}", preview),
+            _ => panic!("Expected Binary preview, got {preview:?}"),
         }
     }
 

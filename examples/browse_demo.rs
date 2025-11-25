@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let file_path = temp_dir.join(filename);
         db.insert_pair(&Pair {
             file: file_path,
-            tags: tags.iter().map(|s| s.to_string()).collect(),
+            tags: tags.iter().map(|s| (*s).to_string()).collect(),
         })?;
     }
 
@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nAvailable tags:");
     for tag in ["rust", "code", "docs", "config", "test", "markdown", "git"] {
         let count = db.find_by_tag(tag)?.len();
-        println!("  - {} ({} files)", tag, count);
+        println!("  - {tag} ({count} files)");
     }
 
     println!("\n=== Starting Interactive Browse Mode ===");

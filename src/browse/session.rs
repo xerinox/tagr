@@ -275,7 +275,7 @@ impl<'a> BrowseSession<'a> {
     /// - Action execution fails
     pub fn execute_action(
         &self,
-        action: BrowseAction,
+        action: &BrowseAction,
         selected_ids: &[String],
     ) -> Result<ActionOutcome> {
         // Actions only available in file phase
@@ -517,7 +517,7 @@ mod tests {
         let config = BrowseConfig::default();
         let session = BrowseSession::new(db.db(), config).unwrap();
 
-        let result = session.execute_action(BrowseAction::AddTag, &[]);
+        let result = session.execute_action(&BrowseAction::AddTag, &[]);
 
         assert!(matches!(result, Err(BrowseError::ActionNotAvailable)));
     }

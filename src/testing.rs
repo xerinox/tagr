@@ -137,7 +137,7 @@ mod tests {
             let test_db = TestDb::new("test_db");
             let path = test_db.path();
             assert!(path.exists());
-            path.clone()
+            path
         };
 
         assert!(!path_copy.exists());

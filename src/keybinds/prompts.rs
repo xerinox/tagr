@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn test_prompt_error_conversion() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other("test");
         let prompt_err: PromptError = io_err.into();
         assert!(matches!(prompt_err, PromptError::Io(_)));
     }

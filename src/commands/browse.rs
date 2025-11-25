@@ -37,7 +37,7 @@ pub fn execute(
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
     execute_cmd: Option<String>,
-    preview_overrides: Option<PreviewOverrides>,
+    preview_overrides: Option<&PreviewOverrides>,
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {

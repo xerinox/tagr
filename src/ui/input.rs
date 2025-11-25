@@ -41,6 +41,11 @@ pub trait UserInput: Send + Sync {
     /// * `Ok(Some(String))` - User entered text
     /// * `Ok(None)` - User cancelled (ESC)
     /// * `Err(_)` - Input operation failed
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying input mechanism fails (e.g., I/O error,
+    /// terminal not available).
     fn prompt_text(
         &self,
         prompt: &str,
@@ -60,6 +65,11 @@ pub trait UserInput: Send + Sync {
     /// * `Ok(Some(bool))` - User confirmed (true) or denied (false)
     /// * `Ok(None)` - User cancelled (ESC)
     /// * `Err(_)` - Input operation failed
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying input mechanism fails (e.g., I/O error,
+    /// terminal not available).
     fn prompt_confirm(&self, prompt: &str, default: bool) -> Result<Option<bool>>;
 
     /// Prompt user to select from a list
@@ -75,6 +85,11 @@ pub trait UserInput: Send + Sync {
     /// * `Ok(Some(usize))` - Index of selected item
     /// * `Ok(None)` - User cancelled (ESC)
     /// * `Err(_)` - Input operation failed
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying input mechanism fails (e.g., I/O error,
+    /// terminal not available, invalid default index).
     fn prompt_select(
         &self,
         prompt: &str,
@@ -198,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_input_error_from_io() {
-        let io_err = io::Error::new(io::ErrorKind::Other, "test error");
+        let io_err = io::Error::other("test error");
         let input_err: InputError = io_err.into();
         assert!(matches!(input_err, InputError::Io(_)));
     }

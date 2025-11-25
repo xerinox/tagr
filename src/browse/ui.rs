@@ -96,7 +96,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     match self.session.handle_accept(selected_ids)? {
                         AcceptResult::PhaseTransition => {
                             // Transitioned to file phase, loop continues
-                            continue;
                         }
                         AcceptResult::Complete(result) => {
                             // Session complete
@@ -113,7 +112,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 } => {
                     match action {
                         BrowseAction::ShowHelp => {
-                            self.show_help(&phase.settings.help_text);
+                            Self::show_help(&phase.settings.help_text);
                             continue;
                         }
                         BrowseAction::SelectAll | BrowseAction::ClearSelection => {
@@ -129,12 +128,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     }
 
                     // Execute session-level action
-                    let outcome = self.session.execute_action(action, &selected_ids)?;
+                    let outcome = self.session.execute_action(&action, &selected_ids)?;
 
                     self.handle_action_outcome(outcome)?;
 
                     self.session.refresh_current_phase()?;
-                    continue;
                 }
                 BrowserResult::Cancel => {
                     // User pressed ESC
@@ -223,10 +221,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     format!("({} files)", tag_meta.file_count).dimmed()
                 );
 
-                let mut metadata = crate::ui::ItemMetadata::default();
-                metadata.index = Some(index);
-                metadata.tags = vec![];
-                metadata.exists = true;
+                let metadata = crate::ui::ItemMetadata {
+                    index: Some(index),
+                    tags: vec![],
+                    exists: true,
+                };
 
                 DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
             }
@@ -250,10 +249,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
                 let display = format!("{path_display}{tags_display}");
 
-                let mut metadata = crate::ui::ItemMetadata::default();
-                metadata.index = Some(index);
-                metadata.tags = file_meta.tags.clone();
-                metadata.exists = file_meta.cached.exists;
+                let metadata = crate::ui::ItemMetadata {
+                    index: Some(index),
+                    tags: file_meta.tags.clone(),
+                    exists: file_meta.cached.exists,
+                };
 
                 DisplayItem::with_metadata(item.id.clone(), display, path_str, metadata)
             }
@@ -338,7 +338,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 }
 
                 // Execute the action with the input
-                let result = self.execute_action_with_input(&action_id, context.files, &input)?;
+                let result = self.execute_action_with_input(&action_id, &context.files, &input)?;
 
                 // Recursively handle the result (which should now be Success/Failed/Partial)
                 self.handle_action_outcome(result)
@@ -358,7 +358,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 }
 
                 // Execute the action with confirmation
-                let result = self.execute_confirmed_action(&action_id, context.files)?;
+                let result = self.execute_confirmed_action(&action_id, &context.files)?;
 
                 // Recursively handle the result
                 self.handle_action_outcome(result)
@@ -371,7 +371,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     fn execute_action_with_input(
         &self,
         action_id: &str,
-        files: Vec<PathBuf>,
+        files: &[PathBuf],
         input: &str,
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
@@ -382,7 +382,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_add_tag(self.session.db(), &files, &tags)
+                actions::execute_add_tag(self.session.db(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "remove_tag" => {
@@ -392,7 +392,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_remove_tag(self.session.db(), &files, &tags)
+                actions::execute_remove_tag(self.session.db(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "copy_files" => {
@@ -408,7 +408,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?
                 };
 
-                Ok(actions::execute_copy_files(&files, &dest_dir, create_dest))
+                Ok(actions::execute_copy_files(files, &dest_dir, create_dest))
             }
             _ => Err(BrowseError::UnexpectedState(format!(
                 "Unknown action_id: {action_id}"
@@ -420,10 +420,10 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     fn execute_confirmed_action(
         &self,
         action_id: &str,
-        files: Vec<PathBuf>,
+        files: &[PathBuf],
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
-            "delete_from_db" => actions::execute_delete_from_db(self.session.db(), &files)
+            "delete_from_db" => actions::execute_delete_from_db(self.session.db(), files)
                 .map_err(|e| BrowseError::ActionFailed(e.to_string())),
             _ => Err(BrowseError::UnexpectedState(format!(
                 "Unknown action_id: {action_id}"
@@ -432,7 +432,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     }
 
     /// Display help text to user
-    fn show_help(&self, help_text: &crate::browse::session::HelpText) {
+    fn show_help(help_text: &crate::browse::session::HelpText) {
         use crate::browse::session::HelpText;
 
         println!("\n{}", "━".repeat(60).bright_blue());

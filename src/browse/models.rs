@@ -737,7 +737,7 @@ mod tests {
 
         for (path, expected) in test_cases {
             let detected = CachedMetadata::detect_mime_type(&path);
-            assert_eq!(detected.as_deref(), expected, "Failed for {:?}", path);
+            assert_eq!(detected.as_deref(), expected, "Failed for {path:?}");
         }
     }
 
@@ -781,7 +781,7 @@ mod tests {
         };
 
         let item = TagrItem::from(PairWithCache {
-            pair: pair.clone(),
+            pair,
             cache: &mut cache,
         });
 

@@ -157,6 +157,11 @@ impl StatusBarWriter {
     ///
     /// Returns messages that haven't expired yet, useful for rendering
     /// in a TUI status bar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned (only occurs if another thread
+    /// panicked while holding the lock).
     #[must_use]
     pub fn recent_messages(&self) -> Vec<(MessageLevel, String)> {
         let now = Instant::now();
@@ -170,6 +175,11 @@ impl StatusBarWriter {
     }
 
     /// Get the most recent message, if any
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned (only occurs if another thread
+    /// panicked while holding the lock).
     #[must_use]
     pub fn latest_message(&self) -> Option<(MessageLevel, String)> {
         let now = Instant::now();
@@ -183,6 +193,11 @@ impl StatusBarWriter {
     }
 
     /// Get count of active messages
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned (only occurs if another thread
+    /// panicked while holding the lock).
     #[must_use]
     pub fn message_count(&self) -> usize {
         let now = Instant::now();
@@ -244,7 +259,7 @@ mod tests {
     #[test]
     fn test_stdout_writer_creation() {
         let _writer = StdoutWriter::new();
-        let _writer2 = StdoutWriter::default();
+        let _writer2 = StdoutWriter;
     }
 
     #[test]

@@ -351,7 +351,7 @@ fn main() -> Result<()> {
                     filter_args.filter.as_deref(),
                     save_filter,
                     execute_cmd,
-                    preview_overrides,
+                    preview_overrides.as_ref(),
                     path_format,
                     quiet,
                 )?;
