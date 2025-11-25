@@ -449,7 +449,7 @@ impl PhaseSettings {
                 ("Ctrl+d".into(), "Delete from database".into()),
                 ("Ctrl+o".into(), "Open in default app".into()),
                 ("Ctrl+e".into(), "Open in editor".into()),
-                ("Ctrl+c".into(), "Copy paths to clipboard".into()),
+                ("Ctrl+Y".into(), "Copy paths to clipboard".into()),
                 ("Ctrl+f".into(), "Copy files to directory".into()),
                 ("Esc".into(), "Cancel and exit".into()),
                 ("F1".into(), "Show this help".into()),

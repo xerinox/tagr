@@ -96,7 +96,7 @@ pub fn execute(
             ("ctrl+t".to_string(), "Add tags".to_string()),
             ("ctrl+d".to_string(), "Delete from database".to_string()),
             ("ctrl+o".to_string(), "Open file".to_string()),
-            ("ctrl+c".to_string(), "Copy path".to_string()),
+            ("ctrl+y".to_string(), "Copy path".to_string()),
             ("ESC".to_string(), "Cancel".to_string()),
         ]),
     };

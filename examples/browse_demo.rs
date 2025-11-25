@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  - ctrl+d: Remove from database");
     println!("  - ctrl+o: Open in default application");
     println!("  - ctrl+e: Open in editor");
-    println!("  - ctrl+c: Copy path to clipboard");
+    println!("  - ctrl+y: Copy path to clipboard");
     println!("  - ctrl+f: Copy files to destination");
     println!("\nPress Enter to start...");
 

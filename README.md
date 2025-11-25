@@ -139,7 +139,7 @@ tagr browse -t config -x "cat {}"
 | ↑↓ or Ctrl+J/K | Navigate |
 | TAB | Select/deselect (multi-select) |
 | Enter | Confirm and proceed |
-| ESC / Ctrl+C | Cancel |
+| ESC | Cancel |
 | Type | Filter via fuzzy matching |
 
 ### Examples
