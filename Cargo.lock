@@ -2312,7 +2312,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
 name = "tagr"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "arboard",
  "bincode 2.0.1",

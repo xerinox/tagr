@@ -3,17 +3,15 @@
 
 [advisories]
 version = 2
-db-path = "~/.cargo/advisory-db"
-db-urls = ["https://github.com/rustsec/advisory-db"]
-vulnerability = "deny"
-unmaintained = "allow"
-unsound = "deny"
-yanked = "deny"
-ignore = []
+ignore = [
+    "RUSTSEC-2025-0057",  # fxhash unmaintained (via sled)
+    "RUSTSEC-2024-0384",  # instant unmaintained (via sled)
+    "RUSTSEC-2025-0120",  # json5 unmaintained (via config)
+    "RUSTSEC-2024-0320",  # yaml-rust unmaintained (via syntect)
+]
 
 [licenses]
 version = 2
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -22,22 +20,14 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Zlib",
-    "Unicode-DFS-2016",
+    "BSL-1.0",
+    "MPL-2.0",
+    "Unicode-3.0",
 ]
-copyleft = "warn"
-allow-osi-fsf-free = "both"
-default = "deny"
-confidence-threshold = 0.8
 
 [bans]
 multiple-versions = "warn"
-wildcards = "allow"
-highlight = "all"
-workspace-default-features = "allow"
-external-default-features = "allow"
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
