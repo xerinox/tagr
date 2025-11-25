@@ -1,9 +1,10 @@
 [package]
 name = "tagr"
 description = "A fast, tag-based file organizer and search tool for the command line."
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Rainer Kildal <rkildal@gmail.com>"]
 edition = "2024"
+license = "MIT"
 readme = "README.md"
 repository = "https://github.com/xerinox/tagr"
 keywords = ["search", "tag", "organization", "cli"]
