@@ -144,9 +144,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `DeleteFromDb` action.
-    fn execute_delete_from_db(
-        context: &ActionContext,
-    ) -> Result<ActionResult, ExecutorError> {
+    fn execute_delete_from_db(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -170,9 +168,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `OpenInDefault` action.
-    fn execute_open_in_default(
-        context: &ActionContext,
-    ) -> Result<ActionResult, ExecutorError> {
+    fn execute_open_in_default(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -189,9 +185,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `OpenInEditor` action.
-    fn execute_open_in_editor(
-        context: &ActionContext,
-    ) -> Result<ActionResult, ExecutorError> {
+    fn execute_open_in_editor(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files: Vec<PathBuf> = if context.selected_files.is_empty() {
             context.current_file.iter().map(|p| (*p).clone()).collect()
         } else {
@@ -268,9 +262,7 @@ impl ActionExecutor {
     /// will be handled by the UI layer. Returns `Result` for API consistency
     /// with other action handlers.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_toggle_tag_display(
-        _context: &ActionContext,
-    ) -> Result<ActionResult, ExecutorError> {
+    fn execute_toggle_tag_display(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
             "Tag display toggling will be implemented in UI layer".to_string(),
         ))
@@ -322,9 +314,7 @@ impl ActionExecutor {
     }
 
     /// Execute the `FilterExtension` action.
-    fn execute_filter_extension(
-        _context: &ActionContext,
-    ) -> Result<ActionResult, ExecutorError> {
+    fn execute_filter_extension(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let extension = prompt_for_input("Filter by extension (e.g., 'txt', '.rs'): ")?;
 
         if extension.trim().is_empty() {
@@ -353,9 +343,7 @@ impl ActionExecutor {
     /// **Note**: This is a stub implementation. Selection state is managed
     /// by the skim UI layer. Returns `Result` for API consistency.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_clear_selection(
-        _context: &ActionContext,
-    ) -> Result<ActionResult, ExecutorError> {
+    fn execute_clear_selection(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
             "Clear selection will be handled by skim UI layer".to_string(),
         ))
