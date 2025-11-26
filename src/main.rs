@@ -452,7 +452,13 @@ fn main() -> Result<()> {
                             },
                         };
                         commands::bulk::bulk_untag(
-                            &db, &params, remove_tags, *all, *dry_run, *yes, quiet,
+                            &db,
+                            &params,
+                            remove_tags,
+                            *all,
+                            *dry_run,
+                            *yes,
+                            quiet,
                         )?;
                     }
                     BulkCommands::RenameTag {

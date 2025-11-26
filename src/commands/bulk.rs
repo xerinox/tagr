@@ -422,7 +422,11 @@ fn print_dry_run_preview(files: &[PathBuf], tags: &[String], action: BulkAction)
 /// Show confirmation prompt for bulk operation
 fn confirm_bulk_operation(files: &[PathBuf], tags: &[String], action: BulkAction) -> Result<bool> {
     let prompt = if tags.is_empty() {
-        format!("{} {} file(s)?", action.prompt_name().to_uppercase(), files.len())
+        format!(
+            "{} {} file(s)?",
+            action.prompt_name().to_uppercase(),
+            files.len()
+        )
     } else {
         format!(
             "{} {} file(s) with tags [{}]?",
@@ -502,10 +506,16 @@ mod tests {
         let file1 = TempFile::create("file1.txt").unwrap();
         let file2 = TempFile::create("file2.txt").unwrap();
 
-        db.add_tags(file1.path(), vec!["tag1".into(), "tag2".into(), "keep".into()])
-            .unwrap();
-        db.add_tags(file2.path(), vec!["tag1".into(), "tag2".into(), "keep".into()])
-            .unwrap();
+        db.add_tags(
+            file1.path(),
+            vec!["tag1".into(), "tag2".into(), "keep".into()],
+        )
+        .unwrap();
+        db.add_tags(
+            file2.path(),
+            vec!["tag1".into(), "tag2".into(), "keep".into()],
+        )
+        .unwrap();
 
         let params = SearchParams {
             query: None,
