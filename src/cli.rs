@@ -228,6 +228,35 @@ impl From<&crate::filters::FilterCriteria> for SearchParams {
     }
 }
 
+impl From<&SearchCriteriaArgs> for SearchParams {
+    fn from(criteria: &SearchCriteriaArgs) -> Self {
+        Self {
+            query: None,
+            tags: criteria.tags.clone(),
+            tag_mode: if criteria.any_tag {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+            file_patterns: criteria.file_patterns.clone(),
+            file_mode: if criteria.any_file {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+            exclude_tags: criteria.excludes.clone(),
+            regex_tag: criteria.regex_tag,
+            regex_file: criteria.regex_file,
+            virtual_tags: criteria.virtual_tags.clone(),
+            virtual_mode: if criteria.any_virtual {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+        }
+    }
+}
+
 /// Execute a command template for each file in the list
 ///
 /// Runs a shell command for each file, replacing the `{}` placeholder in the
@@ -926,37 +955,9 @@ impl Commands {
         }
     }
 
-    /// Helper method to convert SearchCriteriaArgs to SearchParams
-    fn search_criteria_to_params(criteria: &SearchCriteriaArgs) -> SearchParams {
-        SearchParams {
-            query: None,
-            tags: criteria.tags.clone(),
-            tag_mode: if criteria.any_tag {
-                SearchMode::Any
-            } else {
-                SearchMode::All
-            },
-            file_patterns: criteria.file_patterns.clone(),
-            file_mode: if criteria.any_file {
-                SearchMode::Any
-            } else {
-                SearchMode::All
-            },
-            exclude_tags: criteria.excludes.clone(),
-            regex_tag: criteria.regex_tag,
-            regex_file: criteria.regex_file,
-            virtual_tags: criteria.virtual_tags.clone(),
-            virtual_mode: if criteria.any_virtual {
-                SearchMode::Any
-            } else {
-                SearchMode::All
-            },
-        }
-    }
-
     /// Get bulk command details
     #[must_use]
-    pub fn get_bulk_context(&self) -> Option<(&BulkCommands, bool, bool)> {
+    pub const fn get_bulk_context(&self) -> Option<(&BulkCommands, bool, bool)> {
         if let Self::Bulk { command, .. } = self {
             let (dry_run, yes) = match command {
                 BulkCommands::Tag { dry_run, yes, .. } => (*dry_run, *yes),

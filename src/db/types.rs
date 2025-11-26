@@ -123,7 +123,6 @@ impl PathString {
     /// // Use: &*path_string or just &path_string in most contexts
     /// ```
     #[must_use]
-    #[deprecated(since = "0.5.0", note = "Use Deref coercion instead: &*path_string")]
     pub fn as_str(&self) -> &str {
         &self.0
     }
