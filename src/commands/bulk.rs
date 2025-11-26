@@ -4,6 +4,7 @@
 //! - `bulk_tag`: Add tags to multiple files
 //! - `bulk_untag`: Remove tags from multiple files
 //! - `rename_tag`: Rename a tag globally across all files
+//! - `merge_tags`: Merge multiple tags into a single tag
 //!
 //! All operations support dry-run mode and confirmation prompts for safety.
 
@@ -394,6 +395,155 @@ pub fn rename_tag(
     Ok(())
 }
 
+/// Merge multiple tags into a single tag across all files
+///
+/// Finds all files with any of the source tags and replaces them with the target tag.
+/// Automatically deduplicates if target tag already exists.
+///
+/// # Arguments
+/// * `db` - Database instance
+/// * `source_tags` - Tags to be merged (will be removed)
+/// * `target_tag` - Tag to merge into (will be added)
+/// * `dry_run` - If true, preview changes without applying
+/// * `yes` - Skip confirmation prompts
+/// * `quiet` - Minimal output
+///
+/// # Errors
+/// Returns error if database operations fail or no files have the source tags
+pub fn merge_tags(
+    db: &Database,
+    source_tags: &[String],
+    target_tag: &str,
+    dry_run: bool,
+    yes: bool,
+    quiet: bool,
+) -> Result<()> {
+    if source_tags.is_empty() {
+        return Err(TagrError::InvalidInput("No source tags provided".into()));
+    }
+
+    if source_tags.contains(&target_tag.to_string()) {
+        return Err(TagrError::InvalidInput(
+            "Target tag cannot be one of the source tags".into(),
+        ));
+    }
+
+    // Collect all files that have any of the source tags
+    let mut files_set = HashSet::new();
+    for tag in source_tags {
+        let tag_files = db.find_by_tag(tag)?;
+        files_set.extend(tag_files);
+    }
+
+    let files: Vec<PathBuf> = files_set.into_iter().collect();
+
+    if files.is_empty() {
+        if !quiet {
+            println!(
+                "No files found with source tags: [{}]",
+                source_tags.join(", ")
+            );
+        }
+        return Ok(());
+    }
+
+    if dry_run {
+        println!("{}", "=== Dry Run Mode ===".yellow().bold());
+        println!(
+            "Would merge tags [{}] → '{}' in {} file(s)",
+            source_tags.join(", ").cyan(),
+            target_tag.green(),
+            files.len()
+        );
+        println!("\n{}", "Affected files:".bold());
+        for (i, file) in files.iter().enumerate().take(10) {
+            println!("  {}. {}", i + 1, file.display());
+        }
+        if files.len() > 10 {
+            println!("  ... and {} more", files.len() - 10);
+        }
+        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        return Ok(());
+    }
+
+    // Confirmation prompt
+    if !yes {
+        let prompt = format!(
+            "Merge tags [{}] into '{}' in {} file(s)?",
+            source_tags.join(", ").cyan(),
+            target_tag.green(),
+            files.len()
+        );
+        let confirmed = Confirm::new()
+            .with_prompt(prompt)
+            .interact()
+            .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
+        if !confirmed {
+            println!("Operation cancelled.");
+            return Ok(());
+        }
+    }
+
+    let mut summary = BulkOpSummary::new();
+
+    for file in &files {
+        // Get current tags
+        let Some(current_tags) = db.get_tags(file)? else {
+            summary.add_skip();
+            continue;
+        };
+
+        // Replace source tags with target tag
+        let new_tags: Vec<String> = current_tags
+            .into_iter()
+            .map(|t| {
+                if source_tags.contains(&t) {
+                    target_tag.to_string()
+                } else {
+                    t
+                }
+            })
+            .collect::<HashSet<_>>() // Remove duplicates
+            .into_iter()
+            .collect();
+
+        let pair = Pair {
+            file: file.clone(),
+            tags: new_tags,
+        };
+
+        match db.insert_pair(&pair) {
+            Ok(()) => {
+                summary.add_success();
+                if !quiet {
+                    println!("✓ Merged in: {}", file.display());
+                }
+            }
+            Err(e) => {
+                summary.add_error(format!("{}: {}", file.display(), e));
+                if !quiet {
+                    eprintln!("✗ Failed to merge in {}: {}", file.display(), e);
+                }
+            }
+        }
+    }
+
+    if !quiet {
+        println!(
+            "\n{} Merged [{}] → '{}' in {} file(s)",
+            "✓".green(),
+            source_tags.join(", "),
+            target_tag,
+            summary.success
+        );
+        if summary.errors > 0 {
+            summary.print("Merge Tags");
+        }
+    }
+
+    Ok(())
+}
+
 /// Print dry-run preview of bulk operation
 fn print_dry_run_preview(files: &[PathBuf], tags: &[String], action: BulkAction) {
     println!("{}", "=== Dry Run Mode ===".yellow().bold());
@@ -595,5 +745,69 @@ mod tests {
 
         // Should succeed but do nothing
         bulk_tag(db, &params, &["test".to_string()], false, true, true).unwrap();
+    }
+
+    #[test]
+    fn test_merge_tags_basic() {
+        let test_db = TestDb::new("test_merge_tags");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let file1 = TempFile::create("file1.txt").unwrap();
+        let file2 = TempFile::create("file2.txt").unwrap();
+        let file3 = TempFile::create("file3.txt").unwrap();
+
+        db.add_tags(file1.path(), vec!["javascript".into(), "frontend".into()])
+            .unwrap();
+        db.add_tags(file2.path(), vec!["js".into(), "frontend".into()])
+            .unwrap();
+        db.add_tags(file3.path(), vec!["JS".into(), "backend".into()])
+            .unwrap();
+
+        // Merge javascript, js, JS into js
+        merge_tags(
+            db,
+            &["javascript".to_string(), "JS".to_string()],
+            "js",
+            false,
+            true,
+            true,
+        )
+        .unwrap();
+
+        // Verify all source tags were replaced with target
+        let tags1 = db.get_tags(file1.path()).unwrap().unwrap();
+        assert!(!tags1.contains(&"javascript".to_string()));
+        assert!(tags1.contains(&"js".to_string()));
+        assert!(tags1.contains(&"frontend".to_string()));
+
+        let tags2 = db.get_tags(file2.path()).unwrap().unwrap();
+        assert!(tags2.contains(&"js".to_string()));
+        assert!(tags2.contains(&"frontend".to_string()));
+
+        let tags3 = db.get_tags(file3.path()).unwrap().unwrap();
+        assert!(!tags3.contains(&"JS".to_string()));
+        assert!(tags3.contains(&"js".to_string()));
+        assert!(tags3.contains(&"backend".to_string()));
+    }
+
+    #[test]
+    fn test_merge_tags_with_duplicates() {
+        let test_db = TestDb::new("test_merge_dupes");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let file1 = TempFile::create("file1.txt").unwrap();
+
+        // File already has target tag
+        db.add_tags(file1.path(), vec!["old".into(), "new".into()])
+            .unwrap();
+
+        merge_tags(db, &["old".to_string()], "new", false, true, true).unwrap();
+
+        // Should not have duplicate 'new' tags
+        let tags = db.get_tags(file1.path()).unwrap().unwrap();
+        assert_eq!(tags.len(), 1);
+        assert!(tags.contains(&"new".to_string()));
     }
 }

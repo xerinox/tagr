@@ -168,7 +168,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
-        let keybinds = phase.settings.keybind_config.to_skim_bindings();
+        let keybinds = phase.settings.keybind_config.skim_bindings();
 
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)

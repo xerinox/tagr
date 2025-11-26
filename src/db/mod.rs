@@ -81,14 +81,14 @@ impl Database {
         let file_path = PathString::new(&pair.file)?;
 
         if let Some(old_tags) = self.get_tags(&pair.file)? {
-            self.remove_from_tag_index(file_path.as_str(), &old_tags)?;
+            self.remove_from_tag_index(&file_path, &old_tags)?;
         }
 
         let key = bincode::encode_to_vec(&pair.file, bincode::config::standard())?;
         let value = bincode::encode_to_vec(&pair.tags, bincode::config::standard())?;
         self.files.insert(key, value)?;
 
-        self.add_to_tag_index(file_path.as_str(), &pair.tags)?;
+        self.add_to_tag_index(&file_path, &pair.tags)?;
 
         Ok(())
     }
@@ -175,7 +175,7 @@ impl Database {
         let key: Vec<u8> = PathKey::new(file.as_ref()).try_into()?;
 
         if let Some(tags) = self.get_tags(file.as_ref())? {
-            self.remove_from_tag_index(file_path.as_str(), &tags)?;
+            self.remove_from_tag_index(&file_path, &tags)?;
         }
 
         Ok(self.files.remove(key.as_slice())?.is_some())

@@ -417,6 +417,26 @@ pub enum BulkCommands {
         #[arg(short = 'y', long = "yes")]
         yes: bool,
     },
+
+    /// Merge multiple tags into a single tag
+    #[command(visible_alias = "merge")]
+    MergeTags {
+        /// Source tags to merge (will be replaced)
+        #[arg(value_name = "SOURCE_TAG", required = true, num_args = 1..)]
+        source_tags: Vec<String>,
+
+        /// Target tag to merge into
+        #[arg(long = "into", value_name = "TARGET_TAG", required = true)]
+        target_tag: String,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
 }
 
 /// Filter management subcommands
@@ -942,6 +962,7 @@ impl Commands {
                 BulkCommands::Tag { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::Untag { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::RenameTag { dry_run, yes, .. } => (*dry_run, *yes),
+                BulkCommands::MergeTags { dry_run, yes, .. } => (*dry_run, *yes),
             };
             Some((command, dry_run, yes))
         } else {

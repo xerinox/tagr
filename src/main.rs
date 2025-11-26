@@ -469,6 +469,21 @@ fn main() -> Result<()> {
                     } => {
                         commands::bulk::rename_tag(&db, old_tag, new_tag, *dry_run, *yes, quiet)?;
                     }
+                    BulkCommands::MergeTags {
+                        source_tags,
+                        target_tag,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::merge_tags(
+                            &db,
+                            source_tags,
+                            target_tag,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
                 }
             }
             Commands::Cleanup { .. } => {

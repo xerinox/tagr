@@ -71,6 +71,12 @@ impl PathKey {
     }
 }
 
+impl AsRef<Path> for PathKey {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
 /// Wrapper for a path that guarantees valid UTF-8 string representation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathString(String);
@@ -106,7 +112,18 @@ impl PathString {
             .map(|s| Self(s.to_string()))
     }
 
+    /// Returns the string slice for this path.
+    ///
+    /// # Note
+    ///
+    /// This method is deprecated. Use `Deref` coercion instead:
+    /// ```ignore
+    /// let path_string = PathString::new("/path")?;
+    /// // Instead of: path_string.as_str()
+    /// // Use: &*path_string or just &path_string in most contexts
+    /// ```
     #[must_use]
+    #[deprecated(since = "0.5.0", note = "Use Deref coercion instead: &*path_string")]
     pub fn as_str(&self) -> &str {
         &self.0
     }

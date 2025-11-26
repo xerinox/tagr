@@ -331,7 +331,7 @@ impl KeybindConfig {
     /// Note: Filters out Tab and `BTab` (Shift+Tab) to preserve skim's
     /// default multi-select behavior.
     #[must_use]
-    pub fn to_skim_bindings(&self) -> Vec<String> {
+    pub fn skim_bindings(&self) -> Vec<String> {
         let mut bindings = Vec::new();
 
         for def in self.keybinds.values() {
