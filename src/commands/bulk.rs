@@ -5,6 +5,7 @@
 //! - `bulk_untag`: Remove tags from multiple files
 //! - `rename_tag`: Rename a tag globally across all files
 //! - `merge_tags`: Merge multiple tags into a single tag
+//! - `copy_tags`: Copy tags from a source file to multiple target files
 //!
 //! All operations support dry-run mode and confirmation prompts for safety.
 
@@ -14,7 +15,7 @@ use crate::{Pair, TagrError};
 use colored::Colorize;
 use dialoguer::Confirm;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -390,6 +391,147 @@ pub fn rename_tag(
         if summary.errors > 0 {
             summary.print("Rename Tag");
         }
+    }
+
+    Ok(())
+}
+
+/// Copy tags from a source file to multiple target files
+///
+/// # Arguments
+/// * `db` - Database instance
+/// * `source_file` - Source file to copy tags from
+/// * `params` - Search parameters to filter target files
+/// * `specific_tags` - Only copy these specific tags (None = copy all)
+/// * `exclude_tags` - Exclude these tags from copying
+/// * `dry_run` - If true, preview changes without applying
+/// * `yes` - Skip confirmation prompts
+/// * `quiet` - Minimal output
+///
+/// # Errors
+/// Returns error if source file not found, database operations fail, or no target files match
+#[allow(clippy::too_many_arguments)]
+pub fn copy_tags(
+    db: &Database,
+    source_file: &Path,
+    params: &SearchParams,
+    specific_tags: Option<&[String]>,
+    exclude_tags: &[String],
+    dry_run: bool,
+    yes: bool,
+    quiet: bool,
+) -> Result<()> {
+    // Get tags from source file
+    let source_tags = db.get_tags(source_file)?.ok_or_else(|| {
+        TagrError::InvalidInput(format!(
+            "Source file not in database: {}",
+            source_file.display()
+        ))
+    })?;
+
+    // Filter tags based on specific_tags and exclude_tags
+    let tags_to_copy: Vec<String> = source_tags
+        .into_iter()
+        .filter(|tag| {
+            // If specific_tags is provided, only include those
+            if let Some(specific) = specific_tags
+                && !specific.contains(tag)
+            {
+                return false;
+            }
+            // Exclude any tags in exclude_tags
+            !exclude_tags.contains(tag)
+        })
+        .collect();
+
+    if tags_to_copy.is_empty() {
+        if !quiet {
+            println!("No tags to copy after filtering.");
+        }
+        return Ok(());
+    }
+
+    // Find target files via search params
+    let target_files = crate::db::query::apply_search_params(db, params)?;
+
+    if target_files.is_empty() {
+        if !quiet {
+            println!("No target files match the specified criteria.");
+        }
+        return Ok(());
+    }
+
+    // Remove source file from target list if present
+    let target_files: Vec<PathBuf> = target_files
+        .into_iter()
+        .filter(|f| f != source_file)
+        .collect();
+
+    if target_files.is_empty() {
+        if !quiet {
+            println!("No target files to copy tags to (excluding source file).");
+        }
+        return Ok(());
+    }
+
+    if dry_run {
+        println!("{}", "=== Dry Run Mode ===".yellow().bold());
+        println!(
+            "Would copy tags [{}] from '{}' to {} file(s)",
+            tags_to_copy.join(", ").cyan(),
+            source_file.display(),
+            target_files.len()
+        );
+        println!("\n{}", "Target files:".bold());
+        for (i, file) in target_files.iter().enumerate().take(10) {
+            println!("  {}. {}", i + 1, file.display());
+        }
+        if target_files.len() > 10 {
+            println!("  ... and {} more", target_files.len() - 10);
+        }
+        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        return Ok(());
+    }
+
+    // Confirmation prompt
+    if !yes {
+        let prompt = format!(
+            "Copy tags [{}] from '{}' to {} file(s)?",
+            tags_to_copy.join(", ").cyan(),
+            source_file.display(),
+            target_files.len()
+        );
+        let confirmed = Confirm::new()
+            .with_prompt(prompt)
+            .interact()
+            .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
+        if !confirmed {
+            println!("Operation cancelled.");
+            return Ok(());
+        }
+    }
+
+    let mut summary = BulkOpSummary::new();
+
+    for file in &target_files {
+        match db.add_tags(file, tags_to_copy.clone()) {
+            Ok(()) => {
+                summary.add_success();
+                if !quiet {
+                    println!("✓ Copied tags to: {}", file.display());
+                }
+            }
+            Err(e) => {
+                summary.add_error(format!("{}: {}", file.display(), e));
+                if !quiet {
+                    eprintln!("✗ Failed to copy tags to {}: {}", file.display(), e);
+                }
+            }
+        }
+    }
+
+    if !quiet {
+        summary.print("Copy Tags");
     }
 
     Ok(())
@@ -809,5 +951,301 @@ mod tests {
         let tags = db.get_tags(file1.path()).unwrap().unwrap();
         assert_eq!(tags.len(), 1);
         assert!(tags.contains(&"new".to_string()));
+    }
+
+    #[test]
+    fn test_copy_tags_all() {
+        let test_db = TestDb::new("test_copy_tags_all");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        // Create source file with tags
+        let source = TempFile::create("source.txt").unwrap();
+        db.add_tags(
+            source.path(),
+            vec!["tag1".into(), "tag2".into(), "tag3".into()],
+        )
+        .unwrap();
+
+        // Create target files with initial tags
+        let target1 = TempFile::create("target1.txt").unwrap();
+        let target2 = TempFile::create("target2.txt").unwrap();
+        db.add_tags(target1.path(), vec!["initial".into()]).unwrap();
+        db.add_tags(target2.path(), vec!["initial".into()]).unwrap();
+
+        // Search params to match target files
+        let params = SearchParams {
+            query: None,
+            tags: vec!["initial".to_string()],
+            tag_mode: SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+
+        // Copy all tags from source
+        copy_tags(db, source.path(), &params, None, &[], false, true, true).unwrap();
+
+        // Verify all tags were copied
+        let tags1 = db.get_tags(target1.path()).unwrap().unwrap();
+        assert!(tags1.contains(&"initial".to_string()));
+        assert!(tags1.contains(&"tag1".to_string()));
+        assert!(tags1.contains(&"tag2".to_string()));
+        assert!(tags1.contains(&"tag3".to_string()));
+
+        let tags2 = db.get_tags(target2.path()).unwrap().unwrap();
+        assert!(tags2.contains(&"initial".to_string()));
+        assert!(tags2.contains(&"tag1".to_string()));
+    }
+
+    #[test]
+    fn test_copy_tags_specific() {
+        let test_db = TestDb::new("test_copy_tags_specific");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let source = TempFile::create("source.txt").unwrap();
+        db.add_tags(
+            source.path(),
+            vec!["tag1".into(), "tag2".into(), "tag3".into()],
+        )
+        .unwrap();
+
+        let target = TempFile::create("target.txt").unwrap();
+        db.add_tags(target.path(), vec!["initial".into()]).unwrap();
+
+        let params = SearchParams {
+            query: None,
+            tags: vec!["initial".to_string()],
+            tag_mode: SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+
+        // Copy only specific tags
+        copy_tags(
+            db,
+            source.path(),
+            &params,
+            Some(&["tag1".to_string(), "tag2".to_string()]),
+            &[],
+            false,
+            true,
+            true,
+        )
+        .unwrap();
+
+        // Verify only specified tags were copied
+        let tags = db.get_tags(target.path()).unwrap().unwrap();
+        assert!(tags.contains(&"initial".to_string()));
+        assert!(tags.contains(&"tag1".to_string()));
+        assert!(tags.contains(&"tag2".to_string()));
+        assert!(!tags.contains(&"tag3".to_string()));
+    }
+
+    #[test]
+    fn test_copy_tags_with_exclusions() {
+        let test_db = TestDb::new("test_copy_tags_exclude");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let source = TempFile::create("source.txt").unwrap();
+        db.add_tags(
+            source.path(),
+            vec!["tag1".into(), "tag2".into(), "tag3".into()],
+        )
+        .unwrap();
+
+        let target = TempFile::create("target.txt").unwrap();
+        db.add_tags(target.path(), vec!["initial".into()]).unwrap();
+
+        let params = SearchParams {
+            query: None,
+            tags: vec!["initial".to_string()],
+            tag_mode: SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+
+        // Copy all except excluded tags
+        copy_tags(
+            db,
+            source.path(),
+            &params,
+            None,
+            &["tag2".to_string()],
+            false,
+            true,
+            true,
+        )
+        .unwrap();
+
+        // Verify excluded tag was not copied
+        let tags = db.get_tags(target.path()).unwrap().unwrap();
+        assert!(tags.contains(&"initial".to_string()));
+        assert!(tags.contains(&"tag1".to_string()));
+        assert!(!tags.contains(&"tag2".to_string()));
+        assert!(tags.contains(&"tag3".to_string()));
+    }
+
+    #[test]
+    fn test_copy_tags_source_not_found() {
+        let test_db = TestDb::new("test_copy_no_source");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let source = TempFile::create("source.txt").unwrap();
+        // Don't add source to database
+
+        let target = TempFile::create("target.txt").unwrap();
+        db.add_tags(target.path(), vec!["initial".into()]).unwrap();
+
+        let params = SearchParams {
+            query: None,
+            tags: vec!["initial".to_string()],
+            tag_mode: SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+
+        // Should return error
+        let result = copy_tags(db, source.path(), &params, None, &[], false, true, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_copy_tags_no_targets() {
+        let test_db = TestDb::new("test_copy_no_targets");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let source = TempFile::create("source.txt").unwrap();
+        db.add_tags(source.path(), vec!["tag1".into()]).unwrap();
+
+        let params = SearchParams {
+            query: None,
+            tags: vec!["nonexistent".to_string()],
+            tag_mode: SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+
+        // Should succeed but do nothing (no targets match)
+        copy_tags(db, source.path(), &params, None, &[], false, true, true).unwrap();
+    }
+
+    #[test]
+    fn test_copy_tags_excludes_source() {
+        let test_db = TestDb::new("test_copy_exclude_source");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        // Source file has matching tag
+        let source = TempFile::create("source.txt").unwrap();
+        db.add_tags(source.path(), vec!["shared".into(), "unique".into()])
+            .unwrap();
+
+        let target = TempFile::create("target.txt").unwrap();
+        db.add_tags(target.path(), vec!["shared".into()]).unwrap();
+
+        // Search for files with "shared" tag (includes both source and target)
+        let params = SearchParams {
+            query: None,
+            tags: vec!["shared".to_string()],
+            tag_mode: SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+
+        copy_tags(db, source.path(), &params, None, &[], false, true, true).unwrap();
+
+        // Source should not have copied to itself
+        let source_tags = db.get_tags(source.path()).unwrap().unwrap();
+        assert_eq!(source_tags.len(), 2); // Only original tags
+
+        // Target should have received the unique tag
+        let target_tags = db.get_tags(target.path()).unwrap().unwrap();
+        assert!(target_tags.contains(&"shared".to_string()));
+        assert!(target_tags.contains(&"unique".to_string()));
+    }
+
+    #[test]
+    fn test_copy_tags_specific_and_exclude() {
+        let test_db = TestDb::new("test_copy_specific_exclude");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let source = TempFile::create("source.txt").unwrap();
+        db.add_tags(
+            source.path(),
+            vec!["tag1".into(), "tag2".into(), "tag3".into(), "tag4".into()],
+        )
+        .unwrap();
+
+        let target = TempFile::create("target.txt").unwrap();
+        db.add_tags(target.path(), vec!["initial".into()]).unwrap();
+
+        let params = SearchParams {
+            query: None,
+            tags: vec!["initial".to_string()],
+            tag_mode: SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+
+        // Specify tags 1, 2, 3 but exclude tag2
+        copy_tags(
+            db,
+            source.path(),
+            &params,
+            Some(&["tag1".to_string(), "tag2".to_string(), "tag3".to_string()]),
+            &["tag2".to_string()],
+            false,
+            true,
+            true,
+        )
+        .unwrap();
+
+        // Should only have tag1 and tag3 (tag2 excluded, tag4 not specified)
+        let tags = db.get_tags(target.path()).unwrap().unwrap();
+        assert!(tags.contains(&"initial".to_string()));
+        assert!(tags.contains(&"tag1".to_string()));
+        assert!(!tags.contains(&"tag2".to_string()));
+        assert!(tags.contains(&"tag3".to_string()));
+        assert!(!tags.contains(&"tag4".to_string()));
     }
 }

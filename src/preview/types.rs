@@ -93,7 +93,10 @@ impl PreviewContent {
     /// // Use: content.to_string() or format!("{}", content)
     /// ```
     #[must_use]
-    #[deprecated(since = "0.5.0", note = "Use Display trait instead: .to_string() or format!()")]
+    #[deprecated(
+        since = "0.5.0",
+        note = "Use Display trait instead: .to_string() or format!()"
+    )]
     pub fn to_display_string(&self) -> String {
         format!("{self}")
     }

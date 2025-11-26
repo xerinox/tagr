@@ -44,7 +44,7 @@
 
 use tagr::{
     TagrError,
-    cli::{Cli, Commands, ConfigCommands, DbCommands},
+    cli::{Cli, Commands, ConfigCommands, DbCommands, SearchParams},
     commands, config,
     db::Database,
 };
@@ -381,7 +381,7 @@ fn main() -> Result<()> {
                 let ctx = command.get_untag_context().unwrap();
                 commands::tag::untag(&db, ctx.file, &ctx.tags, ctx.all, quiet)?;
             }
-            Commands::Tags { command } => {
+            Commands::Tags { command, .. } => {
                 commands::tags(&db, command, quiet)?;
             }
             Commands::Bulk { command, .. } => {
@@ -394,30 +394,7 @@ fn main() -> Result<()> {
                         dry_run,
                         yes,
                     } => {
-                        let params = tagr::cli::SearchParams {
-                            query: None,
-                            tags: criteria.tags.clone(),
-                            tag_mode: if criteria.any_tag {
-                                tagr::cli::SearchMode::Any
-                            } else {
-                                tagr::cli::SearchMode::All
-                            },
-                            file_patterns: criteria.file_patterns.clone(),
-                            file_mode: if criteria.any_file {
-                                tagr::cli::SearchMode::Any
-                            } else {
-                                tagr::cli::SearchMode::All
-                            },
-                            exclude_tags: criteria.excludes.clone(),
-                            regex_tag: criteria.regex_tag,
-                            regex_file: criteria.regex_file,
-                            virtual_tags: criteria.virtual_tags.clone(),
-                            virtual_mode: if criteria.any_virtual {
-                                tagr::cli::SearchMode::Any
-                            } else {
-                                tagr::cli::SearchMode::All
-                            },
-                        };
+                        let params = SearchParams::from(criteria);
                         commands::bulk::bulk_tag(&db, &params, add_tags, *dry_run, *yes, quiet)?;
                     }
                     BulkCommands::Untag {
@@ -427,30 +404,7 @@ fn main() -> Result<()> {
                         dry_run,
                         yes,
                     } => {
-                        let params = tagr::cli::SearchParams {
-                            query: None,
-                            tags: criteria.tags.clone(),
-                            tag_mode: if criteria.any_tag {
-                                tagr::cli::SearchMode::Any
-                            } else {
-                                tagr::cli::SearchMode::All
-                            },
-                            file_patterns: criteria.file_patterns.clone(),
-                            file_mode: if criteria.any_file {
-                                tagr::cli::SearchMode::Any
-                            } else {
-                                tagr::cli::SearchMode::All
-                            },
-                            exclude_tags: criteria.excludes.clone(),
-                            regex_tag: criteria.regex_tag,
-                            regex_file: criteria.regex_file,
-                            virtual_tags: criteria.virtual_tags.clone(),
-                            virtual_mode: if criteria.any_virtual {
-                                tagr::cli::SearchMode::Any
-                            } else {
-                                tagr::cli::SearchMode::All
-                            },
-                        };
+                        let params = SearchParams::from(criteria);
                         commands::bulk::bulk_untag(
                             &db,
                             &params,
@@ -482,6 +436,25 @@ fn main() -> Result<()> {
                             *dry_run,
                             *yes,
                             quiet,
+                        )?;
+                    }
+                    BulkCommands::CopyTags {
+                        source,
+                        criteria,
+                        specific_tags,
+                        exclude,
+                        dry_run,
+                        yes,
+                    } => {
+                        let params = SearchParams::from(criteria);
+                        let specific = if specific_tags.is_empty() {
+                            None
+                        } else {
+                            Some(specific_tags.as_slice())
+                        };
+
+                        commands::bulk::copy_tags(
+                            &db, source, &params, specific, exclude, *dry_run, *yes, quiet,
                         )?;
                     }
                 }

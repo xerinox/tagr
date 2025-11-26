@@ -466,6 +466,33 @@ pub enum BulkCommands {
         #[arg(short = 'y', long = "yes")]
         yes: bool,
     },
+
+    /// Copy tags from a source file to multiple target files
+    #[command(visible_alias = "copy")]
+    CopyTags {
+        /// Source file to copy tags from
+        #[arg(value_name = "SOURCE_FILE")]
+        source: PathBuf,
+
+        #[command(flatten)]
+        criteria: SearchCriteriaArgs,
+
+        /// Only copy specific tags (omit to copy all tags from source)
+        #[arg(long = "copy-tags", value_name = "TAG")]
+        specific_tags: Vec<String>,
+
+        /// Exclude specific tags from copying
+        #[arg(long = "exclude-tags", value_name = "TAG")]
+        exclude: Vec<String>,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
 }
 
 /// Filter management subcommands
@@ -631,14 +658,6 @@ pub struct Cli {
     /// Suppress informational output (only print results)
     #[arg(short = 'q', long = "quiet", global = true)]
     pub quiet: bool,
-
-    /// Display absolute paths (overrides config)
-    #[arg(long = "absolute", global = true, conflicts_with = "relative")]
-    pub absolute: bool,
-
-    /// Display relative paths (overrides config)
-    #[arg(long = "relative", global = true, conflicts_with = "absolute")]
-    pub relative: bool,
 }
 
 /// Available CLI commands
@@ -673,6 +692,14 @@ pub enum Commands {
         /// Preview width percentage (0-100)
         #[arg(long = "preview-width", value_name = "PERCENT")]
         preview_width: Option<u8>,
+
+        /// Display absolute paths (overrides config)
+        #[arg(long = "absolute", conflicts_with = "relative")]
+        absolute: bool,
+
+        /// Display relative paths (overrides config)
+        #[arg(long = "relative", conflicts_with = "absolute")]
+        relative: bool,
 
         #[command(flatten)]
         db_args: DbArgs,
@@ -732,6 +759,14 @@ pub enum Commands {
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
 
+        /// Display absolute paths (overrides config)
+        #[arg(long = "absolute", conflicts_with = "relative")]
+        absolute: bool,
+
+        /// Display relative paths (overrides config)
+        #[arg(long = "relative", conflicts_with = "absolute")]
+        relative: bool,
+
         #[command(flatten)]
         db_args: DbArgs,
 
@@ -774,6 +809,9 @@ pub enum Commands {
     Tags {
         #[command(subcommand)]
         command: TagsCommands,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 
     /// Perform bulk operations on multiple files
@@ -797,6 +835,14 @@ pub enum Commands {
     List {
         /// What to list (files or tags)
         variant: ListVariant,
+
+        /// Display absolute paths (overrides config)
+        #[arg(long = "absolute", conflicts_with = "relative")]
+        absolute: bool,
+
+        /// Display relative paths (overrides config)
+        #[arg(long = "relative", conflicts_with = "absolute")]
+        relative: bool,
 
         #[command(flatten)]
         db_args: DbArgs,
@@ -948,6 +994,7 @@ impl Commands {
             | Self::Tag { db_args, .. }
             | Self::Search { db_args, .. }
             | Self::Untag { db_args, .. }
+            | Self::Tags { db_args, .. }
             | Self::Bulk { db_args, .. }
             | Self::Cleanup { db_args }
             | Self::List { db_args, .. } => db_args.db.clone(),
@@ -964,6 +1011,7 @@ impl Commands {
                 BulkCommands::Untag { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::RenameTag { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::MergeTags { dry_run, yes, .. } => (*dry_run, *yes),
+                BulkCommands::CopyTags { dry_run, yes, .. } => (*dry_run, *yes),
             };
             Some((command, dry_run, yes))
         } else {
@@ -1003,6 +1051,8 @@ impl Cli {
             preview_lines: None,
             preview_position: None,
             preview_width: None,
+            absolute: false,
+            relative: false,
             db_args: DbArgs { db: None },
             filter_args: FilterArgs {
                 filter: None,
@@ -1012,15 +1062,24 @@ impl Cli {
         })
     }
 
-    /// Helper method to get the path format override from global flags
+    /// Helper method to get the path format override from command-specific flags
     #[must_use]
-    pub const fn get_path_format(&self) -> Option<PathFormat> {
-        if self.absolute {
-            Some(PathFormat::Absolute)
-        } else if self.relative {
-            Some(PathFormat::Relative)
-        } else {
-            None
+    pub fn get_path_format(&self) -> Option<PathFormat> {
+        let to_format = |absolute: bool, relative: bool| {
+            if absolute {
+                Some(PathFormat::Absolute)
+            } else if relative {
+                Some(PathFormat::Relative)
+            } else {
+                None
+            }
+        };
+
+        match &self.command {
+            Some(Commands::Browse { absolute, relative, .. })
+            | Some(Commands::Search { absolute, relative, .. })
+            | Some(Commands::List { absolute, relative, .. }) => to_format(*absolute, *relative),
+            _ => None,
         }
     }
 }
