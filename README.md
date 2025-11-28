@@ -4,6 +4,128 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 
 ## Features
 
+## Bulk Tag vs Copy Tags
+
+Tagr offers two related bulk operations that serve different intents:
+
+- `bulk tag`: Adds the literal tags you specify to the matched files, regardless of any source file. Use this when you want to apply explicit tags you provide.
+- `bulk copy-tags`: Copies tags from a specific source file to matched target files. Optional `--tags` acts as an allowlist and copies only the intersection of that list and the tags currently present on the source. `--exclude` removes specific tags from being copied.
+
+Why both exist side by side:
+
+- Provenance: `copy-tags` enforces that tags originate from the source file’s current state, preventing drift when templates evolve.
+- Safety: With `--tags`, only the intersection with the source is applied; typos or stale names are ignored instead of being introduced.
+- Workflows: Teams using a “template” file can propagate its current approved tags to others, while `bulk tag` remains the tool to add arbitrary tags directly.
+
+Rule of thumb:
+
+- Use `bulk tag` to add explicit tags you type.
+- Use `bulk copy-tags` to propagate tags from a source-of-truth file, optionally narrowed via `--tags` and/or `--exclude`.
+
+Examples:
+
+```bash
+# Add explicit tags to files with tag "initial"
+tagr bulk tag --tags review,approved --tags-mode any --filter-tags initial
+
+# Copy only tags that the source currently has, limited to an allowlist
+tagr bulk copy-tags --source /path/template.md --tags review,approved \
+    --filter-tags initial --tags-mode any
+
+# Copy all tags from source except a specific one
+tagr bulk copy-tags --source /path/template.md --exclude deprecated \
+    --filter-tags initial --tags-mode any
+```
+
+## Batch Tagging From File
+
+Apply tags to many files by supplying a structured batch file. Supported formats: plain text, CSV, JSON. Select with `--format` and (for CSV) an optional `--delimiter`.
+
+### Plain Text (`--format text`)
+Each non-empty, non-comment line: `<file> <tag1> <tag2> ...` (whitespace-separated). Lines starting with `#` are ignored.
+
+```
+/proj/app/README.md docs markdown
+/proj/app/src/main.rs rust backend service
+# A comment line
+/proj/app/src/lib/util.rs rust helper
+```
+
+Usage:
+```bash
+tagr bulk from-file --input batch.txt --format text --yes
+```
+
+### CSV (`--format csv`)
+First column is the file path; remaining columns are tags. Default delimiter is `,`; override with `--delimiter ';'` etc. A quoted single field may contain an inner comma list of tags (e.g. `"tag3,tag4"`).
+
+```
+/proj/app/README.md,docs,markdown
+/proj/app/src/main.rs,rust,backend,service
+/proj/app/src/lib/util.rs,"rust,helper"
+```
+
+Custom delimiter example (`;`):
+```
+/proj/app/README.md;docs;markdown
+/proj/app/src/main.rs;rust;backend;service
+```
+
+Usage:
+```bash
+tagr bulk from-file --input tags.csv --format csv --yes
+tagr bulk from-file --input tags-semicolon.csv --format csv --delimiter ';' --dry-run
+```
+
+### JSON (`--format json`)
+Array of objects each with `file` and `tags` keys:
+```json
+[
+    {"file": "/proj/app/README.md", "tags": ["docs", "markdown"]},
+    {"file": "/proj/app/src/main.rs", "tags": ["rust", "backend", "service"]},
+    {"file": "/proj/app/src/lib/util.rs", "tags": ["rust", "helper"]}
+]
+```
+
+Usage:
+```bash
+tagr bulk from-file --input tags.json --format json --dry-run
+```
+
+### Format Mismatch Hints
+If parsing fails, Tagr attempts the other parsers and emits a hint instead of guessing:
+```
+Invalid JSON at line 1 column 2
+Hint: The file appears to be CSV. Use '--format csv' (with '--delimiter' if needed).
+```
+```
+Invalid CSV record 1
+Hint: The file may be JSON. Use '--format json'.
+```
+No automatic fallback occurs—adjust your flags and re-run.
+
+### Skips & Duplicates
+- Lines/entries with zero tags are skipped
+- Existing tags are not duplicated
+- Individual line errors do not abort the whole batch unless global parse fails
+
+### Dry Run
+Preview impact without applying changes:
+```bash
+tagr bulk from-file --input tags.csv --format csv --dry-run
+```
+
+### Choosing a Format
+| Scenario | Format |
+|----------|--------|
+| Hand editing | Plain text |
+| Spreadsheet export | CSV |
+| Programmatic generation | JSON |
+
+### Delimiter (CSV)
+`--delimiter` applies only to CSV. Internally stored as `Csv(char)` for clarity.
+
+
 - 🏷️ **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
 - 🔍 **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
 - 👁️ **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)

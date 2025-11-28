@@ -515,8 +515,41 @@ pub enum BulkCommands {
         #[arg(short = 'y', long = "yes")]
         yes: bool,
     },
+
+    /// Batch tag from an input file (text, csv, json)
+    FromFile {
+        /// Input file containing file paths and tags
+        #[arg(value_name = "INPUT_FILE")]
+        input: PathBuf,
+
+        /// Input format
+        #[arg(short = 'f', long = "format", value_enum, default_value_t = BatchFormatArg::Text)]
+        format: BatchFormatArg,
+
+        /// CSV delimiter (for CSV format)
+        #[arg(long = "delimiter", default_value = ",")]
+        delimiter: char,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
 }
 
+/// Batch input format argument
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchFormatArg {
+    /// Plain text format: `file tag1 tag2` per line
+    Text,
+    /// CSV format: `file,tag1,tag2` per row
+    Csv,
+    /// JSON format: `[{"file":"...","tags":["t1","t2"]}]`
+    Json,
+}
 /// Filter management subcommands
 #[derive(Subcommand, Debug, Clone)]
 pub enum FilterCommands {
@@ -1034,6 +1067,7 @@ impl Commands {
                 BulkCommands::RenameTag { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::MergeTags { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::CopyTags { dry_run, yes, .. } => (*dry_run, *yes),
+                BulkCommands::FromFile { dry_run, yes, .. } => (*dry_run, *yes),
             };
             Some((command, dry_run, yes))
         } else {

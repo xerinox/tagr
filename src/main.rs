@@ -460,6 +460,29 @@ fn main() -> Result<()> {
                             &db, source, &params, specific, exclude, *dry_run, *yes, quiet,
                         )?;
                     }
+                    BulkCommands::FromFile {
+                        input,
+                        format,
+                        delimiter,
+                        dry_run,
+                        yes,
+                    } => {
+                        use tagr::commands::bulk::BatchFormat;
+                    
+                        let fmt = match format {
+                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
+                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(delimiter.clone()),
+                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
+                        };
+                        commands::bulk::batch_from_file(
+                            &db,
+                            input,
+                            fmt,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
                 }
             }
             Commands::Cleanup { .. } => {
