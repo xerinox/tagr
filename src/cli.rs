@@ -540,10 +540,34 @@ pub enum BulkCommands {
     },
 
     /// Map (rename) multiple tags via a mapping file (text, csv, json)
-    #[command(name = "map-tags", visible_alias = "map")] 
+    #[command(name = "map-tags", visible_alias = "map")]
     MapTags {
         /// Mapping file containing tag rename pairs
         #[arg(value_name = "MAPPING_FILE")]
+        input: PathBuf,
+
+        /// Input format
+        #[arg(short = 'f', long = "format", value_enum, default_value_t = BatchFormatArg::Text)]
+        format: BatchFormatArg,
+
+        /// CSV delimiter (for CSV format)
+        #[arg(long = "delimiter", default_value = ",")]
+        delimiter: char,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Delete many files from the database using an input list (text, csv, json)
+    #[command(name = "delete-files", visible_alias = "del-files")]
+    DeleteFiles {
+        /// Input file containing file paths to delete
+        #[arg(value_name = "INPUT_FILE")]
         input: PathBuf,
 
         /// Input format
@@ -1086,13 +1110,14 @@ impl Commands {
     pub const fn get_bulk_context(&self) -> Option<(&BulkCommands, bool, bool)> {
         if let Self::Bulk { command, .. } = self {
             let (dry_run, yes) = match command {
-                BulkCommands::Tag { dry_run, yes, .. } => (*dry_run, *yes),
-                BulkCommands::Untag { dry_run, yes, .. } => (*dry_run, *yes),
-                BulkCommands::RenameTag { dry_run, yes, .. } => (*dry_run, *yes),
-                BulkCommands::MergeTags { dry_run, yes, .. } => (*dry_run, *yes),
-                BulkCommands::CopyTags { dry_run, yes, .. } => (*dry_run, *yes),
-                BulkCommands::FromFile { dry_run, yes, .. } => (*dry_run, *yes),
-                BulkCommands::MapTags { dry_run, yes, .. } => (*dry_run, *yes),
+                BulkCommands::Tag { dry_run, yes, .. }
+                | BulkCommands::Untag { dry_run, yes, .. }
+                | BulkCommands::RenameTag { dry_run, yes, .. }
+                | BulkCommands::MergeTags { dry_run, yes, .. }
+                | BulkCommands::CopyTags { dry_run, yes, .. }
+                | BulkCommands::FromFile { dry_run, yes, .. }
+                | BulkCommands::MapTags { dry_run, yes, .. }
+                | BulkCommands::DeleteFiles { dry_run, yes, .. } => (*dry_run, *yes),
             };
             Some((command, dry_run, yes))
         } else {
@@ -1157,9 +1182,17 @@ impl Cli {
         };
 
         match &self.command {
-            Some(Commands::Browse { absolute, relative, .. })
-            | Some(Commands::Search { absolute, relative, .. })
-            | Some(Commands::List { absolute, relative, .. }) => to_format(*absolute, *relative),
+            Some(
+                Commands::Browse {
+                    absolute, relative, ..
+                }
+                | Commands::Search {
+                    absolute, relative, ..
+                }
+                | Commands::List {
+                    absolute, relative, ..
+                },
+            ) => to_format(*absolute, *relative),
             _ => None,
         }
     }

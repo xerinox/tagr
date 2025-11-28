@@ -267,7 +267,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         // Only use configured path format in file phase
         let path_format = match phase_type {
             PhaseType::FileSelection { .. } => &self.session.config().path_format,
-            _ => &PathFormat::Absolute, // Default for other phases
+            PhaseType::TagSelection => &PathFormat::Absolute, // Default for tag phase
         };
 
         match path_format {

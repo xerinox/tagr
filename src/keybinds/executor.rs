@@ -62,7 +62,7 @@ impl ActionExecutor {
             BrowseAction::SelectAll => Self::execute_select_all(context),
             BrowseAction::ClearSelection => Self::execute_clear_selection(context),
             BrowseAction::ShowHelp => Self::execute_show_help(context),
-            BrowseAction::Cancel | _ => Ok(ActionResult::Continue),
+            _ => Ok(ActionResult::Continue),
         }
     }
 

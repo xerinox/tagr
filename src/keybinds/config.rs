@@ -340,7 +340,7 @@ impl KeybindConfig {
                 KeybindDef::Multiple(keys) => {
                     keys.iter().filter(|k| *k != "none").cloned().collect()
                 }
-                _ => continue,
+                KeybindDef::Single(_) => continue,
             };
 
             for key in keys {

@@ -396,7 +396,9 @@ fn main() -> Result<()> {
                         yes,
                     } => {
                         let params = SearchParams::from(criteria);
-                        commands::bulk::bulk_tag(&db, &params, add_tags, conditions, *dry_run, *yes, quiet)?;
+                        commands::bulk::bulk_tag(
+                            &db, &params, add_tags, conditions, *dry_run, *yes, quiet,
+                        )?;
                     }
                     BulkCommands::Untag {
                         criteria,
@@ -468,20 +470,13 @@ fn main() -> Result<()> {
                         yes,
                     } => {
                         use tagr::commands::bulk::BatchFormat;
-                    
+
                         let fmt = match format {
                             tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(delimiter.clone()),
+                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
                             tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
                         };
-                        commands::bulk::batch_from_file(
-                            &db,
-                            input,
-                            fmt,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
+                        commands::bulk::batch_from_file(&db, input, fmt, *dry_run, *yes, quiet)?;
                     }
                     BulkCommands::MapTags {
                         input,
@@ -493,10 +488,25 @@ fn main() -> Result<()> {
                         use tagr::commands::bulk::BatchFormat;
                         let fmt = match format {
                             tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(delimiter.clone()),
+                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
                             tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
                         };
                         commands::bulk::bulk_map_tags(&db, input, fmt, *dry_run, *yes, quiet)?;
+                    }
+                    BulkCommands::DeleteFiles {
+                        input,
+                        format,
+                        delimiter,
+                        dry_run,
+                        yes,
+                    } => {
+                        use tagr::commands::bulk::BatchFormat;
+                        let fmt = match format {
+                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
+                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
+                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
+                        };
+                        commands::bulk::bulk_delete_files(&db, input, fmt, *dry_run, *yes, quiet)?;
                     }
                 }
             }
