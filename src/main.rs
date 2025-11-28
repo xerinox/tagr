@@ -391,16 +391,18 @@ fn main() -> Result<()> {
                     BulkCommands::Tag {
                         criteria,
                         add_tags,
+                        conditions,
                         dry_run,
                         yes,
                     } => {
                         let params = SearchParams::from(criteria);
-                        commands::bulk::bulk_tag(&db, &params, add_tags, *dry_run, *yes, quiet)?;
+                        commands::bulk::bulk_tag(&db, &params, add_tags, conditions, *dry_run, *yes, quiet)?;
                     }
                     BulkCommands::Untag {
                         criteria,
                         remove_tags,
                         all,
+                        conditions,
                         dry_run,
                         yes,
                     } => {
@@ -410,6 +412,7 @@ fn main() -> Result<()> {
                             &params,
                             remove_tags,
                             *all,
+                            conditions,
                             *dry_run,
                             *yes,
                             quiet,

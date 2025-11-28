@@ -40,7 +40,7 @@
 //! }
 //! ```
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 
 /// Path display format
@@ -320,6 +320,22 @@ pub fn execute_command_on_files<P: AsRef<Path>>(
     success_count
 }
 
+/// Conditional operation flags (reusable across bulk operations)
+#[derive(Args, Debug, Clone, Default)]
+pub struct ConditionalArgs {
+    /// Only add tags if they don't already exist on the file
+    #[arg(long = "if-not-exists")]
+    pub if_not_exists: bool,
+
+    /// Only process files that have ALL of these tags
+    #[arg(long = "if-has-tag", value_name = "TAG")]
+    pub if_has_tag: Vec<String>,
+
+    /// Only process files that are missing ANY of these tags
+    #[arg(long = "if-missing-tag", value_name = "TAG")]
+    pub if_missing_tag: Vec<String>,
+}
+
 /// Configuration management subcommands
 #[derive(Subcommand, Debug, Clone)]
 pub enum ConfigCommands {
@@ -398,6 +414,9 @@ pub enum BulkCommands {
         #[arg(value_name = "TAG", required = true)]
         add_tags: Vec<String>,
 
+        #[command(flatten)]
+        conditions: ConditionalArgs,
+
         /// Preview changes without applying them
         #[arg(short = 'n', long = "dry-run")]
         dry_run: bool,
@@ -419,6 +438,9 @@ pub enum BulkCommands {
         /// Remove all tags from matching files
         #[arg(short = 'a', long = "all")]
         all: bool,
+
+        #[command(flatten)]
+        conditions: ConditionalArgs,
 
         /// Preview changes without applying them
         #[arg(short = 'n', long = "dry-run")]

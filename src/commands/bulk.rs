@@ -9,7 +9,7 @@
 //!
 //! All operations support dry-run mode and confirmation prompts for safety.
 
-use crate::cli::SearchParams;
+use crate::cli::{ConditionalArgs, SearchParams};
 use crate::db::Database;
 use crate::{Pair, TagrError};
 use colored::Colorize;
@@ -18,6 +18,62 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 type Result<T> = std::result::Result<T, TagrError>;
+
+/// Reason a file was skipped during bulk operation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SkipReason {
+    /// File already had the tag(s) (condition check)
+    AlreadyExists,
+    /// File didn't meet conditional requirements
+    ConditionNotMet,
+    /// Other reason (e.g., database error handled gracefully)
+    Other,
+}
+
+/// Check if a file meets the conditional requirements
+///
+/// # Arguments
+/// * `file` - File path to check
+/// * `db` - Database instance
+/// * `conditions` - Conditional flags to evaluate
+/// * `tags_to_add` - Tags that will be added (for if-not-exists check)
+///
+/// # Returns
+/// `Ok(true)` if conditions are met, `Ok(false)` if not, `Err` on database error
+fn check_conditions(
+    file: &Path,
+    db: &Database,
+    conditions: &ConditionalArgs,
+    tags_to_add: &[String],
+) -> Result<bool> {
+    let file_tags = db.get_tags(file)?.unwrap_or_default();
+    
+    // Check --if-not-exists: only add tags if they don't already exist
+    if conditions.if_not_exists {
+        let has_any = tags_to_add.iter().any(|tag| file_tags.contains(tag));
+        if has_any {
+            return Ok(false);
+        }
+    }
+    
+    // Check --if-has-tag: only process if file has ALL specified tags
+    if !conditions.if_has_tag.is_empty() {
+        let has_all = conditions.if_has_tag.iter().all(|tag| file_tags.contains(tag));
+        if !has_all {
+            return Ok(false);
+        }
+    }
+    
+    // Check --if-missing-tag: only process if file is missing ANY specified tags
+    if !conditions.if_missing_tag.is_empty() {
+        let missing_any = conditions.if_missing_tag.iter().any(|tag| !file_tags.contains(tag));
+        if !missing_any {
+            return Ok(false);
+        }
+    }
+    
+    Ok(true)
+}
 
 /// Action type for bulk operations (used in preview and confirmation)
 #[derive(Debug, Clone, Copy)]
@@ -66,6 +122,8 @@ pub struct BulkOpSummary {
     pub success: usize,
     /// Number of files skipped (already had tags, etc.)
     pub skipped: usize,
+    /// Number of files skipped due to conditional checks
+    pub skipped_condition: usize,
     /// Number of files that encountered errors
     pub errors: usize,
     /// Error messages
@@ -87,6 +145,11 @@ impl BulkOpSummary {
         self.skipped += 1;
     }
 
+    #[inline]
+    const fn add_skip_condition(&mut self) {
+        self.skipped_condition += 1;
+    }
+
     fn add_error(&mut self, msg: String) {
         self.errors += 1;
         self.error_messages.push(msg);
@@ -97,6 +160,9 @@ impl BulkOpSummary {
         println!("  {} {}", "✓ Success:".green(), self.success);
         if self.skipped > 0 {
             println!("  {} {}", "⊘ Skipped:".yellow(), self.skipped);
+        }
+        if self.skipped_condition > 0 {
+            println!("  {} {}", "⊘ Skipped (condition):".yellow(), self.skipped_condition);
         }
         if self.errors > 0 {
             println!("  {} {}", "✗ Errors:".red(), self.errors);
@@ -116,16 +182,19 @@ impl BulkOpSummary {
 /// * `db` - Database instance
 /// * `params` - Search parameters to filter files
 /// * `tags` - Tags to add to matching files
+/// * `conditions` - Conditional flags for selective processing
 /// * `dry_run` - If true, preview changes without applying
 /// * `yes` - Skip confirmation prompts
 /// * `quiet` - Minimal output
 ///
 /// # Errors
 /// Returns error if database operations fail or no files match
+#[allow(clippy::too_many_arguments)]
 pub fn bulk_tag(
     db: &Database,
     params: &SearchParams,
     tags: &[String],
+    conditions: &ConditionalArgs,
     dry_run: bool,
     yes: bool,
     quiet: bool,
@@ -157,17 +226,36 @@ pub fn bulk_tag(
     let mut summary = BulkOpSummary::new();
 
     for file in &files {
-        match db.add_tags(file, tags.to_vec()) {
-            Ok(()) => {
-                summary.add_success();
+        // Check conditions
+        match check_conditions(file, db, conditions, tags) {
+            Ok(true) => {
+                // Conditions met, proceed with tagging
+                match db.add_tags(file, tags.to_vec()) {
+                    Ok(()) => {
+                        summary.add_success();
+                        if !quiet {
+                            println!("✓ Tagged: {}", file.display());
+                        }
+                    }
+                    Err(e) => {
+                        summary.add_error(format!("{}: {}", file.display(), e));
+                        if !quiet {
+                            eprintln!("✗ Failed to tag {}: {}", file.display(), e);
+                        }
+                    }
+                }
+            }
+            Ok(false) => {
+                // Conditions not met, skip
+                summary.add_skip_condition();
                 if !quiet {
-                    println!("✓ Tagged: {}", file.display());
+                    println!("⊘ Skipped (condition): {}", file.display());
                 }
             }
             Err(e) => {
                 summary.add_error(format!("{}: {}", file.display(), e));
                 if !quiet {
-                    eprintln!("✗ Failed to tag {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to check conditions for {}: {}", file.display(), e);
                 }
             }
         }
@@ -187,6 +275,7 @@ pub fn bulk_tag(
 /// * `params` - Search parameters to filter files
 /// * `tags` - Tags to remove (empty to remove all tags)
 /// * `remove_all` - If true, remove all tags from matching files
+/// * `conditions` - Conditional flags for selective processing
 /// * `dry_run` - If true, preview changes without applying
 /// * `yes` - Skip confirmation prompts
 /// * `quiet` - Minimal output
@@ -200,6 +289,7 @@ pub fn bulk_untag(
     params: &SearchParams,
     tags: &[String],
     remove_all: bool,
+    conditions: &ConditionalArgs,
     dry_run: bool,
     yes: bool,
     quiet: bool,
@@ -242,23 +332,42 @@ pub fn bulk_untag(
     let mut summary = BulkOpSummary::new();
 
     for file in &files {
-        let result = if remove_all {
-            db.remove(file).map(|_| ())
-        } else {
-            db.remove_tags(file, tags)
-        };
+        // Check conditions
+        match check_conditions(file, db, conditions, tags) {
+            Ok(true) => {
+                // Conditions met, proceed with untagging
+                let result = if remove_all {
+                    db.remove(file).map(|_| ())
+                } else {
+                    db.remove_tags(file, tags)
+                };
 
-        match result {
-            Ok(()) => {
-                summary.add_success();
+                match result {
+                    Ok(()) => {
+                        summary.add_success();
+                        if !quiet {
+                            println!("✓ Untagged: {}", file.display());
+                        }
+                    }
+                    Err(e) => {
+                        summary.add_error(format!("{}: {}", file.display(), e));
+                        if !quiet {
+                            eprintln!("✗ Failed to untag {}: {}", file.display(), e);
+                        }
+                    }
+                }
+            }
+            Ok(false) => {
+                // Conditions not met, skip
+                summary.add_skip_condition();
                 if !quiet {
-                    println!("✓ Untagged: {}", file.display());
+                    println!("⊘ Skipped (condition): {}", file.display());
                 }
             }
             Err(e) => {
                 summary.add_error(format!("{}: {}", file.display(), e));
                 if !quiet {
-                    eprintln!("✗ Failed to untag {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to check conditions for {}: {}", file.display(), e);
                 }
             }
         }
@@ -772,6 +881,7 @@ mod tests {
             db,
             &params,
             &["bulk".to_string(), "added".to_string()],
+            &ConditionalArgs::default(),
             false,
             true, // Skip confirmation
             true, // Quiet mode
@@ -827,6 +937,7 @@ mod tests {
             &params,
             &["tag1".to_string(), "tag2".to_string()],
             false,
+            &ConditionalArgs::default(),
             false,
             true,
             true,
@@ -886,7 +997,7 @@ mod tests {
         };
 
         // Should succeed but do nothing
-        bulk_tag(db, &params, &["test".to_string()], false, true, true).unwrap();
+        bulk_tag(db, &params, &["test".to_string()], &ConditionalArgs::default(), false, true, true).unwrap();
     }
 
     #[test]
