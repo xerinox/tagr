@@ -697,6 +697,9 @@ mod tests {
             db.flush().unwrap();
         }
 
+        // Mitigate occasional sled lock retention in parallel test runs
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
         {
             let db = Database::open(test_db_path).unwrap();
             assert_eq!(db.count(), 1);

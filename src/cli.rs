@@ -538,6 +538,30 @@ pub enum BulkCommands {
         #[arg(short = 'y', long = "yes")]
         yes: bool,
     },
+
+    /// Map (rename) multiple tags via a mapping file (text, csv, json)
+    #[command(name = "map-tags", visible_alias = "map")] 
+    MapTags {
+        /// Mapping file containing tag rename pairs
+        #[arg(value_name = "MAPPING_FILE")]
+        input: PathBuf,
+
+        /// Input format
+        #[arg(short = 'f', long = "format", value_enum, default_value_t = BatchFormatArg::Text)]
+        format: BatchFormatArg,
+
+        /// CSV delimiter (for CSV format)
+        #[arg(long = "delimiter", default_value = ",")]
+        delimiter: char,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
 }
 
 /// Batch input format argument
@@ -1068,6 +1092,7 @@ impl Commands {
                 BulkCommands::MergeTags { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::CopyTags { dry_run, yes, .. } => (*dry_run, *yes),
                 BulkCommands::FromFile { dry_run, yes, .. } => (*dry_run, *yes),
+                BulkCommands::MapTags { dry_run, yes, .. } => (*dry_run, *yes),
             };
             Some((command, dry_run, yes))
         } else {

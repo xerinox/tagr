@@ -104,9 +104,6 @@ Hint: The file may be JSON. Use '--format json'.
 ```
 No automatic fallback occurs—adjust your flags and re-run.
 
-### Skips & Duplicates
-- Lines/entries with zero tags are skipped
-- Existing tags are not duplicated
 - Individual line errors do not abort the whole batch unless global parse fails
 
 ### Dry Run
@@ -129,10 +126,6 @@ tagr bulk from-file --input tags.csv --format csv --dry-run
 - 🏷️ **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
 - 🔍 **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
 - 👁️ **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)
-- ⚡ **Fast queries** - O(1) tag lookups using reverse indexing with sled database
-- 🎯 **Multi-select** - Select multiple tags and files at once
-- 🔮 **Virtual tags** - Query files by metadata (size, modification time, extension, etc.) without database storage
-- 💾 **Saved filters** - Save complex search criteria as named filters for quick recall
 - ⚙️ **Action menu** - Perform tag operations directly after file selection (experimental)
 - 🧹 **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
 - 💾 **Persistent storage** - Reliable embedded database with automatic flushing
@@ -170,12 +163,6 @@ tagr tag README.md documentation markdown
 tagr tag src/main.rs rust code source
 tagr tag src/lib.rs rust code library
 
-# Browse files interactively (default command)
-tagr
-
-# Or explicitly
-tagr browse
-
 # Search for files by tag (non-interactive)
 tagr search rust
 
@@ -189,11 +176,7 @@ tagr untag README.md markdown
 tagr cleanup
 ```
 
-## Interactive Browse Mode
 
-The browse command opens an interactive fuzzy finder that can be used in two ways:
-
-### 1. Traditional Two-Stage Browse
 
 ```bash
 # Launch browse mode
