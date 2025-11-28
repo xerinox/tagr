@@ -123,6 +123,170 @@ tagr bulk from-file --input tags.csv --format csv --dry-run
 `--delimiter` applies only to CSV. Internally stored as `Csv(char)` for clarity.
 
 
+## Bulk Tag Mapping
+
+Rename (map) multiple tag names across all files using a structured mapping file. Each mapping replaces one tag (`from`) with another (`to`). If the target tag already exists on a file, the source tag is removed (merging semantics, no duplicates created).
+
+### When To Use
+- Consolidating synonymous tags (e.g. `todo` → `pending`)
+- Normalizing inconsistent capitalization (`Bug` → `bug`)
+- Migrating deprecated taxonomy (`legacy-api` → `deprecated`)
+
+### Supported Formats
+
+#### Plain Text (`--format text`)
+Each non-empty, non-comment line: `old_tag new_tag` (exactly two whitespace-separated tokens). Lines starting with `#` are ignored.
+
+```
+old pending
+Bug bug
+# comment line
+legacy-api deprecated
+```
+
+Usage:
+```bash
+tagr bulk map-tags --input mappings.txt --format text --yes
+tagr bulk map-tags --input mappings.txt --format text --dry-run
+```
+
+#### CSV (`--format csv`)
+Exactly 2 columns per record: `old,new`. Provide a custom delimiter with `--delimiter` if needed.
+
+```
+old,pending
+Bug,bug
+legacy-api,deprecated
+```
+
+Custom delimiter example (`;`):
+```
+old;pending
+Bug;bug
+```
+
+Usage:
+```bash
+tagr bulk map-tags --input mappings.csv --format csv --yes
+tagr bulk map-tags --input mappings-semicolon.csv --format csv --delimiter ';' --dry-run
+```
+
+#### JSON (`--format json`)
+Array of objects with `from` and `to` keys:
+```json
+[
+    {"from": "old", "to": "pending"},
+    {"from": "Bug", "to": "bug"},
+    {"from": "legacy-api", "to": "deprecated"}
+]
+```
+
+Usage:
+```bash
+tagr bulk map-tags --input mappings.json --format json --dry-run
+```
+
+### Behavior & Semantics
+- Skips mappings where `from == to` (reported as skipped)
+- Skips mappings whose source tag does not exist in any file
+- Merges automatically if `to` already present on a file (removes only the `from` tag)
+- Deduplicates resulting tag lists per file
+- Order matters for cascading renames (process appears sequentially). For A→B and B→C in one file list, apply them in intended sequence explicitly in your mapping file.
+- Reverse index kept consistent via internal `insert_pair()` pattern
+
+### Dry Run Preview
+```bash
+tagr bulk map-tags --input mappings.txt --format text --dry-run
+```
+Shows planned mappings and counts without modifying the database.
+
+### Error Handling & Hints
+Malformed lines/records abort parsing with a hint (e.g., CSV given when JSON expected). Parser attempts generate format mismatch hints; Tagr never silently falls back.
+
+### Examples
+```bash
+# Normalize capitalization & consolidate synonyms
+tagr bulk map-tags --input normalize.csv --format csv --yes
+
+# Preview large migration
+tagr bulk map-tags --input taxonomy.json --format json --dry-run
+```
+
+## Bulk Delete Files
+
+Remove many file entries from the database using an input list. This does NOT delete files from the filesystem—only database records are removed.
+
+### Use Cases
+- Prune outdated or deprecated file entries
+- Clean up after moving/renaming files externally
+- Prepare for a fresh retagging effort
+
+### Supported Formats
+
+#### Plain Text (`--format text`)
+Each non-empty, non-comment line begins with the file path. Additional tokens on the line are ignored (allowing copy/paste from other lists).
+```
+/proj/app/src/old.rs
+/proj/app/docs/legacy.md extra tokens ignored
+# comment
+/proj/app/tmp/scratch.txt
+```
+Usage:
+```bash
+tagr bulk delete-files --input delete.txt --format text --yes
+tagr bulk delete-files --input delete.txt --format text --dry-run
+```
+
+#### CSV (`--format csv`)
+First column is the path; remaining columns ignored (can hold notes).
+```
+/proj/app/src/old.rs,unused,legacy
+/proj/app/docs/legacy.md,deprecated
+```
+Usage:
+```bash
+tagr bulk delete-files --input delete.csv --format csv --yes
+tagr bulk delete-files --input delete-semicolon.csv --format csv --delimiter ';' --dry-run
+```
+
+#### JSON (`--format json`)
+Array of objects with a `file` field:
+```json
+[
+    {"file": "/proj/app/src/old.rs"},
+    {"file": "/proj/app/docs/legacy.md"}
+]
+```
+Usage:
+```bash
+tagr bulk delete-files --input delete.json --format json --dry-run
+```
+
+### Behavior & Semantics
+- Input paths are de-duplicated before processing
+- Missing paths (not present in the database) are reported as skipped
+- No filesystem deletion—safe to run without data loss
+- Confirmation prompt skipped with `--yes`; use `--dry-run` to preview
+
+### Dry Run
+```bash
+tagr bulk delete-files --input delete.txt --format text --dry-run
+```
+Displays the unique set of database entries that would be removed.
+
+### Errors & Hints
+Malformed records produce an immediate error. Format mismatch hints guide you to the correct `--format`/`--delimiter`.
+
+### Examples
+```bash
+# Remove a curated set of obsolete entries
+tagr bulk delete-files --input obsolete.csv --format csv --yes
+
+# Preview a massive cleanup first
+tagr bulk delete-files --input stale.json --format json --dry-run
+```
+
+
 - 🏷️ **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
 - 🔍 **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
 - 👁️ **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)
