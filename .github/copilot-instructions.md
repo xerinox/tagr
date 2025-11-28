@@ -107,6 +107,96 @@ See `src/db/mod.rs::insert_pair()` for the canonical pattern.
 
 5. **Implement standard traits**: Add `From`, `Into`, `Display`, `Debug`, `Default`, `PartialEq`, `Eq`, etc. where appropriate to integrate with Rust's ecosystem.
 
+6. **Function signatures**: Pass `&[T]` not `&Vec<T>`, use `&str` not `&String` for parameters. Use `Option<&[T]>` for optional slices (idiomatic over checking empty vec).
+
+7. **Iterator error handling**: Use `.collect::<Result<Vec<_>>>()` to propagate errors through iterator chains. Use `.enumerate()` for line numbers in parsing.
+
+### CLI Design Patterns (clap v4)
+
+**Create reusable argument groups with `#[command(flatten)]`:**
+
+```rust
+use clap::{Args, ValueEnum};
+
+/// Reusable dry-run and confirmation flags
+#[derive(Args, Debug, Clone)]
+pub struct DryRunArgs {
+    /// Preview changes without applying them
+    #[arg(short = 'n', long = "dry-run")]
+    pub dry_run: bool,
+    
+    /// Skip confirmation prompt
+    #[arg(short = 'y', long = "yes")]
+    pub yes: bool,
+}
+
+/// Use in commands via flatten
+#[derive(Args)]
+pub struct MyCommand {
+    #[command(flatten)]
+    dry_run: DryRunArgs,
+    
+    // ... other args
+}
+```
+
+**Type-safe enums with `#[derive(ValueEnum)]`:**
+
+```rust
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    Text,
+    Json,
+    Quiet,
+}
+
+// In command struct:
+#[arg(short = 'f', long = "format", default_value = "text")]
+format: OutputFormat,
+```
+
+**Custom parsing with `value_parser`:**
+
+```rust
+// Helper function for parsing "key:value" pairs
+fn parse_mapping(s: &str) -> Result<(String, String), String> {
+    let (key, value) = s.split_once(':')
+        .ok_or_else(|| format!("Invalid format '{}'. Expected 'key:value'", s))?;
+    Ok((key.to_string(), value.to_string()))
+}
+
+// Use in arg:
+#[arg(long = "map", value_parser = parse_mapping)]
+mappings: Vec<(String, String)>,
+```
+
+**Conditional requirements and conflicts:**
+
+```rust
+// Require param for certain enum values
+#[arg(
+    short = 'p',
+    long = "param",
+    required_if_eq_any([
+        ("operation", "add-prefix"),
+        ("operation", "add-suffix"),
+    ])
+)]
+param: Option<String>,
+
+// Mutually exclusive flags
+#[arg(long = "all", conflicts_with_all = ["specific", "pattern"])]
+all: bool,
+
+// Range validation
+#[arg(
+    short = 't',
+    long = "threshold",
+    value_parser = clap::value_parser!(f64).range(0.0..=1.0)
+)]
+threshold: f64,
+```
+
 ### Correctness & Error Handling
 
 **Critical**: Never write code that "works but is wrong."
@@ -169,10 +259,72 @@ When the code is clear, no comment is needed. Focus on meaningful function names
 
 ### Error Handling
 
-- Use `thiserror` for error types: `#[error("message: {0}")]`
-- Propagate errors with `?` operator, don't unwrap in library code
+**Use `thiserror` crate for all error types:**
+
+```rust
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ModuleError {
+    /// Use #[from] for automatic conversion from dependency errors
+    #[error("Database error: {0}")]
+    Database(#[from] crate::db::DbError),
+    
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    
+    /// Custom error with formatted message
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    
+    /// Structured errors with multiple fields
+    #[error("Parse error at line {line}: {message}")]
+    ParseError { line: usize, message: String },
+}
+
+/// Type alias for cleaner function signatures
+pub type Result<T> = std::result::Result<T, ModuleError>;
+```
+
+**Error Propagation Patterns:**
+
+```rust
+// 1. Auto-conversion with #[from] - most concise
+let db = Database::open(path)?;
+
+// 2. Add context with .map_err() when wrapping
+fs::read_to_string(path)
+    .map_err(|e| ModuleError::InvalidInput(format!("Failed to read {}: {}", path.display(), e)))?;
+
+// 3. Option → Result with .ok_or_else()
+let tags = db.get_tags(file)?
+    .ok_or_else(|| ModuleError::InvalidInput(format!("File not found: {}", file.display())))?;
+
+// 4. Collect with error propagation
+let results = items.iter()
+    .map(|item| process_item(item))
+    .collect::<Result<Vec<_>>>()?;
+
+// 5. Parsing with line-number context
+let entries = content.lines()
+    .enumerate()
+    .map(|(idx, line)| {
+        parse_line(line).map_err(|e| ModuleError::ParseError {
+            line: idx + 1,
+            message: e.to_string(),
+        })
+    })
+    .collect::<Result<Vec<_>>>()?;
+```
+
+**Best Practices:**
+- Propagate errors with `?` operator, never unwrap in library code
 - Return `Result<T, DbError>` for database ops, `Result<T, TagrError>` for top-level
 - Use `#[must_use]` on functions returning Results or important values
+- Use `#[from]` attribute for automatic error conversion
+- Add context with `.map_err()` for better error messages
+- Use `.ok_or_else()` for Option → Result conversion
+- Create module-specific error types, add to top-level `TagrError` via `#[from]`
 
 ### Path Handling
 
