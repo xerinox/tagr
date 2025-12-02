@@ -7,6 +7,7 @@ use crate::{
     db::{Database, query},
     filters::{FilterCriteria, FilterManager},
     output,
+    patterns::{PatternBuilder, PatternContext},
 };
 use std::path::PathBuf;
 
@@ -52,6 +53,30 @@ pub fn execute(
     {
         return Err(TagrError::InvalidInput("No search criteria provided. Use -t for tags, -f for file patterns, or -v for virtual tags.".into()));
     }
+
+    // Strict mode: require explicit --glob-files or --regex-file for non-bulk search
+    if !params.file_patterns.is_empty() {
+        let has_glob_like = params
+            .file_patterns
+            .iter()
+            .any(|p| p.contains('*') || p.contains('?') || p.contains('['));
+        if has_glob_like && !params.glob_files && !params.regex_file {
+            return Err(TagrError::InvalidInput(
+                "Glob-like file pattern detected without --glob-files. Use --glob-files for globs or --regex-file for regex patterns.".into(),
+            ));
+        }
+    }
+
+    // Validate tag/file separation using PatternBuilder in SearchFiles context.
+    // This does not alter params; it ensures glob-like tags are rejected and
+    // patterns are consistent with flags.
+    let mut builder = PatternBuilder::new(PatternContext::SearchFiles)
+        .regex_tags(params.regex_tag)
+        .regex_files(params.regex_file)
+        .glob_files_flag(params.glob_files);
+    for t in &params.tags { builder.add_tag_token(t); }
+    for f in &params.file_patterns { builder.add_file_token(f); }
+    let _ = builder.build(params.tag_mode, params.file_mode)?;
 
     let files = query::apply_search_params(db, &params)?;
 
@@ -168,4 +193,85 @@ fn build_search_description(params: &SearchParams) -> String {
     }
 
     parts.join(" and ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TestDb;
+
+    #[test]
+    fn test_execute_errors_on_glob_without_flag() {
+        let test_db = TestDb::new("search_exec_glob_no_flag");
+        let db = test_db.db();
+        let params = SearchParams {
+            query: None,
+            tags: vec![],
+            tag_mode: SearchMode::All,
+            file_patterns: vec!["*.rs".to_string()],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            glob_files: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+        let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
+            .err()
+            .expect("should error");
+        match err {
+            TagrError::InvalidInput(msg) => {
+                assert!(msg.contains("Glob-like file pattern"));
+            }
+            _ => panic!("Expected InvalidInput for glob-like pattern without flag"),
+        }
+    }
+
+    #[test]
+    fn test_execute_ok_with_explicit_glob_flag() {
+        let test_db = TestDb::new("search_exec_glob_with_flag");
+        let db = test_db.db();
+        let params = SearchParams {
+            query: None,
+            tags: vec![],
+            tag_mode: SearchMode::All,
+            file_patterns: vec!["*.md".to_string()],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            glob_files: true,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+        let res = execute(db, params, None, None, config::PathFormat::Absolute, true);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_execute_errors_on_glob_like_tag() {
+        let test_db = TestDb::new("search_exec_glob_like_tag");
+        let db = test_db.db();
+        let params = SearchParams {
+            query: None,
+            tags: vec!["feature/*".to_string()],
+            tag_mode: SearchMode::All,
+            file_patterns: vec![],
+            file_mode: SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            glob_files: false,
+            virtual_tags: vec![],
+            virtual_mode: SearchMode::All,
+        };
+        let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
+            .err()
+            .expect("should error");
+        match err {
+            TagrError::PatternError(_) => {}
+            _ => panic!("Expected PatternError for glob-like tag token"),
+        }
+    }
 }
