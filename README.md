@@ -294,6 +294,7 @@ tagr bulk delete-files --input stale.json --format json --dry-run
 - 🧹 **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
 - 💾 **Persistent storage** - Reliable embedded database with automatic flushing
 - 📊 **Multiple databases** - Manage separate databases for different projects
+ - 🧪 **Typed pattern validation** - Explicit flags for regex/glob with strict search semantics
 
 ## Quick Start
 
@@ -610,6 +611,38 @@ tagr l tags
 # List all files
 tagr list files
 tagr l files
+
+#### Pattern System & Flags
+
+Tagr separates tag vs file patterns and uses explicit flags to avoid ambiguity.
+
+- `--regex-tag` / `--regex-tags`: Treat tag tokens as regular expressions.
+- `--regex-file` / `--regex-files`: Treat file tokens as regular expressions.
+- `--glob-files`: Enable glob handling for file tokens (e.g., `*.rs`, `**/*.md`).
+- `--all-tags` / `--any-tag`: AND/OR logic for tags.
+- `--all-files` / `--any-file`: AND/OR logic for file patterns.
+
+Strict search behavior:
+- Glob-like file tokens containing `*`, `?`, `[` require `--glob-files` in non-bulk commands.
+- Glob-like strings are not allowed in tag tokens unless `--regex-tag` is set.
+
+Bulk command normalization:
+- In bulk operations, glob-like file tokens implicitly enable glob handling when `--regex-file` is not set.
+
+Examples:
+```bash
+# Explicit glob in search
+tagr search --glob-files -f "**/*.rs" -t rust --all-tags
+
+# Regex tags with exclude
+tagr search --regex-tag -t '^topic\..*' -e drop --any-tag
+
+# Bulk tag: implicit glob detection (no --glob-files needed)
+tagr bulk tag -f "**/*.rs" --add reviewed --yes --quiet
+
+# Bulk untag with regex file patterns
+tagr bulk untag --regex-file -f '.*\\.txt' --remove temp --yes
+```
 ```
 
 ## Advanced Search
