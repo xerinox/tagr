@@ -20,6 +20,8 @@ pub mod preview;
 pub mod search;
 pub mod ui;
 pub mod vtags;
+pub mod patterns;
+pub mod discovery;
 
 #[cfg(test)]
 pub mod testing;
@@ -51,6 +53,9 @@ pub enum TagrError {
     /// Represents an I/O error
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+    /// Pattern system error
+    #[error("Pattern error: {0}")]
+    PatternError(#[from] patterns::PatternError),
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),
