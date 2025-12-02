@@ -196,6 +196,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
         };
@@ -230,6 +231,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
         };
@@ -260,6 +262,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
         };
@@ -293,6 +296,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: false,
             regex_file: true,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
         };
@@ -327,6 +331,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: true,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
         };
@@ -355,6 +360,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
         };
@@ -387,6 +393,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: true,
             regex_file: false,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
         };

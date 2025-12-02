@@ -89,6 +89,8 @@ pub struct SearchParams {
     pub regex_tag: bool,
     /// Use regex for file pattern matching
     pub regex_file: bool,
+    /// Treat file patterns as globs (explicit flag)
+    pub glob_files: bool,
     /// Virtual tags to filter by
     pub virtual_tags: Vec<String>,
     /// How to combine multiple virtual tags (AND/OR)
@@ -189,6 +191,7 @@ impl From<SearchParams> for crate::filters::FilterCriteria {
             excludes: params.exclude_tags,
             regex_tag: params.regex_tag,
             regex_file: params.regex_file,
+            glob_files: false,
             virtual_tags: params.virtual_tags,
             virtual_mode: params.virtual_mode.into(),
         }
@@ -205,6 +208,7 @@ impl From<&SearchParams> for crate::filters::FilterCriteria {
             excludes: params.exclude_tags.clone(),
             regex_tag: params.regex_tag,
             regex_file: params.regex_file,
+            glob_files: false,
             virtual_tags: params.virtual_tags.clone(),
             virtual_mode: params.virtual_mode.into(),
         }
@@ -222,6 +226,7 @@ impl From<&crate::filters::FilterCriteria> for SearchParams {
             exclude_tags: criteria.excludes.clone(),
             regex_tag: criteria.regex_tag,
             regex_file: criteria.regex_file,
+            glob_files: criteria.glob_files,
             virtual_tags: criteria.virtual_tags.clone(),
             virtual_mode: criteria.virtual_mode.into(),
         }
@@ -247,6 +252,7 @@ impl From<&SearchCriteriaArgs> for SearchParams {
             exclude_tags: criteria.excludes.clone(),
             regex_tag: criteria.regex_tag,
             regex_file: criteria.regex_file,
+            glob_files: criteria.glob_files,
             virtual_tags: criteria.virtual_tags.clone(),
             virtual_mode: if criteria.any_virtual {
                 SearchMode::Any
@@ -712,13 +718,17 @@ pub struct SearchCriteriaArgs {
     #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
     pub excludes: Vec<String>,
 
-    /// Use regex matching for tags
-    #[arg(short = 'r', long = "regex-tag")]
+    /// Use regex matching for tags (alias: --regex-tags)
+    #[arg(short = 'r', long = "regex-tag", visible_alias = "regex-tags")]
     pub regex_tag: bool,
 
-    /// Use regex matching for file patterns
-    #[arg(long = "regex-file")]
+    /// Use regex matching for file patterns (alias: --regex-files)
+    #[arg(long = "regex-file", visible_alias = "regex-files", conflicts_with = "glob_files")]
     pub regex_file: bool,
+
+    /// Treat provided file patterns as globs (alias: --glob-file)
+    #[arg(long = "glob-files", visible_alias = "glob-file", conflicts_with = "regex_file")]
+    pub glob_files: bool,
 
     /// Virtual tags to filter by (e.g., "size:>1MB", "modified:today")
     #[arg(short = 'v', long = "virtual-tag", value_name = "VTAG", num_args = 0..)]
@@ -999,6 +1009,7 @@ impl Commands {
                 exclude_tags: criteria.excludes.clone(),
                 regex_tag: criteria.regex_tag,
                 regex_file: criteria.regex_file,
+                glob_files: criteria.glob_files,
                 virtual_tags: criteria.virtual_tags.clone(),
                 virtual_mode: if criteria.any_virtual {
                     SearchMode::Any
@@ -1039,6 +1050,7 @@ impl Commands {
                         exclude_tags: criteria.excludes.clone(),
                         regex_tag: false,
                         regex_file: false,
+                        glob_files: false,
                         virtual_tags: criteria.virtual_tags.clone(),
                         virtual_mode: SearchMode::Any,
                     })
@@ -1148,6 +1160,7 @@ impl Cli {
                 excludes: Vec::new(),
                 regex_tag: false,
                 regex_file: false,
+                glob_files: false,
                 virtual_tags: Vec::new(),
                 any_virtual: false,
                 all_virtual: false,

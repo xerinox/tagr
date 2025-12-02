@@ -212,6 +212,7 @@ fn create_filter(
         excludes: excludes.to_vec(),
         regex_tag,
         regex_file,
+        glob_files: false,
         virtual_tags: virtual_tags.to_vec(),
         virtual_mode,
     };

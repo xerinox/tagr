@@ -89,6 +89,7 @@ fn test_bulk_tag_basic() {
         exclude_tags: vec![],
         regex_tag: false,
         regex_file: false,
+        glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
     };
@@ -128,6 +129,7 @@ fn test_bulk_untag_specific_tags() {
         exclude_tags: vec![],
         regex_tag: false,
         regex_file: false,
+        glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
     };
@@ -213,6 +215,7 @@ fn test_copy_tags_all() {
         exclude_tags: vec![],
         regex_tag: false,
         regex_file: false,
+        glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
     };
