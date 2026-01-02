@@ -40,6 +40,8 @@ You'll be prompted for:
 
 The configuration is saved to `~/.config/tagr/config.toml`.
 
+For a complete list of commands and flags, see the CLI reference in `docs/cli-reference.md`.
+
 ### Basic Usage
 
 ```bash
@@ -49,7 +51,7 @@ tagr tag src/main.rs rust code source
 tagr tag src/lib.rs rust code library
 
 # Search for files by tag (non-interactive)
-tagr search rust
+tagr search -t rust
 
 # List all tags
 tagr list tags
@@ -148,18 +150,15 @@ tagr browse -t tutorial -f "*.rs" -x "nvim {}"
 tagr browse -t documentation -e archived
 
 # Browse with experimental action menu (Phase 1)
-tagr browse --with-actions
+tagr browse
 ```
 
 ### Action Menu (Experimental)
 
 **New in v0.5.0** - Phase 1 of advanced keybinds feature
 
-Use `--with-actions` to enable an interactive action menu after file selection:
-
-```bash
-tagr browse --with-actions
-```
+An interactive action menu can appear after file selection, depending on your
+configuration and workflow. No special CLI flag is required.
 
 After selecting files, you'll see an action menu with these options:
 
@@ -289,207 +288,56 @@ Syntax highlighting can be disabled via:
 - CLI flag: `--no-preview` when browsing
 - Compile-time: `cargo build --no-default-features` (removes syntect dependency)
 
-## Commands
+## Commands (Quick Overview)
+
+This section gives a short overview of common commands. The full, detailed
+reference with all flags and advanced examples lives in `docs/cli-reference.md`.
 
 ### File Operations
 
 ```bash
-# Tag a file
+# Tag a file (adds tags; no duplicates)
 tagr tag <file> <tags...>
 
-# Add tags to existing file (no duplicates)
-tagr add-tags <file> <tags...>
-
-# Remove specific tags
+# Remove specific tags from a file
 tagr untag <file> <tags...>
 
-# Show tags for a file
-tagr show <file>
+# List tags and files
+tagr list tags
+tagr list files
 ```
 
 ### Search & Browse
 
 ```bash
 # Interactive browse (default)
-tagr
-tagr browse
-tagr b
+tagr           # same as: tagr browse
 
-# Pre-populated browse with query
+# Search non-interactively
+tagr search -t rust
+
+# Browse with query/tags/patterns
 tagr browse documents
-tagr browse -t rust -t programming
+tagr browse -t rust -t tutorial
 tagr browse -f "*.txt" -f "*.md"
-tagr browse -t config -e archived
-
-# Browse with command execution
-tagr browse -t images -x "cp {} /backup/"
-
-# List all tags
-tagr list tags
-tagr l tags
-
-# List all files
-tagr list files
-tagr l files
-
-#### Pattern System & Flags
-
-Tagr separates tag vs file patterns and uses explicit flags to avoid ambiguity.
-
-- `--regex-tag` / `--regex-tags`: Treat tag tokens as regular expressions.
-- `--regex-file` / `--regex-files`: Treat file tokens as regular expressions.
-- `--glob-files`: Enable glob handling for file tokens (e.g., `*.rs`, `**/*.md`).
-- `--all-tags` / `--any-tag`: AND/OR logic for tags.
-- `--all-files` / `--any-file`: AND/OR logic for file patterns.
-
-Strict search behavior:
-- Glob-like file tokens containing `*`, `?`, `[` require `--glob-files` in non-bulk commands.
-- Glob-like strings are not allowed in tag tokens unless `--regex-tag` is set.
-
-Bulk command normalization:
-- In bulk operations, glob-like file tokens implicitly enable glob handling when `--regex-file` is not set.
-
-Examples:
-```bash
-# Explicit glob in search
-tagr search --glob-files -f "**/*.rs" -t rust --all-tags
-
-# Regex tags with exclude
-tagr search --regex-tag -t '^topic\..*' -e drop --any-tag
-
-# Bulk tag: implicit glob detection (no --glob-files needed)
-tagr bulk tag -f "**/*.rs" --add reviewed --yes --quiet
-
-# Bulk untag with regex file patterns
-tagr bulk untag --regex-file -f '.*\\.txt' --remove temp --yes
 ```
 ```
 
 ## Advanced Search
 
-The `tagr search` command supports flexible multi-criteria querying with independent AND/OR logic for both tags and file patterns.
+`tagr search` supports flexible multi-criteria queries with independent AND/OR
+logic for tags, file patterns, and virtual tags. This is the core mechanism
+behind most Tagr workflows.
 
-### Basic Search
+High-level behavior:
 
-```bash
-# Single tag search
-tagr search -t rust
+- Combine multiple tags with AND/OR semantics.
+- Combine multiple file patterns (glob or regex) with independent AND/OR.
+- Exclude tags from the result set.
+- Mix regular tags with virtual tags (size/time/path/git/etc.).
 
-# Multiple tags - AND logic (default: files must have ALL tags)
-tagr search -t rust -t tutorial
-
-# Multiple tags - OR logic (files must have ANY tag)
-tagr search -t rust -t python -t javascript --any-tag
-```
-
-### File Pattern Filtering
-
-```bash
-# Single file pattern
-tagr search -t tutorial -f "*.rs"
-
-# Multiple file patterns - AND logic (default: match ALL patterns)
-tagr search -t rust -f "*.rs" -f "src/*"
-
-# Multiple file patterns - OR logic (match ANY pattern)
-tagr search -t config -f "*.toml" -f "*.yaml" --any-file
-```
-
-### Independent AND/OR Logic
-
-The key feature is **independent control** of AND/OR logic for tags vs. file patterns:
-
-```bash
-# Tags AND, Files OR
-# Files must have BOTH "rust" AND "library" tags
-# AND match EITHER "*.rs" OR "*.md"
-tagr search -t rust -t library --all-tags -f "*.rs" -f "*.md" --any-file
-
-# Tags OR, Files AND
-# Files must have EITHER "rust" OR "python" tag
-# AND match BOTH "src/*" AND "*test*" patterns
-tagr search -t rust -t python --any-tag -f "src/*" -f "*test*" --all-files
-```
-
-### Tag Exclusions
-
-```bash
-# Exclude specific tags
-tagr search -t rust -e deprecated
-
-# Multiple exclusions
-tagr search -t documentation -e old -e archived
-
-# Complex: OR search with exclusions
-tagr search -t rust -t python --any-tag -e beginner -e deprecated
-```
-
-### Regex Matching
-
-```bash
-# Regex for tags
-tagr search -t "config.*" --regex-tag
-# Matches: config-dev, config-prod, config-test, etc.
-
-# Regex for file patterns
-tagr search -t source -f "src/.*\\.rs$" --regex-file
-
-# Regex for both
-tagr search -t "lang-.*" --regex-tag -f ".*\\.(rs|toml)$" --regex-file
-```
-
-### Real-World Examples
-
-```bash
-# Find all Rust test files
-tagr search -t rust -t test -f "*test*.rs" -f "tests/*.rs" --any-file
-
-# Find source files across multiple languages (not tests)
-tagr search -t rust -t python --any-tag -f "src/*.rs" -f "src/*.py" --any-file -e test
-
-# Find all documentation in any format
-tagr search -t documentation -f "*.md" -f "*.txt" --any-file
-
-# Production Rust library code (complex query)
-tagr search \
-  -t rust -t library -t production --all-tags \
-  -f "src/*.rs" -f "lib/*.rs" --any-file \
-  -e test -e deprecated -e experimental
-```
-
-### Search Command Reference
-
-```bash
-tagr search --help
-
-# Key options:
-# -t, --tag <TAG>           Tags to search for (multiple allowed)
-# --any-tag                 Match ANY tag (OR logic)
-# --all-tags                Match ALL tags (AND logic, default)
-# -f, --file <PATTERN>      File patterns (glob or regex)
-# --any-file                Match ANY file pattern (OR logic)
-# --all-files               Match ALL file patterns (AND logic, default)
-# -e, --exclude <TAG>       Exclude files with these tags
-# --regex-tag               Use regex for tag matching
-# --regex-file              Use regex for file patterns
-# -q, --quiet               Output only file paths (for piping)
-```
-
-### Integration with Other Tools
-
-```bash
-# Pipe to xargs
-tagr search -q -t rust -t tutorial -f "*.rs" | xargs nvim
-
-# Count results
-tagr search -q -t python -t test | wc -l
-
-# Execute commands on results
-for file in $(tagr search -q -t config); do
-  echo "Processing $file"
-  cat "$file"
-done
-```
+For a full set of examples and the complete option reference, see the
+"Search Command" section in `docs/cli-reference.md`.
 
 ### Performance
 
@@ -911,32 +759,32 @@ Tagr provides powerful bulk operations for managing tags across many files at on
 Tagr offers two related bulk operations that serve different intents:
 
 - `bulk tag`: Adds the literal tags you specify to the matched files, regardless of any source file. Use this when you want to apply explicit tags you provide.
-- `bulk copy-tags`: Copies tags from a specific source file to matched target files. Optional `--tags` acts as an allowlist and copies only the intersection of that list and the tags currently present on the source. `--exclude` removes specific tags from being copied.
+- `bulk copy-tags`: Copies tags from a specific source file to matched target files. Optional `--copy-tags` acts as an allowlist and copies only the intersection of that list and the tags currently present on the source. `--exclude-tags` removes specific tags from being copied.
 
 Why both exist side by side:
 
 - Provenance: `copy-tags` enforces that tags originate from the source file’s current state, preventing drift when templates evolve.
-- Safety: With `--tags`, only the intersection with the source is applied; typos or stale names are ignored instead of being introduced.
+- Safety: With `--copy-tags`, only the intersection with the source is applied; typos or stale names are ignored instead of being introduced.
 - Workflows: Teams using a “template” file can propagate its current approved tags to others, while `bulk tag` remains the tool to add arbitrary tags directly.
 
 Rule of thumb:
 
 - Use `bulk tag` to add explicit tags you type.
-- Use `bulk copy-tags` to propagate tags from a source-of-truth file, optionally narrowed via `--tags` and/or `--exclude`.
+- Use `bulk copy-tags` to propagate tags from a source-of-truth file, optionally narrowed via `--copy-tags` and/or `--exclude-tags`.
 
 Examples:
 
 ```bash
-# Add explicit tags to files with tag "initial"
-tagr bulk tag --tags review,approved --tags-mode any --filter-tags initial
+# Add explicit tags to files that match tag "initial"
+tagr bulk tag -t initial --any-tag review approved --yes
 
 # Copy only tags that the source currently has, limited to an allowlist
-tagr bulk copy-tags --source /path/template.md --tags review,approved \
-    --filter-tags initial --tags-mode any
+tagr bulk copy-tags /path/template.md -t initial --any-tag \
+    --copy-tags review --copy-tags approved --yes
 
 # Copy all tags from source except a specific one
-tagr bulk copy-tags --source /path/template.md --exclude deprecated \
-    --filter-tags initial --tags-mode any
+tagr bulk copy-tags /path/template.md -t initial --any-tag \
+    --exclude-tags deprecated --yes
 ```
 
 ### Bulk Untag
@@ -945,10 +793,10 @@ Remove tags from multiple files matching search criteria.
 
 ```bash
 # Remove "temp" tag from all files
-tagr bulk untag --remove temp --yes
+tagr bulk untag temp --yes
 
 # Remove "wip" tag from files matching "*.rs"
-tagr bulk untag -f "*.rs" --remove wip --yes
+tagr bulk untag -f "*.rs" wip --yes
 
 # Remove ALL tags from files matching "*.tmp"
 tagr bulk untag -f "*.tmp" --all --yes
@@ -970,7 +818,7 @@ Each non-empty, non-comment line: `<file> <tag1> <tag2> ...` (whitespace-separat
 
 Usage:
 ```bash
-tagr bulk from-file --input batch.txt --format text --yes
+tagr bulk from-file batch.txt --format text --yes
 ```
 
 ### CSV (`--format csv`)
@@ -990,8 +838,8 @@ Custom delimiter example (`;`):
 
 Usage:
 ```bash
-tagr bulk from-file --input tags.csv --format csv --yes
-tagr bulk from-file --input tags-semicolon.csv --format csv --delimiter ';' --dry-run
+tagr bulk from-file tags.csv --format csv --yes
+tagr bulk from-file tags-semicolon.csv --format csv --delimiter ';' --dry-run
 ```
 
 ### JSON (`--format json`)
@@ -1006,7 +854,7 @@ Array of objects each with `file` and `tags` keys:
 
 Usage:
 ```bash
-tagr bulk from-file --input tags.json --format json --dry-run
+tagr bulk from-file tags.json --format json --dry-run
 ```
 
 ### Format Mismatch Hints
@@ -1026,7 +874,7 @@ No automatic fallback occurs—adjust your flags and re-run.
 ### Dry Run
 Preview impact without applying changes:
 ```bash
-tagr bulk from-file --input tags.csv --format csv --dry-run
+tagr bulk from-file tags.csv --format csv --dry-run
 ```
 
 ### Choosing a Format
@@ -1063,8 +911,8 @@ legacy-api deprecated
 
 Usage:
 ```bash
-tagr bulk map-tags --input mappings.txt --format text --yes
-tagr bulk map-tags --input mappings.txt --format text --dry-run
+tagr bulk map-tags mappings.txt --format text --yes
+tagr bulk map-tags mappings.txt --format text --dry-run
 ```
 
 #### CSV (`--format csv`)
@@ -1084,8 +932,8 @@ Bug;bug
 
 Usage:
 ```bash
-tagr bulk map-tags --input mappings.csv --format csv --yes
-tagr bulk map-tags --input mappings-semicolon.csv --format csv --delimiter ';' --dry-run
+tagr bulk map-tags mappings.csv --format csv --yes
+tagr bulk map-tags mappings-semicolon.csv --format csv --delimiter ';' --dry-run
 ```
 
 #### JSON (`--format json`)
@@ -1100,7 +948,7 @@ Array of objects with `from` and `to` keys:
 
 Usage:
 ```bash
-tagr bulk map-tags --input mappings.json --format json --dry-run
+tagr bulk map-tags mappings.json --format json --dry-run
 ```
 
 ### Behavior & Semantics
@@ -1113,7 +961,7 @@ tagr bulk map-tags --input mappings.json --format json --dry-run
 
 ### Dry Run Preview
 ```bash
-tagr bulk map-tags --input mappings.txt --format text --dry-run
+tagr bulk map-tags mappings.txt --format text --dry-run
 ```
 Shows planned mappings and counts without modifying the database.
 
@@ -1123,10 +971,10 @@ Malformed lines/records abort parsing with a hint (e.g., CSV given when JSON exp
 ### Examples
 ```bash
 # Normalize capitalization & consolidate synonyms
-tagr bulk map-tags --input normalize.csv --format csv --yes
+tagr bulk map-tags normalize.csv --format csv --yes
 
 # Preview large migration
-tagr bulk map-tags --input taxonomy.json --format json --dry-run
+tagr bulk map-tags taxonomy.json --format json --dry-run
 ```
 
 ### Bulk Delete Files
@@ -1150,8 +998,8 @@ Each non-empty, non-comment line begins with the file path. Additional tokens on
 ```
 Usage:
 ```bash
-tagr bulk delete-files --input delete.txt --format text --yes
-tagr bulk delete-files --input delete.txt --format text --dry-run
+tagr bulk delete-files delete.txt --format text --yes
+tagr bulk delete-files delete.txt --format text --dry-run
 ```
 
 #### CSV (`--format csv`)
@@ -1162,8 +1010,8 @@ First column is the path; remaining columns ignored (can hold notes).
 ```
 Usage:
 ```bash
-tagr bulk delete-files --input delete.csv --format csv --yes
-tagr bulk delete-files --input delete-semicolon.csv --format csv --delimiter ';' --dry-run
+tagr bulk delete-files delete.csv --format csv --yes
+tagr bulk delete-files delete-semicolon.csv --format csv --delimiter ';' --dry-run
 ```
 
 #### JSON (`--format json`)
@@ -1176,7 +1024,7 @@ Array of objects with a `file` field:
 ```
 Usage:
 ```bash
-tagr bulk delete-files --input delete.json --format json --dry-run
+tagr bulk delete-files delete.json --format json --dry-run
 ```
 
 ### Behavior & Semantics
@@ -1187,7 +1035,7 @@ tagr bulk delete-files --input delete.json --format json --dry-run
 
 ### Dry Run
 ```bash
-tagr bulk delete-files --input delete.txt --format text --dry-run
+tagr bulk delete-files delete.txt --format text --dry-run
 ```
 Displays the unique set of database entries that would be removed.
 
@@ -1197,10 +1045,10 @@ Malformed records produce an immediate error. Format mismatch hints guide you to
 ### Examples
 ```bash
 # Remove a curated set of obsolete entries
-tagr bulk delete-files --input obsolete.csv --format csv --yes
+tagr bulk delete-files obsolete.csv --format csv --yes
 
 # Preview a massive cleanup first
-tagr bulk delete-files --input stale.json --format json --dry-run
+tagr bulk delete-files stale.json --format json --dry-run
 ```
 
 
@@ -1538,16 +1386,6 @@ default = "/home/user/.local/share/tagr/default"
 - **Linux**: `~/.local/share/tagr/`
 - **macOS**: `~/Library/Application Support/tagr/`
 - **Windows**: `C:\Users\<username>\AppData\Local\tagr\`
-
-## Examples
-
-### Try the Demo
-
-```bash
-cargo run --example browse_demo
-```
-
-This creates a test database with 10 files and 13+ tags, then launches browse mode.
 
 ## Testing
 
