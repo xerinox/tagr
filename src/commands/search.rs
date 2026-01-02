@@ -74,8 +74,12 @@ pub fn execute(
         .regex_tags(params.regex_tag)
         .regex_files(params.regex_file)
         .glob_files_flag(params.glob_files);
-    for t in &params.tags { builder.add_tag_token(t); }
-    for f in &params.file_patterns { builder.add_file_token(f); }
+    for t in &params.tags {
+        builder.add_tag_token(t);
+    }
+    for f in &params.file_patterns {
+        builder.add_file_token(f);
+    }
     let _ = builder.build(params.tag_mode, params.file_mode)?;
 
     let files = query::apply_search_params(db, &params)?;

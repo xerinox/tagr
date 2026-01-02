@@ -655,7 +655,11 @@ pub enum BulkCommands {
         param: Option<String>,
 
         /// Replacement string for regex transformation
-        #[arg(short = 'r', long = "replacement", required_if_eq("transformation", "regex-replace"))]
+        #[arg(
+            short = 'r',
+            long = "replacement",
+            required_if_eq("transformation", "regex-replace")
+        )]
         replacement: Option<String>,
 
         /// Only transform specific tags (omit to transform all)
@@ -817,11 +821,19 @@ pub struct SearchCriteriaArgs {
     pub regex_tag: bool,
 
     /// Use regex matching for file patterns (alias: --regex-files)
-    #[arg(long = "regex-file", visible_alias = "regex-files", conflicts_with = "glob_files")]
+    #[arg(
+        long = "regex-file",
+        visible_alias = "regex-files",
+        conflicts_with = "glob_files"
+    )]
     pub regex_file: bool,
 
     /// Treat provided file patterns as globs (alias: --glob-file)
-    #[arg(long = "glob-files", visible_alias = "glob-file", conflicts_with = "regex_file")]
+    #[arg(
+        long = "glob-files",
+        visible_alias = "glob-file",
+        conflicts_with = "regex_file"
+    )]
     pub glob_files: bool,
 
     /// Virtual tags to filter by (e.g., "size:>1MB", "modified:today")

@@ -2,4 +2,4 @@
 
 pub mod traits;
 
-pub use traits::{FileDiscovery, DiscoveryKind};
+pub use traits::{DiscoveryKind, FileDiscovery};

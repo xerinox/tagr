@@ -16,7 +16,9 @@ impl TagPattern {
     /// Returns `PatternError::InvalidEmpty` if `s` is empty.
     pub fn literal(s: &str) -> Result<Self, PatternError> {
         if s.is_empty() {
-            return Err(PatternError::InvalidEmpty { kind: PatternKind::Tag });
+            return Err(PatternError::InvalidEmpty {
+                kind: PatternKind::Tag,
+            });
         }
         Ok(Self::Literal(s.to_string()))
     }
@@ -28,10 +30,15 @@ impl TagPattern {
     /// * Returns `PatternError::RegexCompile` if the pattern fails to compile.
     pub fn regex(p: &str) -> Result<Self, PatternError> {
         if p.is_empty() {
-            return Err(PatternError::InvalidEmpty { kind: PatternKind::Tag });
+            return Err(PatternError::InvalidEmpty {
+                kind: PatternKind::Tag,
+            });
         }
         Regex::new(p)
-            .map(|r| Self::Regex { original: p.to_string(), compiled: r })
+            .map(|r| Self::Regex {
+                original: p.to_string(),
+                compiled: r,
+            })
             .map_err(|e| PatternError::regex_compile(p, &e.to_string()))
     }
 
@@ -73,9 +80,16 @@ impl TagQuery {
     ///
     /// # Errors
     /// Returns `PatternError::TooManyPatterns` when `patterns.len() > max`.
-    pub fn new(patterns: Vec<TagPattern>, mode: crate::cli::SearchMode, max: usize) -> Result<Self, PatternError> {
+    pub fn new(
+        patterns: Vec<TagPattern>,
+        mode: crate::cli::SearchMode,
+        max: usize,
+    ) -> Result<Self, PatternError> {
         if patterns.len() > max {
-            return Err(PatternError::TooManyPatterns { provided: patterns.len(), max });
+            return Err(PatternError::TooManyPatterns {
+                provided: patterns.len(),
+                max,
+            });
         }
         Ok(Self { patterns, mode })
     }

@@ -5,8 +5,8 @@ use colored::Colorize;
 use dialoguer::Confirm;
 
 use super::core::BulkOpSummary;
-use crate::db::Database;
 use crate::TagrError;
+use crate::db::Database;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -179,7 +179,10 @@ pub fn propagate_by_directory(
 
     if dry_run {
         println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!("Would apply directory-based tags to {} file(s)", file_tags.len());
+        println!(
+            "Would apply directory-based tags to {} file(s)",
+            file_tags.len()
+        );
         println!("\n{}", "Sample changes (up to 10):".bold());
         for (i, (file, tags)) in file_tags.iter().enumerate().take(10) {
             println!(
@@ -197,10 +200,7 @@ pub fn propagate_by_directory(
     }
 
     if !yes {
-        let prompt = format!(
-            "Apply directory-based tags to {} file(s)?",
-            file_tags.len()
-        );
+        let prompt = format!("Apply directory-based tags to {} file(s)?", file_tags.len());
         let confirmed = Confirm::new()
             .with_prompt(prompt)
             .interact()
@@ -331,10 +331,7 @@ pub fn propagate_by_extension(
     }
 
     if !yes {
-        let prompt = format!(
-            "Apply extension-based tags to {} file(s)?",
-            file_tags.len()
-        );
+        let prompt = format!("Apply extension-based tags to {} file(s)?", file_tags.len());
         let confirmed = Confirm::new()
             .with_prompt(prompt)
             .interact()

@@ -6,11 +6,11 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tagr::{Pair, cli::execute_command_on_files, db::Database};
-use tagr::cli::{SearchParams, SearchMode};
+use tagr::cli::{SearchMode, SearchParams};
 use tagr::commands::bulk::{bulk_tag, bulk_untag};
 use tagr::commands::search as search_cmd;
 use tagr::config;
+use tagr::{Pair, cli::execute_command_on_files, db::Database};
 
 /// Test database wrapper that cleans up on drop
 struct TestDb {
@@ -76,9 +76,18 @@ fn test_e2e_bulk_tag_with_glob_file_patterns() {
     let f_txt = TestFile::create("e2e3.txt", "content").unwrap();
 
     // Insert files with initial tags
-    test_db.db().insert(f_rs1.path(), vec!["init".into()]).unwrap();
-    test_db.db().insert(f_rs2.path(), vec!["init".into()]).unwrap();
-    test_db.db().insert(f_txt.path(), vec!["init".into()]).unwrap();
+    test_db
+        .db()
+        .insert(f_rs1.path(), vec!["init".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(f_rs2.path(), vec!["init".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(f_txt.path(), vec!["init".into()])
+        .unwrap();
 
     // Build SearchParams like CLI: file_patterns only, no explicit glob flag
     let params = SearchParams {

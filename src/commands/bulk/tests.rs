@@ -310,11 +310,17 @@ fn test_bulk_tag_if_not_exists() {
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
-    assert!(!tags1.contains(&"new".into()), "f1 should not get 'new' since it has 'existing'");
+    assert!(
+        !tags1.contains(&"new".into()),
+        "f1 should not get 'new' since it has 'existing'"
+    );
     assert!(tags1.contains(&"existing".into()));
     let tags2 = db.get_tags(f2.path()).unwrap().unwrap();
     assert!(tags2.contains(&"new".into()), "f2 should get 'new'");
-    assert!(tags2.contains(&"existing".into()), "f2 should get 'existing'");
+    assert!(
+        tags2.contains(&"existing".into()),
+        "f2 should get 'existing'"
+    );
 }
 
 #[test]
@@ -325,8 +331,11 @@ fn test_bulk_tag_if_has_tag() {
     let f1 = TempFile::create("file1.txt").unwrap();
     let f2 = TempFile::create("file2.txt").unwrap();
     let f3 = TempFile::create("file3.txt").unwrap();
-    db.add_tags(f1.path(), vec!["search".into(), "required1".into(), "required2".into()])
-        .unwrap();
+    db.add_tags(
+        f1.path(),
+        vec!["search".into(), "required1".into(), "required2".into()],
+    )
+    .unwrap();
     db.add_tags(f2.path(), vec!["search".into(), "required1".into()])
         .unwrap();
     db.add_tags(f3.path(), vec!["search".into()]).unwrap();
@@ -359,11 +368,20 @@ fn test_bulk_tag_if_has_tag() {
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
-    assert!(tags1.contains(&"conditional".into()), "f1 has all required tags");
+    assert!(
+        tags1.contains(&"conditional".into()),
+        "f1 has all required tags"
+    );
     let tags2 = db.get_tags(f2.path()).unwrap().unwrap();
-    assert!(!tags2.contains(&"conditional".into()), "f2 missing required2");
+    assert!(
+        !tags2.contains(&"conditional".into()),
+        "f2 missing required2"
+    );
     let tags3 = db.get_tags(f3.path()).unwrap().unwrap();
-    assert!(!tags3.contains(&"conditional".into()), "f3 missing both required tags");
+    assert!(
+        !tags3.contains(&"conditional".into()),
+        "f3 missing both required tags"
+    );
 }
 
 #[test]
@@ -375,8 +393,11 @@ fn test_bulk_tag_if_missing_tag() {
     let f2 = TempFile::create("file2.txt").unwrap();
     let f3 = TempFile::create("file3.txt").unwrap();
     // f1 has both complete and wip (shouldn't get tagged - no tags missing)
-    db.add_tags(f1.path(), vec!["search".into(), "complete".into(), "wip".into()])
-        .unwrap();
+    db.add_tags(
+        f1.path(),
+        vec!["search".into(), "complete".into(), "wip".into()],
+    )
+    .unwrap();
     // f2 has complete but missing wip (should get tagged - missing ANY)
     db.add_tags(f2.path(), vec!["search".into(), "complete".into()])
         .unwrap();
@@ -411,9 +432,15 @@ fn test_bulk_tag_if_missing_tag() {
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
-    assert!(!tags1.contains(&"needs-review".into()), "f1 has all tags (none missing)");
+    assert!(
+        !tags1.contains(&"needs-review".into()),
+        "f1 has all tags (none missing)"
+    );
     let tags2 = db.get_tags(f2.path()).unwrap().unwrap();
     assert!(tags2.contains(&"needs-review".into()), "f2 missing 'wip'");
     let tags3 = db.get_tags(f3.path()).unwrap().unwrap();
-    assert!(tags3.contains(&"needs-review".into()), "f3 missing both tags");
+    assert!(
+        tags3.contains(&"needs-review".into()),
+        "f3 missing both tags"
+    );
 }

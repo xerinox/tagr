@@ -25,7 +25,10 @@ pub enum TagTransformation {
     AddSuffix(String),
     RemovePrefix(String),
     RemoveSuffix(String),
-    RegexReplace { pattern: String, replacement: String },
+    RegexReplace {
+        pattern: String,
+        replacement: String,
+    },
 }
 
 impl TagTransformation {
@@ -40,13 +43,12 @@ impl TagTransformation {
             Self::PascalCase => tag.to_pascal_case(),
             Self::AddPrefix(prefix) => format!("{prefix}{tag}"),
             Self::AddSuffix(suffix) => format!("{tag}{suffix}"),
-            Self::RemovePrefix(prefix) => {
-                tag.strip_prefix(prefix).unwrap_or(tag).to_string()
-            }
-            Self::RemoveSuffix(suffix) => {
-                tag.strip_suffix(suffix).unwrap_or(tag).to_string()
-            }
-            Self::RegexReplace { pattern, replacement } => {
+            Self::RemovePrefix(prefix) => tag.strip_prefix(prefix).unwrap_or(tag).to_string(),
+            Self::RemoveSuffix(suffix) => tag.strip_suffix(suffix).unwrap_or(tag).to_string(),
+            Self::RegexReplace {
+                pattern,
+                replacement,
+            } => {
                 let re = Regex::new(pattern).map_err(|e| {
                     TagrError::InvalidInput(format!("Invalid regex pattern '{pattern}': {e}"))
                 })?;
@@ -107,7 +109,7 @@ pub fn transform_tags(
 
     for old_tag in &tags_to_transform {
         let new_tag = transformation.apply(old_tag)?;
-        
+
         // Check for collisions
         if new_tag != *old_tag {
             if let Some(existing_old) = tag_mapping

@@ -36,9 +36,12 @@ fn normalize_bulk_params(params: &mut SearchParams) -> Result<()> {
     let _ = builder.build(params.tag_mode, params.file_mode)?;
 
     // Implicit glob enable: if any file token looks like a glob and regex_file is false
-    if !params.regex_file && params.file_patterns.iter().any(|p| {
-        p.contains('*') || p.contains('?') || p.contains('[')
-    }) {
+    if !params.regex_file
+        && params
+            .file_patterns
+            .iter()
+            .any(|p| p.contains('*') || p.contains('?') || p.contains('['))
+    {
         params.glob_files = true;
     }
     Ok(())
@@ -367,7 +370,10 @@ mod tests {
         };
 
         normalize_bulk_params(&mut params).expect("normalize should succeed");
-        assert!(params.glob_files, "glob_files should be enabled when patterns have wildcards");
+        assert!(
+            params.glob_files,
+            "glob_files should be enabled when patterns have wildcards"
+        );
     }
 
     #[test]
@@ -388,7 +394,10 @@ mod tests {
 
         normalize_bulk_params(&mut params).expect("normalize should succeed");
         assert!(params.regex_file, "regex_file should remain true");
-        assert!(!params.glob_files, "glob_files should remain false when regex_file is true");
+        assert!(
+            !params.glob_files,
+            "glob_files should remain false when regex_file is true"
+        );
     }
 
     #[test]
@@ -407,7 +416,9 @@ mod tests {
             virtual_mode: crate::cli::SearchMode::All,
         };
 
-        let err = normalize_bulk_params(&mut params).err().expect("should error");
+        let err = normalize_bulk_params(&mut params)
+            .err()
+            .expect("should error");
         match err {
             TagrError::PatternError(_) => {}
             _ => panic!("Expected PatternError for glob-like tag token"),

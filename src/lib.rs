@@ -13,15 +13,15 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod db;
+pub mod discovery;
 pub mod filters;
 pub mod keybinds;
 pub mod output;
+pub mod patterns;
 pub mod preview;
 pub mod search;
 pub mod ui;
 pub mod vtags;
-pub mod patterns;
-pub mod discovery;
 
 #[cfg(test)]
 pub mod testing;

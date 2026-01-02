@@ -21,7 +21,9 @@ impl FilePattern {
     pub fn literal(path: &Path) -> Result<Self, PatternError> {
         let s = path.to_string_lossy();
         if s.is_empty() {
-            return Err(PatternError::InvalidEmpty { kind: PatternKind::File });
+            return Err(PatternError::InvalidEmpty {
+                kind: PatternKind::File,
+            });
         }
         Ok(Self::Literal(path.to_path_buf()))
     }
@@ -33,10 +35,15 @@ impl FilePattern {
     /// * Returns `PatternError::RegexCompile` if the regex fails to compile.
     pub fn regex(p: &str) -> Result<Self, PatternError> {
         if p.is_empty() {
-            return Err(PatternError::InvalidEmpty { kind: PatternKind::File });
+            return Err(PatternError::InvalidEmpty {
+                kind: PatternKind::File,
+            });
         }
         Regex::new(p)
-            .map(|r| Self::Regex { original: p.to_string(), compiled: r })
+            .map(|r| Self::Regex {
+                original: p.to_string(),
+                compiled: r,
+            })
             .map_err(|e| PatternError::regex_compile(p, &e.to_string()))
     }
 
@@ -47,10 +54,15 @@ impl FilePattern {
     /// * Returns `PatternError::GlobParse` if the glob specification is invalid.
     pub fn glob(p: &str) -> Result<Self, PatternError> {
         if p.is_empty() {
-            return Err(PatternError::InvalidEmpty { kind: PatternKind::File });
+            return Err(PatternError::InvalidEmpty {
+                kind: PatternKind::File,
+            });
         }
         GlobPattern::new(p)
-            .map(|g| Self::Glob { original: p.to_string(), spec: g })
+            .map(|g| Self::Glob {
+                original: p.to_string(),
+                spec: g,
+            })
             .map_err(|e| PatternError::glob_parse(p, &e.to_string()))
     }
 
@@ -85,9 +97,16 @@ impl FileQuery {
     ///
     /// # Errors
     /// Returns `PatternError::TooManyPatterns` when `patterns.len() > max`.
-    pub fn new(patterns: Vec<FilePattern>, mode: crate::cli::SearchMode, max: usize) -> Result<Self, PatternError> {
+    pub fn new(
+        patterns: Vec<FilePattern>,
+        mode: crate::cli::SearchMode,
+        max: usize,
+    ) -> Result<Self, PatternError> {
         if patterns.len() > max {
-            return Err(PatternError::TooManyPatterns { provided: patterns.len(), max });
+            return Err(PatternError::TooManyPatterns {
+                provided: patterns.len(),
+                max,
+            });
         }
         Ok(Self { patterns, mode })
     }

@@ -36,11 +36,17 @@ pub enum PatternError {
 impl PatternError {
     #[must_use]
     pub fn regex_compile(pattern: &str, reason: &str) -> Self {
-        Self::InvalidRegex { pattern: pattern.to_string(), reason: reason.to_string() }
+        Self::InvalidRegex {
+            pattern: pattern.to_string(),
+            reason: reason.to_string(),
+        }
     }
 
     #[must_use]
     pub fn glob_parse(pattern: &str, reason: &str) -> Self {
-        Self::InvalidGlob { pattern: pattern.to_string(), reason: reason.to_string() }
+        Self::InvalidGlob {
+            pattern: pattern.to_string(),
+            reason: reason.to_string(),
+        }
     }
 }
