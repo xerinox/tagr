@@ -592,6 +592,100 @@ pub enum BulkCommands {
         #[arg(short = 'y', long = "yes")]
         yes: bool,
     },
+
+    /// Auto-tag files based on their directory structure
+    #[command(name = "propagate-by-dir", visible_alias = "prop-dir")]
+    PropagateByDir {
+        /// Root directory to process (defaults to all files)
+        #[arg(value_name = "ROOT")]
+        root: Option<PathBuf>,
+
+        /// Custom directory to tag mappings (format: "dirname:tagname")
+        #[arg(short = 'm', long = "map", value_name = "DIR:TAG")]
+        mappings: Vec<String>,
+
+        /// Add tags from all parent directories (hierarchical)
+        #[arg(long = "hierarchy")]
+        hierarchy: bool,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Auto-tag files based on their file extension
+    #[command(name = "propagate-by-ext", visible_alias = "prop-ext")]
+    PropagateByExt {
+        /// Custom extension to tags mappings (format: "ext:tag1,tag2")
+        #[arg(short = 'm', long = "map", value_name = "EXT:TAGS")]
+        mappings: Vec<String>,
+
+        /// Use only custom mappings (ignore defaults)
+        #[arg(long = "no-defaults")]
+        no_defaults: bool,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Transform tags across the database (case, format, prefix/suffix, regex)
+    #[command(name = "transform")]
+    Transform {
+        /// Transformation type
+        #[arg(value_enum)]
+        transformation: TransformationType,
+
+        /// Parameter for transformation (prefix, suffix, or regex pattern)
+        #[arg(short = 'p', long = "param", required_if_eq_any([
+            ("transformation", "add-prefix"),
+            ("transformation", "add-suffix"),
+            ("transformation", "remove-prefix"),
+            ("transformation", "remove-suffix"),
+            ("transformation", "regex-replace"),
+        ]))]
+        param: Option<String>,
+
+        /// Replacement string for regex transformation
+        #[arg(short = 'r', long = "replacement", required_if_eq("transformation", "regex-replace"))]
+        replacement: Option<String>,
+
+        /// Only transform specific tags (omit to transform all)
+        #[arg(short = 't', long = "tags", value_name = "TAG")]
+        filter: Vec<String>,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+}
+
+/// Transformation type for tags
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformationType {
+    Lowercase,
+    Uppercase,
+    KebabCase,
+    SnakeCase,
+    CamelCase,
+    PascalCase,
+    AddPrefix,
+    AddSuffix,
+    RemovePrefix,
+    RemoveSuffix,
+    RegexReplace,
 }
 
 /// Batch input format argument
@@ -1129,7 +1223,10 @@ impl Commands {
                 | BulkCommands::CopyTags { dry_run, yes, .. }
                 | BulkCommands::FromFile { dry_run, yes, .. }
                 | BulkCommands::MapTags { dry_run, yes, .. }
-                | BulkCommands::DeleteFiles { dry_run, yes, .. } => (*dry_run, *yes),
+                | BulkCommands::DeleteFiles { dry_run, yes, .. }
+                | BulkCommands::PropagateByDir { dry_run, yes, .. }
+                | BulkCommands::PropagateByExt { dry_run, yes, .. }
+                | BulkCommands::Transform { dry_run, yes, .. } => (*dry_run, *yes),
             };
             Some((command, dry_run, yes))
         } else {

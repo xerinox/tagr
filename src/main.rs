@@ -508,6 +508,89 @@ fn main() -> Result<()> {
                         };
                         commands::bulk::bulk_delete_files(&db, input, fmt, *dry_run, *yes, quiet)?;
                     }
+                    BulkCommands::PropagateByDir {
+                        root,
+                        mappings,
+                        hierarchy,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::propagate_by_directory(
+                            &db,
+                            root.as_deref(),
+                            mappings,
+                            *hierarchy,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
+                    BulkCommands::PropagateByExt {
+                        mappings,
+                        no_defaults,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::propagate_by_extension(
+                            &db,
+                            mappings,
+                            *no_defaults,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
+                    BulkCommands::Transform {
+                        transformation,
+                        param,
+                        replacement,
+                        filter,
+                        dry_run,
+                        yes,
+                    } => {
+                        use commands::bulk::TagTransformation;
+                        use tagr::cli::TransformationType;
+
+                        let trans = match transformation {
+                            TransformationType::Lowercase => TagTransformation::Lowercase,
+                            TransformationType::Uppercase => TagTransformation::Uppercase,
+                            TransformationType::KebabCase => TagTransformation::KebabCase,
+                            TransformationType::SnakeCase => TagTransformation::SnakeCase,
+                            TransformationType::CamelCase => TagTransformation::CamelCase,
+                            TransformationType::PascalCase => TagTransformation::PascalCase,
+                            TransformationType::AddPrefix => {
+                                TagTransformation::AddPrefix(param.clone().unwrap())
+                            }
+                            TransformationType::AddSuffix => {
+                                TagTransformation::AddSuffix(param.clone().unwrap())
+                            }
+                            TransformationType::RemovePrefix => {
+                                TagTransformation::RemovePrefix(param.clone().unwrap())
+                            }
+                            TransformationType::RemoveSuffix => {
+                                TagTransformation::RemoveSuffix(param.clone().unwrap())
+                            }
+                            TransformationType::RegexReplace => TagTransformation::RegexReplace {
+                                pattern: param.clone().unwrap(),
+                                replacement: replacement.clone().unwrap(),
+                            },
+                        };
+
+                        let filter_tags = if filter.is_empty() {
+                            None
+                        } else {
+                            Some(filter.as_slice())
+                        };
+
+                        commands::bulk::transform_tags(
+                            &db,
+                            &trans,
+                            filter_tags,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
                 }
             }
             Commands::Cleanup { .. } => {
