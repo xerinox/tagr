@@ -69,6 +69,8 @@ impl<'a> ItemList<'a> {
         ];
 
         // Add the display text with appropriate styling
+        // Use `searchable` (plain text) instead of `display` (ANSI-formatted)
+        // since ratatui uses native styles, not ANSI escape codes
         let text_style = if !exists {
             self.theme.missing_file_style()
         } else if is_cursor {
@@ -77,9 +79,8 @@ impl<'a> ItemList<'a> {
             self.theme.normal_style()
         };
 
-        // For now, use the display text as-is
-        // TODO: Parse ANSI codes or apply match highlighting
-        spans.push(Span::styled(item.display.clone(), text_style));
+        // Use searchable (plain text) and apply ratatui styling
+        spans.push(Span::styled(item.searchable.clone(), text_style));
 
         let line = Line::from(spans);
 
