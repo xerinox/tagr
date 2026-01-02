@@ -13,9 +13,11 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod db;
+pub mod discovery;
 pub mod filters;
 pub mod keybinds;
 pub mod output;
+pub mod patterns;
 pub mod preview;
 pub mod search;
 pub mod ui;
@@ -51,6 +53,9 @@ pub enum TagrError {
     /// Represents an I/O error
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+    /// Pattern system error
+    #[error("Pattern error: {0}")]
+    PatternError(#[from] patterns::PatternError),
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),

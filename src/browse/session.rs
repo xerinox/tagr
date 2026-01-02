@@ -488,6 +488,7 @@ mod tests {
             exclude_tags: vec![],
             regex_tag: false,
             regex_file: false,
+            glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
         });

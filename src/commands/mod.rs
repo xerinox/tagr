@@ -4,6 +4,7 @@
 //! and executes the operation against the database.
 
 pub mod browse;
+pub mod bulk;
 pub mod cleanup;
 pub mod filter;
 pub mod list;

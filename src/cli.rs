@@ -40,7 +40,7 @@
 //! }
 //! ```
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 
 /// Path display format
@@ -89,6 +89,8 @@ pub struct SearchParams {
     pub regex_tag: bool,
     /// Use regex for file pattern matching
     pub regex_file: bool,
+    /// Treat file patterns as globs (explicit flag)
+    pub glob_files: bool,
     /// Virtual tags to filter by
     pub virtual_tags: Vec<String>,
     /// How to combine multiple virtual tags (AND/OR)
@@ -189,6 +191,7 @@ impl From<SearchParams> for crate::filters::FilterCriteria {
             excludes: params.exclude_tags,
             regex_tag: params.regex_tag,
             regex_file: params.regex_file,
+            glob_files: false,
             virtual_tags: params.virtual_tags,
             virtual_mode: params.virtual_mode.into(),
         }
@@ -205,6 +208,7 @@ impl From<&SearchParams> for crate::filters::FilterCriteria {
             excludes: params.exclude_tags.clone(),
             regex_tag: params.regex_tag,
             regex_file: params.regex_file,
+            glob_files: false,
             virtual_tags: params.virtual_tags.clone(),
             virtual_mode: params.virtual_mode.into(),
         }
@@ -222,8 +226,39 @@ impl From<&crate::filters::FilterCriteria> for SearchParams {
             exclude_tags: criteria.excludes.clone(),
             regex_tag: criteria.regex_tag,
             regex_file: criteria.regex_file,
+            glob_files: criteria.glob_files,
             virtual_tags: criteria.virtual_tags.clone(),
             virtual_mode: criteria.virtual_mode.into(),
+        }
+    }
+}
+
+impl From<&SearchCriteriaArgs> for SearchParams {
+    fn from(criteria: &SearchCriteriaArgs) -> Self {
+        Self {
+            query: None,
+            tags: criteria.tags.clone(),
+            tag_mode: if criteria.any_tag {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+            file_patterns: criteria.file_patterns.clone(),
+            file_mode: if criteria.any_file {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
+            exclude_tags: criteria.excludes.clone(),
+            regex_tag: criteria.regex_tag,
+            regex_file: criteria.regex_file,
+            glob_files: criteria.glob_files,
+            virtual_tags: criteria.virtual_tags.clone(),
+            virtual_mode: if criteria.any_virtual {
+                SearchMode::Any
+            } else {
+                SearchMode::All
+            },
         }
     }
 }
@@ -289,6 +324,22 @@ pub fn execute_command_on_files<P: AsRef<Path>>(
     }
 
     success_count
+}
+
+/// Conditional operation flags (reusable across bulk operations)
+#[derive(Args, Debug, Clone, Default)]
+pub struct ConditionalArgs {
+    /// Only add tags if they don't already exist on the file
+    #[arg(long = "if-not-exists")]
+    pub if_not_exists: bool,
+
+    /// Only process files that have ALL of these tags
+    #[arg(long = "if-has-tag", value_name = "TAG")]
+    pub if_has_tag: Vec<String>,
+
+    /// Only process files that are missing ANY of these tags
+    #[arg(long = "if-missing-tag", value_name = "TAG")]
+    pub if_missing_tag: Vec<String>,
 }
 
 /// Configuration management subcommands
@@ -357,6 +408,300 @@ pub enum DbCommands {
     },
 }
 
+/// Bulk operation subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum BulkCommands {
+    /// Add tags to multiple files matching search criteria
+    Tag {
+        #[command(flatten)]
+        criteria: SearchCriteriaArgs,
+
+        /// Tags to add to matching files
+        #[arg(value_name = "TAG", required = true)]
+        add_tags: Vec<String>,
+
+        #[command(flatten)]
+        conditions: ConditionalArgs,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Remove tags from multiple files matching search criteria
+    Untag {
+        #[command(flatten)]
+        criteria: SearchCriteriaArgs,
+
+        /// Tags to remove (omit with --all to remove all tags)
+        #[arg(value_name = "TAG")]
+        remove_tags: Vec<String>,
+
+        /// Remove all tags from matching files
+        #[arg(short = 'a', long = "all")]
+        all: bool,
+
+        #[command(flatten)]
+        conditions: ConditionalArgs,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Rename a tag globally across all files in the database
+    #[command(visible_alias = "rename")]
+    RenameTag {
+        /// Current tag name
+        old_tag: String,
+
+        /// New tag name
+        new_tag: String,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Merge multiple tags into a single tag
+    #[command(visible_alias = "merge")]
+    MergeTags {
+        /// Source tags to merge (will be replaced)
+        #[arg(value_name = "SOURCE_TAG", required = true, num_args = 1..)]
+        source_tags: Vec<String>,
+
+        /// Target tag to merge into
+        #[arg(long = "into", value_name = "TARGET_TAG", required = true)]
+        target_tag: String,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Copy tags from a source file to multiple target files
+    #[command(visible_alias = "copy")]
+    CopyTags {
+        /// Source file to copy tags from
+        #[arg(value_name = "SOURCE_FILE")]
+        source: PathBuf,
+
+        #[command(flatten)]
+        criteria: SearchCriteriaArgs,
+
+        /// Only copy specific tags (omit to copy all tags from source)
+        #[arg(long = "copy-tags", value_name = "TAG")]
+        specific_tags: Vec<String>,
+
+        /// Exclude specific tags from copying
+        #[arg(long = "exclude-tags", value_name = "TAG")]
+        exclude: Vec<String>,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Batch tag from an input file (text, csv, json)
+    FromFile {
+        /// Input file containing file paths and tags
+        #[arg(value_name = "INPUT_FILE")]
+        input: PathBuf,
+
+        /// Input format
+        #[arg(short = 'f', long = "format", value_enum, default_value_t = BatchFormatArg::Text)]
+        format: BatchFormatArg,
+
+        /// CSV delimiter (for CSV format)
+        #[arg(long = "delimiter", default_value = ",")]
+        delimiter: char,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Map (rename) multiple tags via a mapping file (text, csv, json)
+    #[command(name = "map-tags", visible_alias = "map")]
+    MapTags {
+        /// Mapping file containing tag rename pairs
+        #[arg(value_name = "MAPPING_FILE")]
+        input: PathBuf,
+
+        /// Input format
+        #[arg(short = 'f', long = "format", value_enum, default_value_t = BatchFormatArg::Text)]
+        format: BatchFormatArg,
+
+        /// CSV delimiter (for CSV format)
+        #[arg(long = "delimiter", default_value = ",")]
+        delimiter: char,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Delete many files from the database using an input list (text, csv, json)
+    #[command(name = "delete-files", visible_alias = "del-files")]
+    DeleteFiles {
+        /// Input file containing file paths to delete
+        #[arg(value_name = "INPUT_FILE")]
+        input: PathBuf,
+
+        /// Input format
+        #[arg(short = 'f', long = "format", value_enum, default_value_t = BatchFormatArg::Text)]
+        format: BatchFormatArg,
+
+        /// CSV delimiter (for CSV format)
+        #[arg(long = "delimiter", default_value = ",")]
+        delimiter: char,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Auto-tag files based on their directory structure
+    #[command(name = "propagate-by-dir", visible_alias = "prop-dir")]
+    PropagateByDir {
+        /// Root directory to process (defaults to all files)
+        #[arg(value_name = "ROOT")]
+        root: Option<PathBuf>,
+
+        /// Custom directory to tag mappings (format: "dirname:tagname")
+        #[arg(short = 'm', long = "map", value_name = "DIR:TAG")]
+        mappings: Vec<String>,
+
+        /// Add tags from all parent directories (hierarchical)
+        #[arg(long = "hierarchy")]
+        hierarchy: bool,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Auto-tag files based on their file extension
+    #[command(name = "propagate-by-ext", visible_alias = "prop-ext")]
+    PropagateByExt {
+        /// Custom extension to tags mappings (format: "ext:tag1,tag2")
+        #[arg(short = 'm', long = "map", value_name = "EXT:TAGS")]
+        mappings: Vec<String>,
+
+        /// Use only custom mappings (ignore defaults)
+        #[arg(long = "no-defaults")]
+        no_defaults: bool,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+
+    /// Transform tags across the database (case, format, prefix/suffix, regex)
+    #[command(name = "transform")]
+    Transform {
+        /// Transformation type
+        #[arg(value_enum)]
+        transformation: TransformationType,
+
+        /// Parameter for transformation (prefix, suffix, or regex pattern)
+        #[arg(short = 'p', long = "param", required_if_eq_any([
+            ("transformation", "add-prefix"),
+            ("transformation", "add-suffix"),
+            ("transformation", "remove-prefix"),
+            ("transformation", "remove-suffix"),
+            ("transformation", "regex-replace"),
+        ]))]
+        param: Option<String>,
+
+        /// Replacement string for regex transformation
+        #[arg(
+            short = 'r',
+            long = "replacement",
+            required_if_eq("transformation", "regex-replace")
+        )]
+        replacement: Option<String>,
+
+        /// Only transform specific tags (omit to transform all)
+        #[arg(short = 't', long = "tags", value_name = "TAG")]
+        filter: Vec<String>,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+}
+
+/// Transformation type for tags
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformationType {
+    Lowercase,
+    Uppercase,
+    KebabCase,
+    SnakeCase,
+    CamelCase,
+    PascalCase,
+    AddPrefix,
+    AddSuffix,
+    RemovePrefix,
+    RemoveSuffix,
+    RegexReplace,
+}
+
+/// Batch input format argument
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchFormatArg {
+    /// Plain text format: `file tag1 tag2` per line
+    Text,
+    /// CSV format: `file,tag1,tag2` per row
+    Csv,
+    /// JSON format: `[{"file":"...","tags":["t1","t2"]}]`
+    Json,
+}
 /// Filter management subcommands
 #[derive(Subcommand, Debug, Clone)]
 pub enum FilterCommands {
@@ -471,13 +816,25 @@ pub struct SearchCriteriaArgs {
     #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
     pub excludes: Vec<String>,
 
-    /// Use regex matching for tags
-    #[arg(short = 'r', long = "regex-tag")]
+    /// Use regex matching for tags (alias: --regex-tags)
+    #[arg(short = 'r', long = "regex-tag", visible_alias = "regex-tags")]
     pub regex_tag: bool,
 
-    /// Use regex matching for file patterns
-    #[arg(long = "regex-file")]
+    /// Use regex matching for file patterns (alias: --regex-files)
+    #[arg(
+        long = "regex-file",
+        visible_alias = "regex-files",
+        conflicts_with = "glob_files"
+    )]
     pub regex_file: bool,
+
+    /// Treat provided file patterns as globs (alias: --glob-file)
+    #[arg(
+        long = "glob-files",
+        visible_alias = "glob-file",
+        conflicts_with = "regex_file"
+    )]
+    pub glob_files: bool,
 
     /// Virtual tags to filter by (e.g., "size:>1MB", "modified:today")
     #[arg(short = 'v', long = "virtual-tag", value_name = "VTAG", num_args = 0..)]
@@ -520,14 +877,6 @@ pub struct Cli {
     /// Suppress informational output (only print results)
     #[arg(short = 'q', long = "quiet", global = true)]
     pub quiet: bool,
-
-    /// Display absolute paths (overrides config)
-    #[arg(long = "absolute", global = true, conflicts_with = "relative")]
-    pub absolute: bool,
-
-    /// Display relative paths (overrides config)
-    #[arg(long = "relative", global = true, conflicts_with = "absolute")]
-    pub relative: bool,
 }
 
 /// Available CLI commands
@@ -562,6 +911,14 @@ pub enum Commands {
         /// Preview width percentage (0-100)
         #[arg(long = "preview-width", value_name = "PERCENT")]
         preview_width: Option<u8>,
+
+        /// Display absolute paths (overrides config)
+        #[arg(long = "absolute", conflicts_with = "relative")]
+        absolute: bool,
+
+        /// Display relative paths (overrides config)
+        #[arg(long = "relative", conflicts_with = "absolute")]
+        relative: bool,
 
         #[command(flatten)]
         db_args: DbArgs,
@@ -621,6 +978,14 @@ pub enum Commands {
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
 
+        /// Display absolute paths (overrides config)
+        #[arg(long = "absolute", conflicts_with = "relative")]
+        absolute: bool,
+
+        /// Display relative paths (overrides config)
+        #[arg(long = "relative", conflicts_with = "absolute")]
+        relative: bool,
+
         #[command(flatten)]
         db_args: DbArgs,
 
@@ -663,6 +1028,18 @@ pub enum Commands {
     Tags {
         #[command(subcommand)]
         command: TagsCommands,
+
+        #[command(flatten)]
+        db_args: DbArgs,
+    },
+
+    /// Perform bulk operations on multiple files
+    Bulk {
+        #[command(subcommand)]
+        command: BulkCommands,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 
     /// Clean up database by removing missing files and files with no tags
@@ -677,6 +1054,14 @@ pub enum Commands {
     List {
         /// What to list (files or tags)
         variant: ListVariant,
+
+        /// Display absolute paths (overrides config)
+        #[arg(long = "absolute", conflicts_with = "relative")]
+        absolute: bool,
+
+        /// Display relative paths (overrides config)
+        #[arg(long = "relative", conflicts_with = "absolute")]
+        relative: bool,
 
         #[command(flatten)]
         db_args: DbArgs,
@@ -730,6 +1115,7 @@ impl Commands {
                 exclude_tags: criteria.excludes.clone(),
                 regex_tag: criteria.regex_tag,
                 regex_file: criteria.regex_file,
+                glob_files: criteria.glob_files,
                 virtual_tags: criteria.virtual_tags.clone(),
                 virtual_mode: if criteria.any_virtual {
                     SearchMode::Any
@@ -770,6 +1156,7 @@ impl Commands {
                         exclude_tags: criteria.excludes.clone(),
                         regex_tag: false,
                         regex_file: false,
+                        glob_files: false,
                         virtual_tags: criteria.virtual_tags.clone(),
                         virtual_mode: SearchMode::Any,
                     })
@@ -828,9 +1215,34 @@ impl Commands {
             | Self::Tag { db_args, .. }
             | Self::Search { db_args, .. }
             | Self::Untag { db_args, .. }
+            | Self::Tags { db_args, .. }
+            | Self::Bulk { db_args, .. }
             | Self::Cleanup { db_args }
             | Self::List { db_args, .. } => db_args.db.clone(),
             _ => None,
+        }
+    }
+
+    /// Get bulk command details
+    #[must_use]
+    pub const fn get_bulk_context(&self) -> Option<(&BulkCommands, bool, bool)> {
+        if let Self::Bulk { command, .. } = self {
+            let (dry_run, yes) = match command {
+                BulkCommands::Tag { dry_run, yes, .. }
+                | BulkCommands::Untag { dry_run, yes, .. }
+                | BulkCommands::RenameTag { dry_run, yes, .. }
+                | BulkCommands::MergeTags { dry_run, yes, .. }
+                | BulkCommands::CopyTags { dry_run, yes, .. }
+                | BulkCommands::FromFile { dry_run, yes, .. }
+                | BulkCommands::MapTags { dry_run, yes, .. }
+                | BulkCommands::DeleteFiles { dry_run, yes, .. }
+                | BulkCommands::PropagateByDir { dry_run, yes, .. }
+                | BulkCommands::PropagateByExt { dry_run, yes, .. }
+                | BulkCommands::Transform { dry_run, yes, .. } => (*dry_run, *yes),
+            };
+            Some((command, dry_run, yes))
+        } else {
+            None
         }
     }
 }
@@ -857,6 +1269,7 @@ impl Cli {
                 excludes: Vec::new(),
                 regex_tag: false,
                 regex_file: false,
+                glob_files: false,
                 virtual_tags: Vec::new(),
                 any_virtual: false,
                 all_virtual: false,
@@ -866,6 +1279,8 @@ impl Cli {
             preview_lines: None,
             preview_position: None,
             preview_width: None,
+            absolute: false,
+            relative: false,
             db_args: DbArgs { db: None },
             filter_args: FilterArgs {
                 filter: None,
@@ -875,15 +1290,32 @@ impl Cli {
         })
     }
 
-    /// Helper method to get the path format override from global flags
+    /// Helper method to get the path format override from command-specific flags
     #[must_use]
-    pub const fn get_path_format(&self) -> Option<PathFormat> {
-        if self.absolute {
-            Some(PathFormat::Absolute)
-        } else if self.relative {
-            Some(PathFormat::Relative)
-        } else {
-            None
+    pub fn get_path_format(&self) -> Option<PathFormat> {
+        let to_format = |absolute: bool, relative: bool| {
+            if absolute {
+                Some(PathFormat::Absolute)
+            } else if relative {
+                Some(PathFormat::Relative)
+            } else {
+                None
+            }
+        };
+
+        match &self.command {
+            Some(
+                Commands::Browse {
+                    absolute, relative, ..
+                }
+                | Commands::Search {
+                    absolute, relative, ..
+                }
+                | Commands::List {
+                    absolute, relative, ..
+                },
+            ) => to_format(*absolute, *relative),
+            _ => None,
         }
     }
 }

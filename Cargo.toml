@@ -1,7 +1,7 @@
 [package]
 name = "tagr"
 description = "A fast, tag-based file organizer and search tool for the command line."
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Rainer Kildal <rkildal@gmail.com>"]
 edition = "2024"
 license = "MIT"
@@ -35,6 +35,9 @@ sled = "0.34.7"
 syntect = { version = "5.2", optional = true }
 thiserror = "2.0.17"
 toml = "0.8"
+serde_json = "1.0"
+csv = "1.3"
+heck = "0.5"
 
 [dev-dependencies]
 tempfile = "3.23.0"

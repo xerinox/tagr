@@ -225,7 +225,7 @@ impl PreviewProvider for SkimPreviewProvider {
         let path = PathBuf::from(item);
         match self.generator.generate(&path) {
             Ok(content) => {
-                let display = content.to_display_string();
+                let display = content.to_string();
                 let has_ansi = matches!(content, PreviewContent::Text { has_ansi: true, .. });
                 Ok(if has_ansi {
                     PreviewText::ansi(display)

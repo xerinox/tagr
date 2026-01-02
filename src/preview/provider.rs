@@ -64,7 +64,7 @@ impl PreviewProvider for FilePreviewProvider {
         let path = PathBuf::from(item);
 
         if let Some(content) = self.cache.get(&path) {
-            let display = content.to_display_string();
+            let display = content.to_string();
             let has_ansi = matches!(content, PreviewContent::Text { has_ansi: true, .. });
             return Ok(if has_ansi {
                 PreviewText::ansi(display)
@@ -85,7 +85,7 @@ impl PreviewProvider for FilePreviewProvider {
         // Cache the result
         self.cache.insert(path, content.clone());
 
-        let display = content.to_display_string();
+        let display = content.to_string();
         let has_ansi = matches!(content, PreviewContent::Text { has_ansi: true, .. });
         Ok(if has_ansi {
             PreviewText::ansi(display)

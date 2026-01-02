@@ -6,6 +6,10 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tagr::cli::{SearchMode, SearchParams};
+use tagr::commands::bulk::{bulk_tag, bulk_untag};
+use tagr::commands::search as search_cmd;
+use tagr::config;
 use tagr::{Pair, cli::execute_command_on_files, db::Database};
 
 /// Test database wrapper that cleans up on drop
@@ -56,6 +60,160 @@ impl Drop for TestFile {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
     }
+}
+
+// ============================================================================
+// E2E CLI-like Invocation Tests using handlers
+// ============================================================================
+
+#[test]
+fn test_e2e_bulk_tag_with_glob_file_patterns() {
+    let test_db = TestDb::new("e2e_bulk_tag_glob");
+
+    let f_rs1 = TestFile::create("e2e1.rs", "content").unwrap();
+    let f_rs2 = TestFile::create("e2e2.rs", "content").unwrap();
+
+    let f_txt = TestFile::create("e2e3.txt", "content").unwrap();
+
+    // Insert files with initial tags
+    test_db
+        .db()
+        .insert(f_rs1.path(), vec!["init".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(f_rs2.path(), vec!["init".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(f_txt.path(), vec!["init".into()])
+        .unwrap();
+
+    // Build SearchParams like CLI: file_patterns only, no explicit glob flag
+    let params = SearchParams {
+        query: None,
+        tags: vec![],
+        tag_mode: SearchMode::All,
+        file_patterns: vec!["*.rs".to_string()],
+        file_mode: SearchMode::All,
+        exclude_tags: vec![],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+    };
+
+    // Execute bulk tag (normalize should enable glob and match only .rs files)
+    bulk_tag(
+        test_db.db(),
+        &params,
+        &["added".into()],
+        &tagr::cli::ConditionalArgs::default(),
+        /*dry_run*/ false,
+        /*yes*/ true,
+        /*quiet*/ true,
+    )
+    .unwrap();
+
+    let tags_rs1 = test_db.db().get_tags(f_rs1.path()).unwrap().unwrap();
+    let tags_rs2 = test_db.db().get_tags(f_rs2.path()).unwrap().unwrap();
+    let tags_txt = test_db.db().get_tags(f_txt.path()).unwrap().unwrap();
+
+    assert!(tags_rs1.contains(&"added".into()));
+    assert!(tags_rs2.contains(&"added".into()));
+    assert!(!tags_txt.contains(&"added".into()));
+}
+
+#[test]
+fn test_e2e_bulk_untag_with_regex_file_patterns() {
+    let test_db = TestDb::new("e2e_bulk_untag_regex");
+
+    let f_txt1 = TestFile::create("e2e_r1.txt", "content").unwrap();
+    let f_txt2 = TestFile::create("e2e_r2.txt", "content").unwrap();
+    let f_rs = TestFile::create("e2e_r3.rs", "content").unwrap();
+
+    test_db
+        .db()
+        .insert(f_txt1.path(), vec!["remove".into(), "keep".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(f_txt2.path(), vec!["remove".into()])
+        .unwrap();
+    test_db
+        .db()
+        .insert(f_rs.path(), vec!["remove".into()])
+        .unwrap();
+
+    let params = SearchParams {
+        query: None,
+        tags: vec![],
+        tag_mode: SearchMode::All,
+        file_patterns: vec![".*\\.txt".to_string()],
+        file_mode: SearchMode::All,
+        exclude_tags: vec![],
+        regex_tag: false,
+        regex_file: true,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+    };
+
+    bulk_untag(
+        test_db.db(),
+        &params,
+        &["remove".into()],
+        /*remove_all*/ false,
+        &tagr::cli::ConditionalArgs::default(),
+        /*dry_run*/ false,
+        /*yes*/ true,
+        /*quiet*/ true,
+    )
+    .unwrap();
+
+    // .txt files should have 'remove' tag removed, .rs should still have it
+    let tags_txt1 = test_db.db().get_tags(f_txt1.path()).unwrap().unwrap();
+    assert!(!tags_txt1.contains(&"remove".into()));
+    assert!(tags_txt1.contains(&"keep".into()));
+
+    let tags_txt2 = test_db.db().get_tags(f_txt2.path()).unwrap();
+    assert!(tags_txt2.is_none(), "file removed when no tags remain");
+
+    let tags_rs = test_db.db().get_tags(f_rs.path()).unwrap().unwrap();
+    assert!(tags_rs.contains(&"remove".into()));
+}
+
+#[test]
+fn test_e2e_search_execute_with_glob_flag() {
+    let test_db = TestDb::new("e2e_search_glob");
+    let db = test_db.db();
+    let f_rs = TestFile::create("e2e_s1.rs", "content").unwrap();
+    db.insert(f_rs.path(), vec!["t1".into()]).unwrap();
+
+    let params = SearchParams {
+        query: None,
+        tags: vec![],
+        tag_mode: SearchMode::All,
+        file_patterns: vec!["*.rs".to_string()],
+        file_mode: SearchMode::All,
+        exclude_tags: vec![],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: true,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+    };
+
+    let res = search_cmd::execute(
+        db,
+        params,
+        None,
+        None,
+        config::PathFormat::Absolute,
+        /*quiet*/ true,
+    );
+    assert!(res.is_ok());
 }
 
 #[test]

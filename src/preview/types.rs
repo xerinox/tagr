@@ -84,8 +84,19 @@ impl PreviewContent {
 
     /// Get a display string for the content
     ///
-    /// Note: Also available via the `Display` trait
+    /// # Note
+    ///
+    /// This method is deprecated. Use the `Display` trait instead:
+    /// ```ignore
+    /// let content = PreviewContent::Empty;
+    /// // Instead of: content.to_display_string()
+    /// // Use: content.to_string() or format!("{}", content)
+    /// ```
     #[must_use]
+    #[deprecated(
+        since = "0.5.0",
+        note = "Use Display trait instead: .to_string() or format!()"
+    )]
     pub fn to_display_string(&self) -> String {
         format!("{self}")
     }

@@ -168,7 +168,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
-        let keybinds = phase.settings.keybind_config.to_skim_bindings();
+        let keybinds = phase.settings.keybind_config.skim_bindings();
 
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
@@ -267,7 +267,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         // Only use configured path format in file phase
         let path_format = match phase_type {
             PhaseType::FileSelection { .. } => &self.session.config().path_format,
-            _ => &PathFormat::Absolute, // Default for other phases
+            PhaseType::TagSelection => &PathFormat::Absolute, // Default for tag phase
         };
 
         match path_format {

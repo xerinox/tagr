@@ -60,6 +60,10 @@ pub struct FilterCriteria {
     #[serde(default)]
     pub regex_file: bool,
 
+    /// Treat file patterns as globs (explicit flag in CLI)
+    #[serde(default)]
+    pub glob_files: bool,
+
     /// Virtual tags to filter by (e.g., "size:>1MB", "modified:today")
     #[serde(default)]
     pub virtual_tags: Vec<String>,
@@ -109,6 +113,7 @@ impl FilterCriteria {
 
         self.regex_tag = self.regex_tag || other.regex_tag;
         self.regex_file = self.regex_file || other.regex_file;
+        self.glob_files = self.glob_files || other.glob_files;
 
         // Note: tag_mode and file_mode are NOT merged - the loaded filter's modes are preserved
         // unless the user explicitly provides mode flags in the CLI
@@ -263,6 +268,7 @@ impl FilterCriteriaBuilder {
             excludes: self.excludes,
             regex_tag: self.regex_tag,
             regex_file: self.regex_file,
+            glob_files: false,
             virtual_tags: self.virtual_tags,
             virtual_mode: self.virtual_mode.unwrap_or(TagMode::All),
         }
@@ -279,6 +285,7 @@ impl Default for FilterCriteria {
             excludes: Vec::new(),
             regex_tag: false,
             regex_file: false,
+            glob_files: false,
             virtual_tags: Vec::new(),
             virtual_mode: TagMode::All,
         }
@@ -705,6 +712,7 @@ mod tests {
             excludes: vec!["test".to_string()],
             regex_tag: false,
             regex_file: false,
+            glob_files: false,
             virtual_tags: Vec::new(),
             virtual_mode: TagMode::All,
         };
@@ -717,6 +725,7 @@ mod tests {
             excludes: vec!["deprecated".to_string()],
             regex_tag: true,
             regex_file: false,
+            glob_files: false,
             virtual_tags: vec!["size:>1MB".to_string()],
             virtual_mode: TagMode::All,
         };
@@ -741,6 +750,7 @@ mod tests {
             "Test filter".to_string(),
             FilterCriteria {
                 tags: vec!["test".to_string()],
+                glob_files: false,
                 ..Default::default()
             },
         );
@@ -771,6 +781,7 @@ mod tests {
                 excludes: vec![],
                 regex_tag: false,
                 regex_file: false,
+                glob_files: false,
                 virtual_tags: Vec::new(),
                 virtual_mode: TagMode::All,
             },

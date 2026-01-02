@@ -44,7 +44,7 @@
 
 use tagr::{
     TagrError,
-    cli::{Cli, Commands, ConfigCommands, DbCommands},
+    cli::{Cli, Commands, ConfigCommands, DbCommands, SearchParams},
     commands, config,
     db::Database,
 };
@@ -381,8 +381,217 @@ fn main() -> Result<()> {
                 let ctx = command.get_untag_context().unwrap();
                 commands::tag::untag(&db, ctx.file, &ctx.tags, ctx.all, quiet)?;
             }
-            Commands::Tags { command } => {
+            Commands::Tags { command, .. } => {
                 commands::tags(&db, command, quiet)?;
+            }
+            Commands::Bulk { command, .. } => {
+                use tagr::cli::BulkCommands;
+
+                match command {
+                    BulkCommands::Tag {
+                        criteria,
+                        add_tags,
+                        conditions,
+                        dry_run,
+                        yes,
+                    } => {
+                        let params = SearchParams::from(criteria);
+                        commands::bulk::bulk_tag(
+                            &db, &params, add_tags, conditions, *dry_run, *yes, quiet,
+                        )?;
+                    }
+                    BulkCommands::Untag {
+                        criteria,
+                        remove_tags,
+                        all,
+                        conditions,
+                        dry_run,
+                        yes,
+                    } => {
+                        let params = SearchParams::from(criteria);
+                        commands::bulk::bulk_untag(
+                            &db,
+                            &params,
+                            remove_tags,
+                            *all,
+                            conditions,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
+                    BulkCommands::RenameTag {
+                        old_tag,
+                        new_tag,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::rename_tag(&db, old_tag, new_tag, *dry_run, *yes, quiet)?;
+                    }
+                    BulkCommands::MergeTags {
+                        source_tags,
+                        target_tag,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::merge_tags(
+                            &db,
+                            source_tags,
+                            target_tag,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
+                    BulkCommands::CopyTags {
+                        source,
+                        criteria,
+                        specific_tags,
+                        exclude,
+                        dry_run,
+                        yes,
+                    } => {
+                        let params = SearchParams::from(criteria);
+                        let specific = if specific_tags.is_empty() {
+                            None
+                        } else {
+                            Some(specific_tags.as_slice())
+                        };
+
+                        commands::bulk::copy_tags(
+                            &db, source, &params, specific, exclude, *dry_run, *yes, quiet,
+                        )?;
+                    }
+                    BulkCommands::FromFile {
+                        input,
+                        format,
+                        delimiter,
+                        dry_run,
+                        yes,
+                    } => {
+                        use tagr::commands::bulk::BatchFormat;
+
+                        let fmt = match format {
+                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
+                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
+                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
+                        };
+                        commands::bulk::batch_from_file(&db, input, fmt, *dry_run, *yes, quiet)?;
+                    }
+                    BulkCommands::MapTags {
+                        input,
+                        format,
+                        delimiter,
+                        dry_run,
+                        yes,
+                    } => {
+                        use tagr::commands::bulk::BatchFormat;
+                        let fmt = match format {
+                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
+                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
+                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
+                        };
+                        commands::bulk::bulk_map_tags(&db, input, fmt, *dry_run, *yes, quiet)?;
+                    }
+                    BulkCommands::DeleteFiles {
+                        input,
+                        format,
+                        delimiter,
+                        dry_run,
+                        yes,
+                    } => {
+                        use tagr::commands::bulk::BatchFormat;
+                        let fmt = match format {
+                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
+                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
+                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
+                        };
+                        commands::bulk::bulk_delete_files(&db, input, fmt, *dry_run, *yes, quiet)?;
+                    }
+                    BulkCommands::PropagateByDir {
+                        root,
+                        mappings,
+                        hierarchy,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::propagate_by_directory(
+                            &db,
+                            root.as_deref(),
+                            mappings,
+                            *hierarchy,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
+                    BulkCommands::PropagateByExt {
+                        mappings,
+                        no_defaults,
+                        dry_run,
+                        yes,
+                    } => {
+                        commands::bulk::propagate_by_extension(
+                            &db,
+                            mappings,
+                            *no_defaults,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
+                    BulkCommands::Transform {
+                        transformation,
+                        param,
+                        replacement,
+                        filter,
+                        dry_run,
+                        yes,
+                    } => {
+                        use commands::bulk::TagTransformation;
+                        use tagr::cli::TransformationType;
+
+                        let trans = match transformation {
+                            TransformationType::Lowercase => TagTransformation::Lowercase,
+                            TransformationType::Uppercase => TagTransformation::Uppercase,
+                            TransformationType::KebabCase => TagTransformation::KebabCase,
+                            TransformationType::SnakeCase => TagTransformation::SnakeCase,
+                            TransformationType::CamelCase => TagTransformation::CamelCase,
+                            TransformationType::PascalCase => TagTransformation::PascalCase,
+                            TransformationType::AddPrefix => {
+                                TagTransformation::AddPrefix(param.clone().unwrap())
+                            }
+                            TransformationType::AddSuffix => {
+                                TagTransformation::AddSuffix(param.clone().unwrap())
+                            }
+                            TransformationType::RemovePrefix => {
+                                TagTransformation::RemovePrefix(param.clone().unwrap())
+                            }
+                            TransformationType::RemoveSuffix => {
+                                TagTransformation::RemoveSuffix(param.clone().unwrap())
+                            }
+                            TransformationType::RegexReplace => TagTransformation::RegexReplace {
+                                pattern: param.clone().unwrap(),
+                                replacement: replacement.clone().unwrap(),
+                            },
+                        };
+
+                        let filter_tags = if filter.is_empty() {
+                            None
+                        } else {
+                            Some(filter.as_slice())
+                        };
+
+                        commands::bulk::transform_tags(
+                            &db,
+                            &trans,
+                            filter_tags,
+                            *dry_run,
+                            *yes,
+                            quiet,
+                        )?;
+                    }
+                }
             }
             Commands::Cleanup { .. } => {
                 commands::cleanup(&db, path_format, quiet)?;
