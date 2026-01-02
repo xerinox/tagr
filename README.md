@@ -493,10 +493,16 @@ done
 
 ### Performance
 
-All search operations are highly efficient:
-- **Tag lookups**: O(1) via reverse index
+**Regular tag operations are highly efficient:**
+- **Tag lookups**: O(1) via reverse index  
 - **Complex queries**: < 20ms for 10,000 files
 - **Pattern filtering**: Only on result set, not entire database
+
+**Virtual tag operations:**
+- Evaluation is O(n) on candidate files (parallel with rayon)
+- Best performance when combined with regular tags first
+- Metadata caching reduces filesystem calls
+- Example: `tagr search -t rust -v modified:today` evaluates only rust-tagged files
 
 ### Database Management
 
@@ -1247,13 +1253,15 @@ Example:
 "programming" → ["file1.txt", "file3.txt", "file4.txt"]
 ```
 
-### Performance Benefits
+### Performance Benefits (Regular Tags)
 
 | Operation | Before (Single Tree) | After (Multi-Tree) | Speedup |
-|-----------|---------------------|-------------------|---------|
+|-----------|---------------------|-------------------|---------|  
 | `find_by_tag("rust")` | O(n) - scan all files | O(1) - direct lookup | **100-1000x** |
 | `list_all_tags()` | O(n) - scan all files | O(k) - iterate tags | **100x** |
 | `find_by_all_tags(...)` | O(n) - scan all files | O(k) - set intersection | **100x** |
+
+**Note:** Virtual tags use O(n) evaluation on candidate files with parallel processing for performance.
 
 **Example**: For 10,000 files with 100 unique tags:
 - Old: 10,000 iterations per query (~50ms)
@@ -1562,10 +1570,22 @@ cargo test
 
 ## Performance Notes
 
-- Tag lookups are O(1) with reverse indexing
+**Regular Tags (database-stored):**
+- Tag lookups are O(1) via reverse index
+- Complex queries (AND/OR) use set operations on O(1) lookups
 - Storage overhead is ~50% (files tree + tags tree)
-- Auto-flush on drop ensures data durability
 - Efficient for 10,000+ files with 100+ tags
+
+**Virtual Tags (filesystem metadata):**
+- O(n) evaluation where n = candidate files (from database or prior filters)
+- Parallel evaluation using rayon for multi-core performance
+- Metadata caching (300s TTL) reduces repeated filesystem calls
+- Best performance when combined with regular tags to reduce candidate set
+- Example: `-t rust -v modified:today` evaluates only rust-tagged files
+
+**General:**
+- Auto-flush on drop ensures data durability
+- Pattern filtering (glob/regex) applied after tag lookups
 
 ## Contributing
 
