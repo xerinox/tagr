@@ -68,8 +68,7 @@ impl FilePattern {
     pub fn original(&self) -> String {
         match self {
             Self::Literal(p) => p.to_string_lossy().into_owned(),
-            Self::Regex { original, .. } => original.clone(),
-            Self::Glob { original, .. } => original.clone(),
+            Self::Regex { original, .. } | Self::Glob { original, .. } => original.clone(),
         }
     }
 }
