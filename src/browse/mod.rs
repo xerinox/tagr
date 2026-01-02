@@ -21,8 +21,14 @@
 //!
 //! ```no_run
 //! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
-//! use tagr::ui::skim_adapter::SkimFinder;
 //! use tagr::db::Database;
+//!
+//! // Use the appropriate finder based on feature flags
+//! #[cfg(feature = "ratatui-tui")]
+//! use tagr::ui::ratatui_adapter::RatatuiFinder;
+//!
+//! #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
+//! use tagr::ui::skim_adapter::SkimFinder;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Open database
@@ -32,15 +38,20 @@
 //! let config = BrowseConfig::default();
 //! let session = BrowseSession::new(&db, config)?;
 //!
-//! // Create controller with skim finder
+//! // Create controller with finder
+//! #[cfg(feature = "ratatui-tui")]
+//! let finder = RatatuiFinder::new();
+//!
+//! #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
 //! let finder = SkimFinder::new();
+//!
 //! let controller = BrowseController::new(session, finder);
 //!
 //! // Run interactive browse
 //! match controller.run()? {
 //!     Some(result) => {
 //!         println!("Selected {} files", result.selected_files.len());
-//!         for file in result.selected_files {
+//!         for file in &result.selected_files {
 //!             println!("  - {}", file.display());
 //!         }
 //!     }

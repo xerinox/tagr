@@ -331,6 +331,7 @@ impl KeybindConfig {
     /// Note: Filters out Tab and `BTab` (Shift+Tab) to preserve skim's
     /// default multi-select behavior.
     #[must_use]
+    #[cfg(feature = "skim-tui")]
     pub fn skim_bindings(&self) -> Vec<String> {
         let mut bindings = Vec::new();
 
@@ -350,6 +351,41 @@ impl KeybindConfig {
                 }
 
                 bindings.push(format!("{key}:accept"));
+            }
+        }
+
+        bindings
+    }
+
+    /// Convert keybind configuration to ratatui-compatible format.
+    ///
+    /// Returns a vector of (key_string, action_name) tuples that can be
+    /// passed to the ratatui finder for custom keybind handling.
+    ///
+    /// Note: Filters out Tab and `BTab` (Shift+Tab) to preserve the
+    /// finder's default multi-select behavior.
+    #[must_use]
+    #[cfg(feature = "ratatui-tui")]
+    pub fn ratatui_bindings(&self) -> Vec<String> {
+        let mut bindings = Vec::new();
+
+        for (action, def) in &self.keybinds {
+            let keys = match def {
+                KeybindDef::Single(key) if key != "none" => vec![key.clone()],
+                KeybindDef::Multiple(keys) => {
+                    keys.iter().filter(|k| *k != "none").cloned().collect()
+                }
+                KeybindDef::Single(_) => continue,
+            };
+
+            for key in keys {
+                // Skip Tab and BTab to preserve multi-select behavior
+                if key == "tab" || key == "btab" {
+                    continue;
+                }
+
+                // Format: "key:action" - action is needed for ratatui handler
+                bindings.push(format!("{key}:{action}"));
             }
         }
 

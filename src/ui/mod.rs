@@ -28,23 +28,27 @@
 //!                  │ Implemented by
 //!         ┌────────┴────────┐
 //!         ▼                 ▼
-//! ┌───────────────┐  ┌──────────────┐
-//! │ CLI Adapters  │  │ TUI Adapters │
-//! │ - SkimFinder  │  │ - Ratatui    │
-//! │ - Dialoguer   │  │   (future)   │
-//! │ - Stdout      │  │              │
-//! └───────────────┘  └──────────────┘
+//! ┌───────────────┐  ┌───────────────────┐
+//! │ CLI Adapters  │  │ TUI Adapters      │
+//! │ - SkimFinder  │  │ - RatatuiFinder   │
+//! │ - Dialoguer   │  │   (default)       │
+//! │ - Stdout      │  │                   │
+//! └───────────────┘  └───────────────────┘
 //! ```
 //!
-//! # Examples
+//! # Backend Selection
 //!
-//! ## Using the Skim Finder (Default)
+//! The default backend is now **ratatui** (with nucleo for fuzzy matching).
+//! The legacy skim backend is available via the `skim-tui` feature flag.
+//!
+//! ## Using Ratatui (Default)
 //!
 //! ```no_run
-//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem};
-//! use tagr::ui::skim_adapter::SkimFinder;
-//!
+//! # #[cfg(feature = "ratatui-tui")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem};
+//! use tagr::ui::ratatui_adapter::RatatuiFinder;
+//!
 //! let items = vec![
 //!     DisplayItem::new("file1.rs".into(), "file1.rs".into(), "file1.rs".into()),
 //!     DisplayItem::new("file2.rs".into(), "file2.rs".into(), "file2.rs".into()),
@@ -59,7 +63,7 @@
 //!     bind: vec![],
 //! };
 //!
-//! let finder = SkimFinder::new();
+//! let finder = RatatuiFinder::new();
 //! let result = finder.run(config)?;
 //!
 //! if !result.aborted {
@@ -67,6 +71,16 @@
 //! }
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "ratatui-tui"))]
+//! # fn main() {}
+//! ```
+//!
+//! ## Using Skim (Legacy)
+//!
+//! Enable the `skim-tui` feature and disable the default `ratatui-tui` feature:
+//!
+//! ```toml
+//! tagr = { version = "0.7", default-features = false, features = ["skim-tui"] }
 //! ```
 //!
 //! ## Implementing a Custom Finder
@@ -142,7 +156,8 @@
 //!
 //! - `examples/custom_frontend.rs` - Complete custom finder implementation
 //! - `docs/custom-frontend-guide.md` - Comprehensive guide for ratatui migration
-//! - `src/ui/skim_adapter.rs` - Reference implementation
+//! - `src/ui/skim_adapter.rs` - Legacy skim implementation
+//! - `src/ui/ratatui_adapter/` - Modern ratatui implementation
 
 mod error;
 mod traits;
@@ -150,6 +165,12 @@ mod types;
 
 pub mod input;
 pub mod output;
+
+// Backend adapters - conditionally compiled
+#[cfg(feature = "ratatui-tui")]
+pub mod ratatui_adapter;
+
+#[cfg(feature = "skim-tui")]
 pub mod skim_adapter;
 
 #[cfg(test)]
@@ -160,3 +181,11 @@ pub use input::{DialoguerInput, InputError, UserInput};
 pub use output::{MessageLevel, OutputWriter, StatusBarWriter, StdoutWriter};
 pub use traits::{FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText};
 pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition};
+
+// Re-export the default finder based on feature flags
+#[cfg(feature = "ratatui-tui")]
+pub use ratatui_adapter::{RatatuiFinder, RatatuiPreviewProvider};
+
+#[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
+pub use skim_adapter::{SkimFinder, SkimPreviewProvider};
+

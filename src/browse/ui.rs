@@ -168,6 +168,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
+        // Get keybinds in the appropriate format based on feature flags
+        #[cfg(feature = "ratatui-tui")]
+        let keybinds = phase.settings.keybind_config.ratatui_bindings();
+
+        #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
         let keybinds = phase.settings.keybind_config.skim_bindings();
 
         let config = FinderConfig::new(display_items, prompt.to_string())

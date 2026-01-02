@@ -12,8 +12,13 @@ use crate::{
     filters::{FilterCriteria, FilterManager},
     keybinds::config::KeybindConfig,
     output,
-    ui::skim_adapter::SkimFinder,
 };
+
+#[cfg(feature = "ratatui-tui")]
+use crate::ui::ratatui_adapter::RatatuiFinder;
+
+#[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
+use crate::ui::skim_adapter::SkimFinder;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -111,7 +116,14 @@ pub fn execute(
 
     let session =
         BrowseSession::new(db, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
+
+    // Select finder implementation based on feature flags
+    #[cfg(feature = "ratatui-tui")]
+    let finder = RatatuiFinder::new();
+
+    #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
     let finder = SkimFinder::new();
+
     let controller = BrowseController::new(session, finder);
 
     match controller.run() {
