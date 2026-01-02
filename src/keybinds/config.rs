@@ -234,11 +234,7 @@ fn default_keybinds() -> HashMap<String, KeybindDef> {
         KeybindDef::Single("ctrl-b".to_string()),
     );
 
-    // System
-    keybinds.insert(
-        "show_help".to_string(),
-        KeybindDef::Multiple(vec!["f1".to_string()]),
-    );
+    // Note: F1/? for help is handled internally by the TUI, not as a custom keybind
 
     keybinds
 }

@@ -83,12 +83,26 @@ fn handle_normal_mode(
         (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => EventResult::Abort,
         (KeyCode::Enter, _) => EventResult::Confirm(Some("enter".to_string())),
 
+        // Preview scroll (Shift+Up/Down) - must be before general navigation
+        (KeyCode::Up, KeyModifiers::SHIFT) => {
+            state.preview_scroll = state.preview_scroll.saturating_sub(1);
+            EventResult::Continue
+        }
+        (KeyCode::Down, KeyModifiers::SHIFT) => {
+            state.preview_scroll += 1;
+            EventResult::Continue
+        }
+
         // Navigation
-        (KeyCode::Up, _) | (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
+        (KeyCode::Up, KeyModifiers::NONE)
+        | (KeyCode::Up, KeyModifiers::CONTROL)
+        | (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
             state.cursor_up();
             EventResult::Continue
         }
-        (KeyCode::Down, _) | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
+        (KeyCode::Down, KeyModifiers::NONE)
+        | (KeyCode::Down, KeyModifiers::CONTROL)
+        | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
             state.cursor_down();
             EventResult::Continue
         }
@@ -171,16 +185,6 @@ fn handle_normal_mode(
                 state.query_cursor = 0;
             }
             EventResult::QueryChanged
-        }
-
-        // Preview scroll
-        (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-            state.preview_scroll = state.preview_scroll.saturating_sub(1);
-            EventResult::Continue
-        }
-        (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
-            state.preview_scroll += 1;
-            EventResult::Continue
         }
 
         _ => EventResult::Ignored,

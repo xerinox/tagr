@@ -112,7 +112,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 } => {
                     match action {
                         BrowseAction::ShowHelp => {
-                            Self::show_help(&phase.settings.help_text);
+                            // Help is handled internally by the TUI overlay (F1/?)
+                            // This branch shouldn't be reached with ratatui
                             continue;
                         }
                         BrowseAction::SelectAll | BrowseAction::ClearSelection => {
@@ -180,6 +181,13 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             .with_ansi(true)
             .with_binds(keybinds);
 
+        // Add preview config if enabled for this phase
+        let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
+            config.with_preview(preview_cfg.into())
+        } else {
+            config
+        };
+
         // Run finder - returns selection or action trigger
         let result = self.finder.run(config)?;
 
@@ -187,18 +195,28 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             return Ok(BrowserResult::Cancel);
         }
 
-        if let Some(key) = &result.final_key
-            && key != "enter"
+        // Check if this was a custom action (not Enter/accept)
+        if let Some(action_name) = &result.final_key
+            && action_name != "enter"
         {
-            // Look up action for this key
-            if let Some(action_name) = phase.settings.keybind_config.action_for_key(key) {
-                // Try to convert action name to BrowseAction
-                if let Ok(action) = action_name.parse::<BrowseAction>() {
-                    return Ok(BrowserResult::Action {
-                        action,
-                        selected_ids: result.selected,
-                    });
-                }
+            // For ratatui, final_key already contains the action name directly
+            // For skim, final_key contains the key string, so we need to look it up
+            #[cfg(feature = "ratatui-tui")]
+            let resolved_action = action_name.clone();
+
+            #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
+            let resolved_action = phase
+                .settings
+                .keybind_config
+                .action_for_key(action_name)
+                .unwrap_or_else(|| action_name.clone());
+
+            // Try to convert action name to BrowseAction
+            if let Ok(action) = resolved_action.parse::<BrowseAction>() {
+                return Ok(BrowserResult::Action {
+                    action,
+                    selected_ids: result.selected,
+                });
             }
         }
 
@@ -436,7 +454,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         }
     }
 
-    /// Display help text to user
+    /// Display help text to user (for skim TUI which doesn't have overlay)
+    #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
     fn show_help(help_text: &crate::browse::session::HelpText) {
         use crate::browse::session::HelpText;
 

@@ -96,6 +96,20 @@ impl Default for PreviewConfig {
     }
 }
 
+impl From<crate::config::PreviewConfig> for PreviewConfig {
+    fn from(cfg: crate::config::PreviewConfig) -> Self {
+        Self {
+            enabled: cfg.enabled,
+            max_file_size: cfg.max_file_size,
+            max_lines: cfg.max_lines,
+            syntax_highlighting: cfg.syntax_highlighting,
+            show_line_numbers: cfg.show_line_numbers,
+            position: cfg.position,
+            width_percent: cfg.width_percent,
+        }
+    }
+}
+
 /// Trait for fuzzy finder implementations
 ///
 /// This trait abstracts away the specific fuzzy finder backend,

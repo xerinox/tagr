@@ -4,6 +4,7 @@
 
 use super::events::{poll_and_handle, EventResult, KeybindMap};
 use super::state::{AppState, Mode};
+use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
 use super::widgets::{HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, SearchBar, StatusBar};
 use crate::ui::error::Result;
@@ -24,12 +25,17 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::io::{self, Stdout};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 /// Ratatui-based fuzzy finder implementation
 pub struct RatatuiFinder {
+    /// Legacy preview provider (for trait compatibility - may be used in future)
+    #[allow(dead_code)]
     preview_provider: Option<Arc<dyn PreviewProvider>>,
+    /// Native styled preview generator (preferred)
+    styled_generator: Option<StyledPreviewGenerator>,
     theme: Theme,
 }
 
@@ -39,15 +45,27 @@ impl RatatuiFinder {
     pub fn new() -> Self {
         Self {
             preview_provider: None,
+            styled_generator: None,
             theme: Theme::default(),
         }
     }
 
-    /// Create a ratatui finder with preview provider
+    /// Create a ratatui finder with native styled preview generator
+    #[must_use]
+    pub fn with_styled_preview(max_lines: usize) -> Self {
+        Self {
+            preview_provider: None,
+            styled_generator: Some(StyledPreviewGenerator::new(max_lines)),
+            theme: Theme::default(),
+        }
+    }
+
+    /// Create a ratatui finder with legacy preview provider
     #[must_use]
     pub fn with_preview_provider(preview_provider: impl PreviewProvider + 'static) -> Self {
         Self {
             preview_provider: Some(Arc::new(preview_provider)),
+            styled_generator: None,
             theme: Theme::default(),
         }
     }
@@ -171,18 +189,34 @@ impl RatatuiFinder {
         snapshot.matched_items(..).map(|item| *item.data).collect()
     }
 
-    /// Build help hints from keybinds
-    fn build_hints(custom_binds: &KeybindMap) -> Vec<KeyHint> {
-        let mut hints = HelpBar::default_hints();
+    /// Build minimal help hints for the bottom bar
+    fn build_hints() -> Vec<KeyHint> {
+        vec![
+            KeyHint::new("↑/↓", "navigate"),
+            KeyHint::new("TAB", "select"),
+            KeyHint::new("Enter", "confirm"),
+            KeyHint::new("ESC", "cancel"),
+            KeyHint::new("F1", "help"),
+        ]
+    }
 
-        // Add custom keybind hints
-        for (key, action) in custom_binds {
-            if let Some(key_str) = super::events::key_to_string(key) {
-                hints.push(KeyHint::new(key_str, action.clone()));
-            }
-        }
-
-        hints
+    /// Build full keybind list for help overlay
+    fn build_overlay_binds(custom_binds: &KeybindMap) -> Vec<(String, String)> {
+        let mut binds: Vec<(String, String)> = custom_binds
+            .iter()
+            .filter_map(|(key, action)| {
+                super::events::key_to_string(key)
+                    .map(|key_str| (key_str, action.clone()))
+            })
+            .collect();
+        
+        // Sort by key for consistent display
+        binds.sort_by(|a, b| a.0.cmp(&b.0));
+        
+        // Add preview scroll hint
+        binds.push(("Shift+↑/↓".to_string(), "scroll preview".to_string()));
+        
+        binds
     }
 
     /// Render the UI
@@ -192,7 +226,7 @@ impl RatatuiFinder {
         theme: &Theme,
         prompt: &str,
         preview_config: Option<&crate::ui::PreviewConfig>,
-        preview_content: Option<&PreviewText>,
+        preview_content: Option<&StyledPreview>,
         hints: &[KeyHint],
     ) {
         let area = frame.area();
@@ -235,11 +269,19 @@ impl RatatuiFinder {
         // Render help bar
         let help_bar = HelpBar::new(hints, theme);
         frame.render_widget(help_bar, main_layout[3]);
+    }
 
-        // Render overlays
+    /// Render overlays (help, etc.)
+    fn render_overlays(
+        frame: &mut Frame,
+        state: &AppState,
+        theme: &Theme,
+        overlay_binds: &[(String, String)],
+    ) {
         if state.mode == Mode::Help {
-            let help_overlay = HelpOverlay::new(theme);
-            frame.render_widget(help_overlay, area);
+            let help_overlay = HelpOverlay::new(theme)
+                .with_custom_binds(overlay_binds.to_vec());
+            frame.render_widget(help_overlay, frame.area());
         }
     }
 
@@ -250,7 +292,7 @@ impl RatatuiFinder {
         theme: &Theme,
         area: Rect,
         preview_config: Option<&crate::ui::PreviewConfig>,
-        preview_content: Option<&PreviewText>,
+        preview_content: Option<&StyledPreview>,
     ) {
         // Check if preview is enabled
         let show_preview = preview_config
@@ -323,24 +365,27 @@ impl RatatuiFinder {
         let mut state = AppState::new(config.items.clone(), config.multi_select);
         let mut nucleo = Self::create_matcher(&config.items);
         let custom_binds = Self::parse_keybinds(&config.bind);
-        let hints = Self::build_hints(&custom_binds);
+        let hints = Self::build_hints();
+        let overlay_binds = Self::build_overlay_binds(&custom_binds);
         let mut prev_query = String::new();
 
         // Initial filter (show all)
         state.update_filtered(Self::update_filter(&mut nucleo, "", ""));
 
-        let mut cached_preview: Option<PreviewText> = None;
+        let mut cached_preview: Option<StyledPreview> = None;
         let mut cached_preview_key: Option<String> = None;
 
         loop {
-            // Update preview if needed
-            if let (Some(provider), Some(preview_config)) =
-                (&self.preview_provider, &config.preview_config)
-            {
+            // Update preview if needed - prefer styled_generator (native ratatui) over preview_provider (ANSI)
+            if let Some(preview_config) = &config.preview_config {
                 if preview_config.enabled {
                     if let Some(current_key) = state.current_key() {
                         if cached_preview_key.as_deref() != Some(current_key) {
-                            cached_preview = provider.preview(current_key).ok();
+                            // Use styled_generator for native ratatui styling
+                            if let Some(generator) = &self.styled_generator {
+                                cached_preview =
+                                    generator.generate(Path::new(current_key)).ok();
+                            }
                             cached_preview_key = Some(current_key.to_string());
                         }
                     }
@@ -358,6 +403,7 @@ impl RatatuiFinder {
                     cached_preview.as_ref(),
                     &hints,
                 );
+                Self::render_overlays(frame, &state, &self.theme, &overlay_binds);
             })?;
 
             // Handle events

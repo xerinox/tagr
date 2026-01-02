@@ -119,7 +119,7 @@ pub fn execute(
 
     // Select finder implementation based on feature flags
     #[cfg(feature = "ratatui-tui")]
-    let finder = RatatuiFinder::new();
+    let finder = RatatuiFinder::with_styled_preview(100); // Max 100 lines of syntax-highlighted preview
 
     #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
     let finder = SkimFinder::new();

@@ -1,43 +1,33 @@
 //! Preview pane widget for displaying file previews
 
+use crate::ui::ratatui_adapter::styled_preview::StyledPreview;
 use crate::ui::ratatui_adapter::theme::Theme;
-use crate::ui::traits::PreviewText;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    text::{Line, Text},
+    text::Line,
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
 
-/// Preview pane widget that displays file content
+/// Preview pane widget that displays file content with syntax highlighting
 pub struct PreviewPane<'a> {
-    /// Preview content
-    content: Option<&'a PreviewText>,
+    /// Styled preview content (native ratatui lines)
+    styled_content: Option<&'a StyledPreview>,
     /// Theme for styling
     theme: &'a Theme,
-    /// Title for the preview block
-    title: String,
     /// Scroll offset
     scroll: u16,
 }
 
 impl<'a> PreviewPane<'a> {
-    /// Create a new preview pane widget
+    /// Create a new preview pane widget with styled content
     #[must_use]
-    pub fn new(content: Option<&'a PreviewText>, theme: &'a Theme) -> Self {
+    pub fn new(content: Option<&'a StyledPreview>, theme: &'a Theme) -> Self {
         Self {
-            content,
+            styled_content: content,
             theme,
-            title: " Preview ".to_string(),
             scroll: 0,
         }
-    }
-
-    /// Set custom title
-    #[must_use]
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
-        self
     }
 
     /// Set scroll offset
@@ -50,30 +40,41 @@ impl<'a> PreviewPane<'a> {
 
 impl Widget for PreviewPane<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(self.theme.border_style())
-            .title(self.title.as_str());
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
-        let paragraph = match self.content {
+        let (title, lines) = match self.styled_content {
             Some(preview) => {
-                // TODO: Parse ANSI codes if preview.has_ansi is true
-                // For now, render as plain text
-                let text = Text::from(preview.content.as_str());
-                Paragraph::new(text)
+                let mut lines = preview.lines.clone();
+                
+                // Add truncation message if needed
+                if preview.truncated {
+                    lines.push(Line::raw(""));
+                    lines.push(Line::styled(
+                        format!(
+                            "... truncated ({} of {} lines) ...",
+                            lines.len().saturating_sub(2),
+                            preview.total_lines
+                        ),
+                        self.theme.dimmed_style(),
+                    ));
+                }
+                
+                (preview.title.clone(), lines)
             }
             None => {
-                let empty_text = Line::styled("No preview available", self.theme.dimmed_style());
-                Paragraph::new(empty_text)
+                let empty_line = Line::styled("No preview available", self.theme.dimmed_style());
+                (String::from(" Preview "), vec![empty_line])
             }
         };
 
-        paragraph
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(self.theme.border_style())
+            .title(title);
+
+        let paragraph = Paragraph::new(lines)
+            .block(block)
             .scroll((self.scroll, 0))
-            .wrap(Wrap { trim: false })
-            .render(inner, buf);
+            .wrap(Wrap { trim: false });
+
+        paragraph.render(area, buf);
     }
 }
