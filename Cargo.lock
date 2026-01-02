@@ -2346,6 +2346,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "glob",
+ "heck",
  "minus",
  "moka",
  "open",
