@@ -4,297 +4,17 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 
 ## Features
 
-## Bulk Tag vs Copy Tags
-
-Tagr offers two related bulk operations that serve different intents:
-
-- `bulk tag`: Adds the literal tags you specify to the matched files, regardless of any source file. Use this when you want to apply explicit tags you provide.
-- `bulk copy-tags`: Copies tags from a specific source file to matched target files. Optional `--tags` acts as an allowlist and copies only the intersection of that list and the tags currently present on the source. `--exclude` removes specific tags from being copied.
-
-Why both exist side by side:
-
-- Provenance: `copy-tags` enforces that tags originate from the source file’s current state, preventing drift when templates evolve.
-- Safety: With `--tags`, only the intersection with the source is applied; typos or stale names are ignored instead of being introduced.
-- Workflows: Teams using a “template” file can propagate its current approved tags to others, while `bulk tag` remains the tool to add arbitrary tags directly.
-
-Rule of thumb:
-
-- Use `bulk tag` to add explicit tags you type.
-- Use `bulk copy-tags` to propagate tags from a source-of-truth file, optionally narrowed via `--tags` and/or `--exclude`.
-
-Examples:
-
-```bash
-# Add explicit tags to files with tag "initial"
-tagr bulk tag --tags review,approved --tags-mode any --filter-tags initial
-
-# Copy only tags that the source currently has, limited to an allowlist
-tagr bulk copy-tags --source /path/template.md --tags review,approved \
-    --filter-tags initial --tags-mode any
-
-# Copy all tags from source except a specific one
-tagr bulk copy-tags --source /path/template.md --exclude deprecated \
-    --filter-tags initial --tags-mode any
-```
-
-## Batch Tagging From File
-
-Apply tags to many files by supplying a structured batch file. Supported formats: plain text, CSV, JSON. Select with `--format` and (for CSV) an optional `--delimiter`.
-
-### Plain Text (`--format text`)
-Each non-empty, non-comment line: `<file> <tag1> <tag2> ...` (whitespace-separated). Lines starting with `#` are ignored.
-
-```
-/proj/app/README.md docs markdown
-/proj/app/src/main.rs rust backend service
-# A comment line
-/proj/app/src/lib/util.rs rust helper
-```
-
-Usage:
-```bash
-tagr bulk from-file --input batch.txt --format text --yes
-```
-
-### CSV (`--format csv`)
-First column is the file path; remaining columns are tags. Default delimiter is `,`; override with `--delimiter ';'` etc. A quoted single field may contain an inner comma list of tags (e.g. `"tag3,tag4"`).
-
-```
-/proj/app/README.md,docs,markdown
-/proj/app/src/main.rs,rust,backend,service
-/proj/app/src/lib/util.rs,"rust,helper"
-```
-
-Custom delimiter example (`;`):
-```
-/proj/app/README.md;docs;markdown
-/proj/app/src/main.rs;rust;backend;service
-```
-
-Usage:
-```bash
-tagr bulk from-file --input tags.csv --format csv --yes
-tagr bulk from-file --input tags-semicolon.csv --format csv --delimiter ';' --dry-run
-```
-
-### JSON (`--format json`)
-Array of objects each with `file` and `tags` keys:
-```json
-[
-    {"file": "/proj/app/README.md", "tags": ["docs", "markdown"]},
-    {"file": "/proj/app/src/main.rs", "tags": ["rust", "backend", "service"]},
-    {"file": "/proj/app/src/lib/util.rs", "tags": ["rust", "helper"]}
-]
-```
-
-Usage:
-```bash
-tagr bulk from-file --input tags.json --format json --dry-run
-```
-
-### Format Mismatch Hints
-If parsing fails, Tagr attempts the other parsers and emits a hint instead of guessing:
-```
-Invalid JSON at line 1 column 2
-Hint: The file appears to be CSV. Use '--format csv' (with '--delimiter' if needed).
-```
-```
-Invalid CSV record 1
-Hint: The file may be JSON. Use '--format json'.
-```
-No automatic fallback occurs—adjust your flags and re-run.
-
-- Individual line errors do not abort the whole batch unless global parse fails
-
-### Dry Run
-Preview impact without applying changes:
-```bash
-tagr bulk from-file --input tags.csv --format csv --dry-run
-```
-
-### Choosing a Format
-| Scenario | Format |
-|----------|--------|
-| Hand editing | Plain text |
-| Spreadsheet export | CSV |
-| Programmatic generation | JSON |
-
-### Delimiter (CSV)
-`--delimiter` applies only to CSV. Internally stored as `Csv(char)` for clarity.
-
-
-## Bulk Tag Mapping
-
-Rename (map) multiple tag names across all files using a structured mapping file. Each mapping replaces one tag (`from`) with another (`to`). If the target tag already exists on a file, the source tag is removed (merging semantics, no duplicates created).
-
-### When To Use
-- Consolidating synonymous tags (e.g. `todo` → `pending`)
-- Normalizing inconsistent capitalization (`Bug` → `bug`)
-- Migrating deprecated taxonomy (`legacy-api` → `deprecated`)
-
-### Supported Formats
-
-#### Plain Text (`--format text`)
-Each non-empty, non-comment line: `old_tag new_tag` (exactly two whitespace-separated tokens). Lines starting with `#` are ignored.
-
-```
-old pending
-Bug bug
-# comment line
-legacy-api deprecated
-```
-
-Usage:
-```bash
-tagr bulk map-tags --input mappings.txt --format text --yes
-tagr bulk map-tags --input mappings.txt --format text --dry-run
-```
-
-#### CSV (`--format csv`)
-Exactly 2 columns per record: `old,new`. Provide a custom delimiter with `--delimiter` if needed.
-
-```
-old,pending
-Bug,bug
-legacy-api,deprecated
-```
-
-Custom delimiter example (`;`):
-```
-old;pending
-Bug;bug
-```
-
-Usage:
-```bash
-tagr bulk map-tags --input mappings.csv --format csv --yes
-tagr bulk map-tags --input mappings-semicolon.csv --format csv --delimiter ';' --dry-run
-```
-
-#### JSON (`--format json`)
-Array of objects with `from` and `to` keys:
-```json
-[
-    {"from": "old", "to": "pending"},
-    {"from": "Bug", "to": "bug"},
-    {"from": "legacy-api", "to": "deprecated"}
-]
-```
-
-Usage:
-```bash
-tagr bulk map-tags --input mappings.json --format json --dry-run
-```
-
-### Behavior & Semantics
-- Skips mappings where `from == to` (reported as skipped)
-- Skips mappings whose source tag does not exist in any file
-- Merges automatically if `to` already present on a file (removes only the `from` tag)
-- Deduplicates resulting tag lists per file
-- Order matters for cascading renames (process appears sequentially). For A→B and B→C in one file list, apply them in intended sequence explicitly in your mapping file.
-- Reverse index kept consistent via internal `insert_pair()` pattern
-
-### Dry Run Preview
-```bash
-tagr bulk map-tags --input mappings.txt --format text --dry-run
-```
-Shows planned mappings and counts without modifying the database.
-
-### Error Handling & Hints
-Malformed lines/records abort parsing with a hint (e.g., CSV given when JSON expected). Parser attempts generate format mismatch hints; Tagr never silently falls back.
-
-### Examples
-```bash
-# Normalize capitalization & consolidate synonyms
-tagr bulk map-tags --input normalize.csv --format csv --yes
-
-# Preview large migration
-tagr bulk map-tags --input taxonomy.json --format json --dry-run
-```
-
-## Bulk Delete Files
-
-Remove many file entries from the database using an input list. This does NOT delete files from the filesystem—only database records are removed.
-
-### Use Cases
-- Prune outdated or deprecated file entries
-- Clean up after moving/renaming files externally
-- Prepare for a fresh retagging effort
-
-### Supported Formats
-
-#### Plain Text (`--format text`)
-Each non-empty, non-comment line begins with the file path. Additional tokens on the line are ignored (allowing copy/paste from other lists).
-```
-/proj/app/src/old.rs
-/proj/app/docs/legacy.md extra tokens ignored
-# comment
-/proj/app/tmp/scratch.txt
-```
-Usage:
-```bash
-tagr bulk delete-files --input delete.txt --format text --yes
-tagr bulk delete-files --input delete.txt --format text --dry-run
-```
-
-#### CSV (`--format csv`)
-First column is the path; remaining columns ignored (can hold notes).
-```
-/proj/app/src/old.rs,unused,legacy
-/proj/app/docs/legacy.md,deprecated
-```
-Usage:
-```bash
-tagr bulk delete-files --input delete.csv --format csv --yes
-tagr bulk delete-files --input delete-semicolon.csv --format csv --delimiter ';' --dry-run
-```
-
-#### JSON (`--format json`)
-Array of objects with a `file` field:
-```json
-[
-    {"file": "/proj/app/src/old.rs"},
-    {"file": "/proj/app/docs/legacy.md"}
-]
-```
-Usage:
-```bash
-tagr bulk delete-files --input delete.json --format json --dry-run
-```
-
-### Behavior & Semantics
-- Input paths are de-duplicated before processing
-- Missing paths (not present in the database) are reported as skipped
-- No filesystem deletion—safe to run without data loss
-- Confirmation prompt skipped with `--yes`; use `--dry-run` to preview
-
-### Dry Run
-```bash
-tagr bulk delete-files --input delete.txt --format text --dry-run
-```
-Displays the unique set of database entries that would be removed.
-
-### Errors & Hints
-Malformed records produce an immediate error. Format mismatch hints guide you to the correct `--format`/`--delimiter`.
-
-### Examples
-```bash
-# Remove a curated set of obsolete entries
-tagr bulk delete-files --input obsolete.csv --format csv --yes
-
-# Preview a massive cleanup first
-tagr bulk delete-files --input stale.json --format json --dry-run
-```
-
-
-- 🏷️ **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
-- 🔍 **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
-- 👁️ **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)
-- ⚙️ **Action menu** - Perform tag operations directly after file selection (experimental)
-- 🧹 **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
-- 💾 **Persistent storage** - Reliable embedded database with automatic flushing
-- 📊 **Multiple databases** - Manage separate databases for different projects
- - 🧪 **Typed pattern validation** - Explicit flags for regex/glob with strict search semantics
+- **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
+- **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
+- **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)
+- **Real-time action keybinds** - Perform tag operations directly within the fuzzy finder
+- **Saved filters** - Save complex search criteria for quick recall
+- **Virtual tags** - Query files by metadata (size, date, extension, permissions, git status)
+- **Bulk operations** - Manage tags across many files at once
+- **Database cleanup** - Maintain database integrity by removing missing files and untagged entries
+- **Persistent storage** - Reliable embedded database with automatic flushing
+- **Multiple databases** - Manage separate databases for different projects
+- **Typed pattern validation** - Explicit flags for regex/glob with strict search semantics
 
 ## Quick Start
 
@@ -1176,6 +896,331 @@ echo -e "a\na" | tagr cleanup
 echo -e "a\nq" | tagr cleanup
 ```
 
+## Bulk Operations
+
+Tagr provides powerful bulk operations for managing tags across many files at once.
+
+### Bulk Tag vs Copy Tags
+
+Tagr offers two related bulk operations that serve different intents:
+
+- `bulk tag`: Adds the literal tags you specify to the matched files, regardless of any source file. Use this when you want to apply explicit tags you provide.
+- `bulk copy-tags`: Copies tags from a specific source file to matched target files. Optional `--tags` acts as an allowlist and copies only the intersection of that list and the tags currently present on the source. `--exclude` removes specific tags from being copied.
+
+Why both exist side by side:
+
+- Provenance: `copy-tags` enforces that tags originate from the source file’s current state, preventing drift when templates evolve.
+- Safety: With `--tags`, only the intersection with the source is applied; typos or stale names are ignored instead of being introduced.
+- Workflows: Teams using a “template” file can propagate its current approved tags to others, while `bulk tag` remains the tool to add arbitrary tags directly.
+
+Rule of thumb:
+
+- Use `bulk tag` to add explicit tags you type.
+- Use `bulk copy-tags` to propagate tags from a source-of-truth file, optionally narrowed via `--tags` and/or `--exclude`.
+
+Examples:
+
+```bash
+# Add explicit tags to files with tag "initial"
+tagr bulk tag --tags review,approved --tags-mode any --filter-tags initial
+
+# Copy only tags that the source currently has, limited to an allowlist
+tagr bulk copy-tags --source /path/template.md --tags review,approved \
+    --filter-tags initial --tags-mode any
+
+# Copy all tags from source except a specific one
+tagr bulk copy-tags --source /path/template.md --exclude deprecated \
+    --filter-tags initial --tags-mode any
+```
+
+### Bulk Untag
+
+Remove tags from multiple files matching search criteria.
+
+```bash
+# Remove "temp" tag from all files
+tagr bulk untag --remove temp --yes
+
+# Remove "wip" tag from files matching "*.rs"
+tagr bulk untag -f "*.rs" --remove wip --yes
+
+# Remove ALL tags from files matching "*.tmp"
+tagr bulk untag -f "*.tmp" --all --yes
+```
+
+### Batch Tagging From File
+
+Apply tags to many files by supplying a structured batch file. Supported formats: plain text, CSV, JSON. Select with `--format` and (for CSV) an optional `--delimiter`.
+
+### Plain Text (`--format text`)
+Each non-empty, non-comment line: `<file> <tag1> <tag2> ...` (whitespace-separated). Lines starting with `#` are ignored.
+
+```
+/proj/app/README.md docs markdown
+/proj/app/src/main.rs rust backend service
+# A comment line
+/proj/app/src/lib/util.rs rust helper
+```
+
+Usage:
+```bash
+tagr bulk from-file --input batch.txt --format text --yes
+```
+
+### CSV (`--format csv`)
+First column is the file path; remaining columns are tags. Default delimiter is `,`; override with `--delimiter ';'` etc. A quoted single field may contain an inner comma list of tags (e.g. `"tag3,tag4"`).
+
+```
+/proj/app/README.md,docs,markdown
+/proj/app/src/main.rs,rust,backend,service
+/proj/app/src/lib/util.rs,"rust,helper"
+```
+
+Custom delimiter example (`;`):
+```
+/proj/app/README.md;docs;markdown
+/proj/app/src/main.rs;rust;backend;service
+```
+
+Usage:
+```bash
+tagr bulk from-file --input tags.csv --format csv --yes
+tagr bulk from-file --input tags-semicolon.csv --format csv --delimiter ';' --dry-run
+```
+
+### JSON (`--format json`)
+Array of objects each with `file` and `tags` keys:
+```json
+[
+    {"file": "/proj/app/README.md", "tags": ["docs", "markdown"]},
+    {"file": "/proj/app/src/main.rs", "tags": ["rust", "backend", "service"]},
+    {"file": "/proj/app/src/lib/util.rs", "tags": ["rust", "helper"]}
+]
+```
+
+Usage:
+```bash
+tagr bulk from-file --input tags.json --format json --dry-run
+```
+
+### Format Mismatch Hints
+If parsing fails, Tagr attempts the other parsers and emits a hint instead of guessing:
+```
+Invalid JSON at line 1 column 2
+Hint: The file appears to be CSV. Use '--format csv' (with '--delimiter' if needed).
+```
+```
+Invalid CSV record 1
+Hint: The file may be JSON. Use '--format json'.
+```
+No automatic fallback occurs—adjust your flags and re-run.
+
+- Individual line errors do not abort the whole batch unless global parse fails
+
+### Dry Run
+Preview impact without applying changes:
+```bash
+tagr bulk from-file --input tags.csv --format csv --dry-run
+```
+
+### Choosing a Format
+| Scenario | Format |
+|----------|--------|
+| Hand editing | Plain text |
+| Spreadsheet export | CSV |
+| Programmatic generation | JSON |
+
+### Delimiter (CSV)
+`--delimiter` applies only to CSV. Internally stored as `Csv(char)` for clarity.
+
+
+### Bulk Tag Mapping
+
+Rename (map) multiple tag names across all files using a structured mapping file. Each mapping replaces one tag (`from`) with another (`to`). If the target tag already exists on a file, the source tag is removed (merging semantics, no duplicates created).
+
+### When To Use
+- Consolidating synonymous tags (e.g. `todo` → `pending`)
+- Normalizing inconsistent capitalization (`Bug` → `bug`)
+- Migrating deprecated taxonomy (`legacy-api` → `deprecated`)
+
+### Supported Formats
+
+#### Plain Text (`--format text`)
+Each non-empty, non-comment line: `old_tag new_tag` (exactly two whitespace-separated tokens). Lines starting with `#` are ignored.
+
+```
+old pending
+Bug bug
+# comment line
+legacy-api deprecated
+```
+
+Usage:
+```bash
+tagr bulk map-tags --input mappings.txt --format text --yes
+tagr bulk map-tags --input mappings.txt --format text --dry-run
+```
+
+#### CSV (`--format csv`)
+Exactly 2 columns per record: `old,new`. Provide a custom delimiter with `--delimiter` if needed.
+
+```
+old,pending
+Bug,bug
+legacy-api,deprecated
+```
+
+Custom delimiter example (`;`):
+```
+old;pending
+Bug;bug
+```
+
+Usage:
+```bash
+tagr bulk map-tags --input mappings.csv --format csv --yes
+tagr bulk map-tags --input mappings-semicolon.csv --format csv --delimiter ';' --dry-run
+```
+
+#### JSON (`--format json`)
+Array of objects with `from` and `to` keys:
+```json
+[
+    {"from": "old", "to": "pending"},
+    {"from": "Bug", "to": "bug"},
+    {"from": "legacy-api", "to": "deprecated"}
+]
+```
+
+Usage:
+```bash
+tagr bulk map-tags --input mappings.json --format json --dry-run
+```
+
+### Behavior & Semantics
+- Skips mappings where `from == to` (reported as skipped)
+- Skips mappings whose source tag does not exist in any file
+- Merges automatically if `to` already present on a file (removes only the `from` tag)
+- Deduplicates resulting tag lists per file
+- Order matters for cascading renames (process appears sequentially). For A→B and B→C in one file list, apply them in intended sequence explicitly in your mapping file.
+- Reverse index kept consistent via internal `insert_pair()` pattern
+
+### Dry Run Preview
+```bash
+tagr bulk map-tags --input mappings.txt --format text --dry-run
+```
+Shows planned mappings and counts without modifying the database.
+
+### Error Handling & Hints
+Malformed lines/records abort parsing with a hint (e.g., CSV given when JSON expected). Parser attempts generate format mismatch hints; Tagr never silently falls back.
+
+### Examples
+```bash
+# Normalize capitalization & consolidate synonyms
+tagr bulk map-tags --input normalize.csv --format csv --yes
+
+# Preview large migration
+tagr bulk map-tags --input taxonomy.json --format json --dry-run
+```
+
+### Bulk Delete Files
+
+Remove many file entries from the database using an input list. This does NOT delete files from the filesystem—only database records are removed.
+
+### Use Cases
+- Prune outdated or deprecated file entries
+- Clean up after moving/renaming files externally
+- Prepare for a fresh retagging effort
+
+### Supported Formats
+
+#### Plain Text (`--format text`)
+Each non-empty, non-comment line begins with the file path. Additional tokens on the line are ignored (allowing copy/paste from other lists).
+```
+/proj/app/src/old.rs
+/proj/app/docs/legacy.md extra tokens ignored
+# comment
+/proj/app/tmp/scratch.txt
+```
+Usage:
+```bash
+tagr bulk delete-files --input delete.txt --format text --yes
+tagr bulk delete-files --input delete.txt --format text --dry-run
+```
+
+#### CSV (`--format csv`)
+First column is the path; remaining columns ignored (can hold notes).
+```
+/proj/app/src/old.rs,unused,legacy
+/proj/app/docs/legacy.md,deprecated
+```
+Usage:
+```bash
+tagr bulk delete-files --input delete.csv --format csv --yes
+tagr bulk delete-files --input delete-semicolon.csv --format csv --delimiter ';' --dry-run
+```
+
+#### JSON (`--format json`)
+Array of objects with a `file` field:
+```json
+[
+    {"file": "/proj/app/src/old.rs"},
+    {"file": "/proj/app/docs/legacy.md"}
+]
+```
+Usage:
+```bash
+tagr bulk delete-files --input delete.json --format json --dry-run
+```
+
+### Behavior & Semantics
+- Input paths are de-duplicated before processing
+- Missing paths (not present in the database) are reported as skipped
+- No filesystem deletion—safe to run without data loss
+- Confirmation prompt skipped with `--yes`; use `--dry-run` to preview
+
+### Dry Run
+```bash
+tagr bulk delete-files --input delete.txt --format text --dry-run
+```
+Displays the unique set of database entries that would be removed.
+
+### Errors & Hints
+Malformed records produce an immediate error. Format mismatch hints guide you to the correct `--format`/`--delimiter`.
+
+### Examples
+```bash
+# Remove a curated set of obsolete entries
+tagr bulk delete-files --input obsolete.csv --format csv --yes
+
+# Preview a massive cleanup first
+tagr bulk delete-files --input stale.json --format json --dry-run
+```
+
+
+### Bulk Rename Tag
+
+Rename a single tag globally across all files in the database. This is useful for fixing typos or restructuring your tag taxonomy.
+
+```bash
+# Rename "todo" to "pending"
+tagr bulk rename-tag todo pending --yes
+
+# Preview rename
+tagr bulk rename-tag legacy-api deprecated --dry-run
+```
+
+### Bulk Merge Tags
+
+Merge multiple source tags into a single target tag. This is useful for consolidating synonymous tags.
+
+```bash
+# Merge "bug", "defect", "issue" into "bug-report"
+tagr bulk merge-tags bug defect issue --into bug-report --yes
+
+# Preview merge
+tagr bulk merge-tags wip draft --into pending --dry-run
+```
 ## Architecture
 
 ### Reverse Index with Sled Trees
@@ -1532,29 +1577,22 @@ This project is licensed under the MIT License.
 
 ## Future Enhancements
 
-Potential improvements:
+Potential improvements for future releases:
 
-### Saved Filters (In Progress - Foundation Complete)
-- [x] Filter storage infrastructure with `FilterManager`
-- [x] Filter CRUD operations (create, get, update, delete, rename, list)
-- [x] Export/import functionality with conflict resolution
-- [x] Usage statistics tracking
-- [ ] CLI commands for filter management (`tagr filter list`, `show`, `create`, etc.)
-- [ ] `--save-filter` flag for search/browse commands
-- [ ] `--filter/-F` flag to load and apply saved filters
-- [ ] Filter test command to preview matches
-- [ ] Filter statistics command
-- [ ] Interactive filter builder wizard
-- [ ] Filter configuration options in config.toml
+### Advanced Bulk Operations
+- Deduplicate tags using fuzzy matching (detect similar/redundant tags)
+- Git integration for auto-tagging based on commit history
+- Content-based auto-tagging suggestions using pattern matching or ML
 
 ### Browse Mode Enhancements
+- Tag statistics - Show file count per tag in browse mode
+- Recent selections - Remember last used tags
+- Export results - Save selections to file
+- LRU cache - In-memory cache for hot tags
 
-- [ ] Preview pane - Show file content in skim preview
-- [ ] Tag statistics - Show file count per tag
-- [ ] Recent selections - Remember last used tags
-- [ ] Custom search queries - Complex tag expressions
-- [ ] Export results - Save selections to file
-- [ ] Actions on selection - Open, copy, delete files directly
-- [ ] Tag counts - Store tag→count mapping for statistics
-- [ ] Prefix search - Use key prefixes for tag autocomplete
-- [ ] LRU cache - In-memory cache for hot tags
+### Infrastructure & Safety
+- Backup and restore system for database
+- Progress indicators for long-running bulk operations
+- Parallel processing for large file sets
+- JSON output format for scripting integration
+- Transaction support for atomic batch operations
