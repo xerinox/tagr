@@ -6,7 +6,10 @@ use super::events::{poll_and_handle, EventResult, KeybindMap};
 use super::state::{AppState, Mode};
 use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
-use super::widgets::{HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, SearchBar, StatusBar};
+use super::widgets::{
+    HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, RefineSearchOverlay, SearchBar,
+    StatusBar,
+};
 use crate::ui::error::Result;
 use crate::ui::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
 use crate::ui::types::{FinderResult, PreviewPosition};
@@ -197,6 +200,7 @@ impl RatatuiFinder {
             KeyHint::new("Enter", "confirm"),
             KeyHint::new("ESC", "cancel"),
             KeyHint::new("F1", "help"),
+            KeyHint::new("F2", "refine"),
         ]
     }
 
@@ -205,18 +209,36 @@ impl RatatuiFinder {
         let mut binds: Vec<(String, String)> = custom_binds
             .iter()
             .filter_map(|(key, action)| {
-                super::events::key_to_string(key)
-                    .map(|key_str| (key_str, action.clone()))
+                super::events::key_to_string(key).map(|key_str| {
+                    (key_str, Self::format_action_name(action))
+                })
             })
             .collect();
-        
+
         // Sort by key for consistent display
         binds.sort_by(|a, b| a.0.cmp(&b.0));
-        
-        // Add preview scroll hint
+
+        // Add preview scroll hint (always available)
         binds.push(("Shift+↑/↓".to_string(), "scroll preview".to_string()));
-        
+
         binds
+    }
+
+    /// Format action name for display in help overlay
+    fn format_action_name(action: &str) -> String {
+        match action {
+            "add_tag" => "add tag(s)".to_string(),
+            "remove_tag" => "remove tag(s)".to_string(),
+            "delete_from_db" => "delete from database".to_string(),
+            "open_file" => "open file".to_string(),
+            "edit_file" => "edit file".to_string(),
+            "copy_files" => "copy files".to_string(),
+            "refine_search" => "refine search criteria".to_string(),
+            "show_help" => "show help".to_string(),
+            "select_all" => "select all".to_string(),
+            "clear_selection" => "clear selection".to_string(),
+            other => other.replace('_', " "),
+        }
     }
 
     /// Render the UI
@@ -271,17 +293,25 @@ impl RatatuiFinder {
         frame.render_widget(help_bar, main_layout[3]);
     }
 
-    /// Render overlays (help, etc.)
+    /// Render overlays (help, refine search, etc.)
     fn render_overlays(
         frame: &mut Frame,
         state: &AppState,
         theme: &Theme,
         overlay_binds: &[(String, String)],
     ) {
-        if state.mode == Mode::Help {
-            let help_overlay = HelpOverlay::new(theme)
-                .with_custom_binds(overlay_binds.to_vec());
-            frame.render_widget(help_overlay, frame.area());
+        match state.mode {
+            Mode::Help => {
+                let help_overlay = HelpOverlay::new(theme).with_custom_binds(overlay_binds.to_vec());
+                frame.render_widget(help_overlay, frame.area());
+            }
+            Mode::RefineSearch => {
+                if let Some(refine_state) = state.refine_search_state() {
+                    let refine_overlay = RefineSearchOverlay::new(theme, refine_state);
+                    frame.render_widget(refine_overlay, frame.area());
+                }
+            }
+            _ => {}
         }
     }
 
@@ -410,6 +440,29 @@ impl RatatuiFinder {
             let result = poll_and_handle(&mut state, &custom_binds, Duration::from_millis(50))?;
 
             match result {
+                EventResult::Confirm(Some(ref key)) if key == "refine_search" => {
+                    // Open the refine search overlay
+                    let criteria = config.search_criteria.as_ref();
+                    state.enter_refine_search(
+                        criteria.map_or_else(Vec::new, |c| c.include_tags.clone()),
+                        criteria.map_or_else(Vec::new, |c| c.exclude_tags.clone()),
+                        criteria.map_or_else(Vec::new, |c| c.file_patterns.clone()),
+                        criteria.map_or_else(Vec::new, |c| c.virtual_tags.clone()),
+                        config.available_tags.clone(),
+                    );
+                }
+                EventResult::Confirm(Some(ref key)) if key == "refine_search_done" => {
+                    // Apply the refined search criteria - return with special action
+                    if let Some(refine_state) = state.exit_refine_search() {
+                        // Build a result that signals refine search was applied
+                        return Ok(FinderResult::with_refine_search(
+                            refine_state.include_tags,
+                            refine_state.exclude_tags,
+                            refine_state.file_patterns,
+                            refine_state.virtual_tags,
+                        ));
+                    }
+                }
                 EventResult::Confirm(key) => {
                     state.confirm(key);
                 }
@@ -521,6 +574,10 @@ mod tests {
 
         let key = RatatuiFinder::parse_key_string("ctrl-t").unwrap();
         assert_eq!(key.code, KeyCode::Char('t'));
+        assert!(key.modifiers.contains(KeyModifiers::CONTROL));
+
+        let key = RatatuiFinder::parse_key_string("ctrl-/").unwrap();
+        assert_eq!(key.code, KeyCode::Char('/'));
         assert!(key.modifiers.contains(KeyModifiers::CONTROL));
 
         let key = RatatuiFinder::parse_key_string("enter").unwrap();
