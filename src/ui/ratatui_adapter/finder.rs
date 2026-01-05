@@ -8,7 +8,7 @@ use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
 use super::widgets::{
     HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, RefineSearchOverlay, SearchBar,
-    StatusBar,
+    StatusBar, TextInputModal,
 };
 use crate::ui::error::Result;
 use crate::ui::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
@@ -293,7 +293,7 @@ impl RatatuiFinder {
         frame.render_widget(help_bar, main_layout[3]);
     }
 
-    /// Render overlays (help, refine search, etc.)
+    /// Render overlays (help, refine search, text input, etc.)
     fn render_overlays(
         frame: &mut Frame,
         state: &AppState,
@@ -309,6 +309,12 @@ impl RatatuiFinder {
                 if let Some(refine_state) = state.refine_search_state() {
                     let refine_overlay = RefineSearchOverlay::new(theme, refine_state);
                     frame.render_widget(refine_overlay, frame.area());
+                }
+            }
+            Mode::Input => {
+                if let Some(input_state) = state.text_input_state() {
+                    let input_modal = TextInputModal::new(input_state, theme);
+                    frame.render_widget(input_modal, frame.area());
                 }
             }
             _ => {}
@@ -393,6 +399,8 @@ impl RatatuiFinder {
         config: FinderConfig,
     ) -> Result<FinderResult> {
         let mut state = AppState::new(config.items.clone(), config.multi_select);
+        // Set available tags for autocomplete in text input modals
+        state.available_tags = config.available_tags.clone();
         let mut nucleo = Self::create_matcher(&config.items);
         let custom_binds = Self::parse_keybinds(&config.bind);
         let hints = Self::build_hints();
@@ -475,6 +483,17 @@ impl RatatuiFinder {
                     state.update_filtered(indices);
                     // Reset preview cache when query changes
                     cached_preview_key = None;
+                }
+                EventResult::InputSubmitted { action_id, values } => {
+                    // The input modal was submitted - return to caller with action info
+                    return Ok(FinderResult::with_action(
+                        state.selected_keys(),
+                        action_id,
+                        values,
+                    ));
+                }
+                EventResult::InputCancelled => {
+                    // Input was cancelled, just continue browsing
                 }
                 EventResult::Continue | EventResult::Ignored => {}
             }
