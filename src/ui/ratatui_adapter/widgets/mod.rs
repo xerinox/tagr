@@ -6,6 +6,7 @@ mod help_bar;
 mod help_overlay;
 mod item_list;
 mod preview_pane;
+mod refine_search_overlay;
 mod search_bar;
 mod status_bar;
 
@@ -13,5 +14,6 @@ pub use help_bar::{HelpBar, KeyHint};
 pub use help_overlay::HelpOverlay;
 pub use item_list::ItemList;
 pub use preview_pane::PreviewPane;
+pub use refine_search_overlay::{RefineField, RefineSearchOverlay, RefineSearchState};
 pub use search_bar::SearchBar;
 pub use status_bar::StatusBar;
