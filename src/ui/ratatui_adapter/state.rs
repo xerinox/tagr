@@ -4,7 +4,7 @@
 //! including items, selection, query, and UI mode.
 
 use crate::ui::output::MessageLevel;
-use crate::ui::ratatui_adapter::widgets::RefineSearchState;
+use crate::ui::ratatui_adapter::widgets::{RefineSearchState, TextInputState};
 use crate::ui::types::DisplayItem;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -91,6 +91,10 @@ pub struct AppState {
     pub visible_height: usize,
     /// State for refine search overlay
     pub refine_search_state: Option<RefineSearchState>,
+    /// State for text input modal
+    pub text_input_state: Option<TextInputState>,
+    /// Available tags for autocomplete (set by finder from config)
+    pub available_tags: Vec<String>,
 }
 
 impl AppState {
@@ -119,6 +123,8 @@ impl AppState {
             preview_scroll: 0,
             visible_height: 20, // Default, updated during render
             refine_search_state: None,
+            text_input_state: None,
+            available_tags: Vec::new(),
         }
     }
 
@@ -360,6 +366,56 @@ impl AppState {
     #[must_use]
     pub fn refine_search_state(&self) -> Option<&RefineSearchState> {
         self.refine_search_state.as_ref()
+    }
+
+    /// Enter text input mode
+    ///
+    /// # Arguments
+    /// * `prompt` - The prompt/title to display
+    /// * `action_id` - Identifier for the action (e.g., "add_tag", "remove_tag")
+    /// * `autocomplete_items` - Items to use for fuzzy autocomplete
+    /// * `multi_value` - Whether to accept multiple space-separated values
+    pub fn enter_text_input(
+        &mut self,
+        prompt: impl Into<String>,
+        action_id: impl Into<String>,
+        autocomplete_items: Vec<String>,
+        multi_value: bool,
+    ) {
+        self.text_input_state = Some(
+            TextInputState::new(prompt, action_id)
+                .with_autocomplete(autocomplete_items)
+                .with_multi_value(multi_value),
+        );
+        self.mode = Mode::Input;
+    }
+
+    /// Exit text input mode and return the collected values
+    ///
+    /// Returns `None` if not in input mode, otherwise returns the input state
+    /// with all entered values.
+    #[must_use]
+    pub fn exit_text_input(&mut self) -> Option<TextInputState> {
+        self.mode = Mode::Normal;
+        self.text_input_state.take()
+    }
+
+    /// Cancel text input mode without returning values
+    pub fn cancel_text_input(&mut self) {
+        self.mode = Mode::Normal;
+        self.text_input_state = None;
+    }
+
+    /// Get mutable reference to text input state
+    #[must_use]
+    pub fn text_input_state_mut(&mut self) -> Option<&mut TextInputState> {
+        self.text_input_state.as_mut()
+    }
+
+    /// Get immutable reference to text input state
+    #[must_use]
+    pub fn text_input_state(&self) -> Option<&TextInputState> {
+        self.text_input_state.as_ref()
     }
 }
 
