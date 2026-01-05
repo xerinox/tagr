@@ -18,12 +18,38 @@ pub enum EventResult {
     Abort,
     /// Query changed, needs re-matching
     QueryChanged,
+    /// Text input submitted with action ID and values
+    InputSubmitted { action_id: String, values: Vec<String> },
+    /// Text input cancelled
+    InputCancelled,
     /// No action taken
     Ignored,
 }
 
 /// Keybind mapping from key events to action strings
 pub type KeybindMap = HashMap<KeyEvent, String>;
+
+/// Check if an action requires text input before executing
+#[must_use]
+fn action_requires_input(action: &str) -> bool {
+    matches!(
+        action,
+        "add_tag" | "remove_tag" | "rename_tag" | "copy_tags" | "set_tags"
+    )
+}
+
+/// Get the prompt title and placeholder text for an input-requiring action
+#[must_use]
+fn get_input_prompt_for_action(action: &str) -> (String, String) {
+    match action {
+        "add_tag" => ("Add Tags".to_string(), "Enter tags (space-separated)".to_string()),
+        "remove_tag" => ("Remove Tags".to_string(), "Enter tags to remove".to_string()),
+        "rename_tag" => ("Rename Tag".to_string(), "old_name new_name".to_string()),
+        "copy_tags" => ("Copy Tags From".to_string(), "Enter source file path".to_string()),
+        "set_tags" => ("Set Tags".to_string(), "Enter tags (replaces existing)".to_string()),
+        _ => ("Input".to_string(), "Enter value".to_string()),
+    }
+}
 
 /// Convert a key event to a string representation (for `final_key`)
 #[must_use]
@@ -74,6 +100,19 @@ fn handle_normal_mode(
 ) -> EventResult {
     // Check custom keybinds first
     if let Some(action) = custom_binds.get(&key) {
+        // Actions that require text input open the modal
+        if action_requires_input(action) {
+            let (title, _placeholder) = get_input_prompt_for_action(action);
+            // Get available tags for autocomplete if this is a tag-related action
+            let autocomplete_items = if action.contains("tag") {
+                state.available_tags.clone()
+            } else {
+                Vec::new()
+            };
+            // enter_text_input(prompt, action_id, autocomplete_items, multi_value)
+            state.enter_text_input(title, action.clone(), autocomplete_items, true);
+            return EventResult::Continue;
+        }
         return EventResult::Confirm(Some(action.clone()));
     }
 
@@ -287,6 +326,99 @@ fn handle_mouse(state: &mut AppState, mouse: MouseEvent) -> EventResult {
     }
 }
 
+/// Handle events in text input mode
+fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
+    let Some(input_state) = state.text_input_state_mut() else {
+        state.mode = Mode::Normal;
+        return EventResult::Continue;
+    };
+
+    match (key.code, key.modifiers) {
+        // Cancel input
+        (KeyCode::Esc, _) => {
+            state.cancel_text_input();
+            EventResult::InputCancelled
+        }
+
+        // Submit input
+        (KeyCode::Enter, _) => {
+            let values = input_state.values();
+            let action_id = input_state.action_id.clone();
+
+            // Don't submit empty values
+            if values.is_empty() {
+                state.cancel_text_input();
+                return EventResult::InputCancelled;
+            }
+
+            let _ = state.exit_text_input();
+            EventResult::InputSubmitted { action_id, values }
+        }
+
+        // Accept autocomplete suggestion
+        (KeyCode::Tab, _) => {
+            if input_state.show_suggestions {
+                input_state.accept_suggestion();
+            }
+            EventResult::Continue
+        }
+
+        // Navigate suggestions (when visible)
+        (KeyCode::Up, _) if input_state.show_suggestions => {
+            input_state.suggestion_up();
+            EventResult::Continue
+        }
+        (KeyCode::Down, _) if input_state.show_suggestions => {
+            input_state.suggestion_down();
+            EventResult::Continue
+        }
+
+        // Cursor movement
+        (KeyCode::Left, _) => {
+            input_state.cursor_left();
+            EventResult::Continue
+        }
+        (KeyCode::Right, _) => {
+            input_state.cursor_right();
+            EventResult::Continue
+        }
+        (KeyCode::Home, _) => {
+            input_state.cursor_home();
+            EventResult::Continue
+        }
+        (KeyCode::End, _) => {
+            input_state.cursor_end();
+            EventResult::Continue
+        }
+
+        // Text editing
+        (KeyCode::Backspace, _) => {
+            input_state.backspace();
+            EventResult::Continue
+        }
+        (KeyCode::Delete, _) => {
+            input_state.delete();
+            EventResult::Continue
+        }
+        (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
+            input_state.delete_word_backwards();
+            EventResult::Continue
+        }
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+            input_state.clear_line();
+            EventResult::Continue
+        }
+
+        // Character input
+        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+            input_state.insert_char(c);
+            EventResult::Continue
+        }
+
+        _ => EventResult::Continue,
+    }
+}
+
 /// Poll for events and handle them
 ///
 /// # Errors
@@ -306,8 +438,9 @@ pub fn poll_and_handle(
             Mode::Normal => handle_normal_mode(state, key, custom_binds),
             Mode::Help => handle_help_mode(state, key),
             Mode::RefineSearch => handle_refine_search_mode(state, key),
-            Mode::Input | Mode::Confirm => {
-                // These modes would be handled by modal widgets
+            Mode::Input => handle_input_mode(state, key),
+            Mode::Confirm => {
+                // Confirm mode would be handled by confirmation dialog widget
                 EventResult::Ignored
             }
         },
@@ -370,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn test_custom_keybind() {
+    fn test_custom_keybind_opens_input_modal() {
         let mut state = make_state();
         let mut binds = KeybindMap::new();
         binds.insert(
@@ -383,7 +516,29 @@ mod tests {
             KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL),
             &binds,
         );
-        assert_eq!(result, EventResult::Confirm(Some("add_tag".to_string())));
+        // add_tag requires input, so it opens the input modal instead of confirming
+        assert_eq!(result, EventResult::Continue);
+        assert_eq!(state.mode, Mode::Input);
+        assert!(state.text_input_state().is_some());
+        assert_eq!(state.text_input_state().unwrap().action_id, "add_tag");
+    }
+
+    #[test]
+    fn test_custom_keybind_direct_action() {
+        let mut state = make_state();
+        let mut binds = KeybindMap::new();
+        // open_file doesn't require input
+        binds.insert(
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            "open_file".to_string(),
+        );
+
+        let result = handle_normal_mode(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            &binds,
+        );
+        assert_eq!(result, EventResult::Confirm(Some("open_file".to_string())));
     }
 
     #[test]
