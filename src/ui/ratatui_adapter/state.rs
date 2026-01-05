@@ -4,6 +4,7 @@
 //! including items, selection, query, and UI mode.
 
 use crate::ui::output::MessageLevel;
+use crate::ui::ratatui_adapter::widgets::RefineSearchState;
 use crate::ui::types::DisplayItem;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -20,6 +21,8 @@ pub enum Mode {
     Input,
     /// Confirmation dialog is active
     Confirm,
+    /// Refine search criteria overlay is visible
+    RefineSearch,
 }
 
 /// A status message with timestamp for TTL-based expiry
@@ -86,6 +89,8 @@ pub struct AppState {
     pub preview_scroll: usize,
     /// Height of the visible item list area (set during render)
     pub visible_height: usize,
+    /// State for refine search overlay
+    pub refine_search_state: Option<RefineSearchState>,
 }
 
 impl AppState {
@@ -113,6 +118,7 @@ impl AppState {
             scroll_offset: 0,
             preview_scroll: 0,
             visible_height: 20, // Default, updated during render
+            refine_search_state: None,
         }
     }
 
@@ -316,6 +322,44 @@ impl AppState {
     #[must_use]
     pub fn is_selected(&self, item_idx: usize) -> bool {
         self.selected.contains(&item_idx)
+    }
+
+    /// Enter refine search mode with initial state
+    pub fn enter_refine_search(
+        &mut self,
+        include_tags: Vec<String>,
+        exclude_tags: Vec<String>,
+        file_patterns: Vec<String>,
+        virtual_tags: Vec<String>,
+        available_tags: Vec<String>,
+    ) {
+        self.refine_search_state = Some(RefineSearchState::new(
+            include_tags,
+            exclude_tags,
+            file_patterns,
+            virtual_tags,
+            available_tags,
+        ));
+        self.mode = Mode::RefineSearch;
+    }
+
+    /// Exit refine search mode and return collected criteria
+    #[must_use]
+    pub fn exit_refine_search(&mut self) -> Option<RefineSearchState> {
+        self.mode = Mode::Normal;
+        self.refine_search_state.take()
+    }
+
+    /// Get mutable reference to refine search state
+    #[must_use]
+    pub fn refine_search_state_mut(&mut self) -> Option<&mut RefineSearchState> {
+        self.refine_search_state.as_mut()
+    }
+
+    /// Get immutable reference to refine search state
+    #[must_use]
+    pub fn refine_search_state(&self) -> Option<&RefineSearchState> {
+        self.refine_search_state.as_ref()
     }
 }
 

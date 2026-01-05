@@ -94,14 +94,12 @@ fn handle_normal_mode(
         }
 
         // Navigation
-        (KeyCode::Up, KeyModifiers::NONE)
-        | (KeyCode::Up, KeyModifiers::CONTROL)
+        (KeyCode::Up, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
             state.cursor_up();
             EventResult::Continue
         }
-        (KeyCode::Down, KeyModifiers::NONE)
-        | (KeyCode::Down, KeyModifiers::CONTROL)
+        (KeyCode::Down, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
             state.cursor_down();
             EventResult::Continue
@@ -136,7 +134,7 @@ fn handle_normal_mode(
         }
 
         // Help overlay
-        (KeyCode::F(1), _) | (KeyCode::Char('?'), _) => {
+        (KeyCode::F(1) | KeyCode::Char('?'), _) => {
             state.mode = Mode::Help;
             EventResult::Continue
         }
@@ -202,6 +200,77 @@ fn handle_help_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
     }
 }
 
+/// Handle events in refine search mode
+fn handle_refine_search_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
+    let Some(refine_state) = state.refine_search_state_mut() else {
+        state.mode = Mode::Normal;
+        return EventResult::Continue;
+    };
+
+    if refine_state.in_selection {
+        // In sub-selection mode (selecting items from list)
+        match (key.code, key.modifiers) {
+            // Exit sub-selection and apply changes
+            (KeyCode::Enter | KeyCode::Esc, _) => {
+                refine_state.exit_selection();
+                EventResult::Continue
+            }
+            // Toggle current item
+            (KeyCode::Tab, _) => {
+                refine_state.toggle_current_selection();
+                refine_state.selection_down();
+                EventResult::Continue
+            }
+            // Navigate up
+            (KeyCode::Up | KeyCode::Char('k'), _) => {
+                refine_state.selection_up();
+                EventResult::Continue
+            }
+            // Navigate down
+            (KeyCode::Down | KeyCode::Char('j'), _) => {
+                refine_state.selection_down();
+                EventResult::Continue
+            }
+            // Filter query
+            (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+                refine_state.query_push(c);
+                EventResult::Continue
+            }
+            (KeyCode::Backspace, _) => {
+                refine_state.query_backspace();
+                EventResult::Continue
+            }
+            _ => EventResult::Continue,
+        }
+    } else {
+        // In field selection mode
+        match (key.code, key.modifiers) {
+            // Exit refine search and apply changes
+            (KeyCode::Esc, _) => {
+                // Apply changes - this will be handled by the finder
+                // We signal a special action
+                state.mode = Mode::Normal;
+                EventResult::Confirm(Some("refine_search_done".to_string()))
+            }
+            // Navigate fields
+            (KeyCode::Up | KeyCode::Char('k'), _) => {
+                refine_state.prev_field();
+                EventResult::Continue
+            }
+            (KeyCode::Down | KeyCode::Char('j'), _) => {
+                refine_state.next_field();
+                EventResult::Continue
+            }
+            // Enter edit/selection mode for current field
+            (KeyCode::Enter, _) => {
+                refine_state.enter_selection();
+                EventResult::Continue
+            }
+            _ => EventResult::Continue,
+        }
+    }
+}
+
 /// Handle mouse events
 fn handle_mouse(state: &mut AppState, mouse: MouseEvent) -> EventResult {
     match mouse.kind {
@@ -236,6 +305,7 @@ pub fn poll_and_handle(
         Event::Key(key) => match state.mode {
             Mode::Normal => handle_normal_mode(state, key, custom_binds),
             Mode::Help => handle_help_mode(state, key),
+            Mode::RefineSearch => handle_refine_search_mode(state, key),
             Mode::Input | Mode::Confirm => {
                 // These modes would be handled by modal widgets
                 EventResult::Ignored
