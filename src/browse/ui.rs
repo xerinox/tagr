@@ -759,6 +759,7 @@ mod tests {
                 aborted: result.aborted,
                 final_key: result.final_key.clone(),
                 refine_search: result.refine_search.clone(),
+                input_action: result.input_action.clone(),
             })
         }
     }
@@ -774,6 +775,7 @@ mod tests {
             aborted: true,
             final_key: None,
             refine_search: None,
+            input_action: None,
         }]);
 
         let controller = BrowseController::new(session, mock_finder);
