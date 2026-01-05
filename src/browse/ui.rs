@@ -125,6 +125,13 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                             );
                             continue;
                         }
+                        BrowseAction::RefineSearch => {
+                            // Handle refine search specially since it needs to update session state
+                            if let Err(e) = self.handle_refine_search() {
+                                eprintln!("Failed to refine search: {e}");
+                            }
+                            continue;
+                        }
                         _ => {}
                     }
 
@@ -169,17 +176,38 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
-        // Get keybinds in the appropriate format based on feature flags
+        // Convert PhaseType to BrowsePhase for keybind filtering
+        let browse_phase = match &phase.phase_type {
+            PhaseType::TagSelection => crate::ui::BrowsePhase::TagSelection,
+            PhaseType::FileSelection { .. } => crate::ui::BrowsePhase::FileSelection,
+        };
+
+        // Get keybinds filtered by phase
         #[cfg(feature = "ratatui-tui")]
-        let keybinds = phase.settings.keybind_config.ratatui_bindings();
+        let keybinds = phase
+            .settings
+            .keybind_config
+            .ratatui_bindings_for_phase(browse_phase);
 
         #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
         let keybinds = phase.settings.keybind_config.skim_bindings();
 
+        // Get search criteria and available tags for refine search
+        let search_criteria = self.session.search_criteria();
+        let available_tags = self.session.available_tags().unwrap_or_default();
+
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
             .with_ansi(true)
-            .with_binds(keybinds);
+            .with_binds(keybinds)
+            .with_phase(browse_phase)
+            .with_available_tags(available_tags)
+            .with_search_criteria(crate::ui::RefineSearchCriteria::new(
+                search_criteria.tags,
+                search_criteria.exclude_tags,
+                search_criteria.file_patterns,
+                search_criteria.virtual_tags,
+            ));
 
         // Add preview config if enabled for this phase
         let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
@@ -454,6 +482,173 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         }
     }
 
+    /// Handle refine search action
+    ///
+    /// Prompts the user to modify the current search criteria (tags, exclusions,
+    /// file patterns, virtual tags) and updates the session with new parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if prompting fails or database queries fail
+    fn handle_refine_search(&mut self) -> Result<(), BrowseError> {
+        use crate::cli::SearchParams;
+
+        // Get current search params from session
+        let current = self.session.config().initial_search.clone().unwrap_or_else(|| {
+            // If no initial search, build from current phase
+            if let PhaseType::FileSelection { selected_tags } =
+                &self.session.current_phase().phase_type
+            {
+                SearchParams {
+                    query: None,
+                    tags: selected_tags.clone(),
+                    tag_mode: crate::cli::SearchMode::Any,
+                    file_patterns: vec![],
+                    file_mode: crate::cli::SearchMode::All,
+                    exclude_tags: vec![],
+                    regex_tag: false,
+                    regex_file: false,
+                    glob_files: false,
+                    virtual_tags: vec![],
+                    virtual_mode: crate::cli::SearchMode::All,
+                }
+            } else {
+                SearchParams {
+                    query: None,
+                    tags: vec![],
+                    tag_mode: crate::cli::SearchMode::Any,
+                    file_patterns: vec![],
+                    file_mode: crate::cli::SearchMode::All,
+                    exclude_tags: vec![],
+                    regex_tag: false,
+                    regex_file: false,
+                    glob_files: false,
+                    virtual_tags: vec![],
+                    virtual_mode: crate::cli::SearchMode::All,
+                }
+            }
+        });
+
+        // Display current criteria
+        println!("\n{}", "━".repeat(60).bright_blue());
+        println!("{}", "  REFINE SEARCH CRITERIA".bright_cyan().bold());
+        println!("{}", "━".repeat(60).bright_blue());
+        println!(
+            "  {} {}",
+            "Include tags:".bright_yellow(),
+            if current.tags.is_empty() {
+                "(none)".dimmed().to_string()
+            } else {
+                current.tags.join(", ")
+            }
+        );
+        println!(
+            "  {} {}",
+            "Exclude tags:".bright_yellow(),
+            if current.exclude_tags.is_empty() {
+                "(none)".dimmed().to_string()
+            } else {
+                current.exclude_tags.join(", ")
+            }
+        );
+        println!(
+            "  {} {}",
+            "File patterns:".bright_yellow(),
+            if current.file_patterns.is_empty() {
+                "(none)".dimmed().to_string()
+            } else {
+                current.file_patterns.join(", ")
+            }
+        );
+        println!(
+            "  {} {}",
+            "Virtual tags:".bright_yellow(),
+            if current.virtual_tags.is_empty() {
+                "(none)".dimmed().to_string()
+            } else {
+                current.virtual_tags.join(", ")
+            }
+        );
+        println!("{}", "━".repeat(60).bright_blue());
+        println!("\n{}", "Edit criteria (press Enter to keep current value):".dimmed());
+
+        // Prompt for each field
+        let tags_input = prompt_for_input(&format!(
+            "Include tags [{}]: ",
+            current.tags.join(" ")
+        ))
+        .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
+
+        let exclude_input = prompt_for_input(&format!(
+            "Exclude tags [{}]: ",
+            current.exclude_tags.join(" ")
+        ))
+        .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
+
+        let patterns_input = prompt_for_input(&format!(
+            "File patterns [{}]: ",
+            current.file_patterns.join(" ")
+        ))
+        .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
+
+        let vtags_input = prompt_for_input(&format!(
+            "Virtual tags [{}]: ",
+            current.virtual_tags.join(" ")
+        ))
+        .map_err(|e| BrowseError::UnexpectedState(format!("Prompt failed: {e}")))?;
+
+        // Parse inputs (use current value if empty)
+        let new_tags: Vec<String> = if tags_input.trim().is_empty() {
+            current.tags.clone()
+        } else {
+            tags_input.split_whitespace().map(ToString::to_string).collect()
+        };
+
+        let new_exclude: Vec<String> = if exclude_input.trim().is_empty() {
+            current.exclude_tags.clone()
+        } else {
+            exclude_input.split_whitespace().map(ToString::to_string).collect()
+        };
+
+        let new_patterns: Vec<String> = if patterns_input.trim().is_empty() {
+            current.file_patterns.clone()
+        } else {
+            patterns_input.split_whitespace().map(ToString::to_string).collect()
+        };
+
+        let new_vtags: Vec<String> = if vtags_input.trim().is_empty() {
+            current.virtual_tags.clone()
+        } else {
+            vtags_input.split_whitespace().map(ToString::to_string).collect()
+        };
+
+        // Build new search params
+        let new_params = SearchParams {
+            query: current.query.clone(),
+            tags: new_tags.clone(),
+            tag_mode: current.tag_mode,
+            file_patterns: new_patterns,
+            file_mode: current.file_mode,
+            exclude_tags: new_exclude,
+            regex_tag: current.regex_tag,
+            regex_file: current.regex_file,
+            glob_files: current.glob_files,
+            virtual_tags: new_vtags,
+            virtual_mode: current.virtual_mode,
+        };
+
+        // Update session with new params
+        self.session.update_search_params(new_params)?;
+
+        println!(
+            "\n{} Search updated with {} tag(s)",
+            "✓".green(),
+            new_tags.len()
+        );
+
+        Ok(())
+    }
+
     /// Display help text to user (for skim TUI which doesn't have overlay)
     #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
     fn show_help(help_text: &crate::browse::session::HelpText) {
@@ -563,6 +758,7 @@ mod tests {
                 selected: result.selected.clone(),
                 aborted: result.aborted,
                 final_key: result.final_key.clone(),
+                refine_search: result.refine_search.clone(),
             })
         }
     }
@@ -577,6 +773,7 @@ mod tests {
             selected: vec![],
             aborted: true,
             final_key: None,
+            refine_search: None,
         }]);
 
         let controller = BrowseController::new(session, mock_finder);
