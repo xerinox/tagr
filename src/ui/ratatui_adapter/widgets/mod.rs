@@ -9,6 +9,7 @@ mod preview_pane;
 mod refine_search_overlay;
 mod search_bar;
 mod status_bar;
+mod text_input;
 
 pub use help_bar::{HelpBar, KeyHint};
 pub use help_overlay::HelpOverlay;
@@ -17,3 +18,4 @@ pub use preview_pane::PreviewPane;
 pub use refine_search_overlay::{RefineField, RefineSearchOverlay, RefineSearchState};
 pub use search_bar::SearchBar;
 pub use status_bar::StatusBar;
+pub use text_input::{TextInputModal, TextInputState};
