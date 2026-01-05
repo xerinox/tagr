@@ -112,6 +112,17 @@ pub struct FinderResult {
     pub final_key: Option<String>,
     /// Refined search criteria (if `refine_search` was triggered)
     pub refine_search: Option<RefinedSearchCriteria>,
+    /// Input action that was submitted (action_id, values)
+    pub input_action: Option<InputAction>,
+}
+
+/// Input action submitted from modal text input
+#[derive(Debug, Clone)]
+pub struct InputAction {
+    /// The action identifier (e.g., "add_tag", "remove_tag")
+    pub action_id: String,
+    /// The values entered by the user
+    pub values: Vec<String>,
 }
 
 /// Refined search criteria from refine search overlay
@@ -136,6 +147,7 @@ impl FinderResult {
             aborted: false,
             final_key: None,
             refine_search: None,
+            input_action: None,
         }
     }
 
@@ -147,6 +159,7 @@ impl FinderResult {
             aborted: true,
             final_key: None,
             refine_search: None,
+            input_action: None,
         }
     }
 
@@ -158,6 +171,7 @@ impl FinderResult {
             aborted: false,
             final_key: key,
             refine_search: None,
+            input_action: None,
         }
     }
 
@@ -179,6 +193,19 @@ impl FinderResult {
                 file_patterns,
                 virtual_tags,
             }),
+            input_action: None,
+        }
+    }
+
+    /// Create result with input action from modal text input
+    #[must_use]
+    pub fn with_action(items: Vec<String>, action_id: String, values: Vec<String>) -> Self {
+        Self {
+            selected: items,
+            aborted: false,
+            final_key: Some(action_id.clone()),
+            refine_search: None,
+            input_action: Some(InputAction { action_id, values }),
         }
     }
 
@@ -186,5 +213,11 @@ impl FinderResult {
     #[must_use]
     pub const fn has_refine_search(&self) -> bool {
         self.refine_search.is_some()
+    }
+
+    /// Check if this result contains an input action
+    #[must_use]
+    pub const fn has_input_action(&self) -> bool {
+        self.input_action.is_some()
     }
 }
