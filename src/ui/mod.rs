@@ -46,7 +46,7 @@
 //! ```no_run
 //! # #[cfg(feature = "ratatui-tui")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem};
+//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem, BrowsePhase};
 //! use tagr::ui::ratatui_adapter::RatatuiFinder;
 //!
 //! let items = vec![
@@ -61,6 +61,7 @@
 //!     ansi: true,
 //!     preview_config: None,
 //!     bind: vec![],
+//!     phase: BrowsePhase::FileSelection,
 //! };
 //!
 //! let finder = RatatuiFinder::new();
@@ -179,8 +180,12 @@ pub mod mock;
 pub use error::{Result, UiError};
 pub use input::{DialoguerInput, InputError, UserInput};
 pub use output::{MessageLevel, OutputWriter, StatusBarWriter, StdoutWriter};
-pub use traits::{FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText};
-pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition};
+pub use traits::{
+    FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText, RefineSearchCriteria,
+};
+pub use types::{
+    BrowsePhase, DisplayItem, FinderResult, ItemMetadata, PreviewPosition, RefinedSearchCriteria,
+};
 
 // Re-export the default finder based on feature flags
 #[cfg(feature = "ratatui-tui")]

@@ -1,7 +1,38 @@
 //! Core traits for UI abstraction layer
 
 use super::error::Result;
-use super::types::{DisplayItem, FinderResult, PreviewPosition};
+use super::types::{BrowsePhase, DisplayItem, FinderResult, PreviewPosition};
+
+/// Search criteria for refine search feature
+#[derive(Debug, Clone, Default)]
+pub struct RefineSearchCriteria {
+    /// Tags to include in search
+    pub include_tags: Vec<String>,
+    /// Tags to exclude from search
+    pub exclude_tags: Vec<String>,
+    /// File patterns to match
+    pub file_patterns: Vec<String>,
+    /// Virtual tag patterns
+    pub virtual_tags: Vec<String>,
+}
+
+impl RefineSearchCriteria {
+    /// Create new search criteria
+    #[must_use]
+    pub const fn new(
+        include_tags: Vec<String>,
+        exclude_tags: Vec<String>,
+        file_patterns: Vec<String>,
+        virtual_tags: Vec<String>,
+    ) -> Self {
+        Self {
+            include_tags,
+            exclude_tags,
+            file_patterns,
+            virtual_tags,
+        }
+    }
+}
 
 /// Configuration for fuzzy finder
 #[derive(Debug, Clone)]
@@ -18,6 +49,12 @@ pub struct FinderConfig {
     pub preview_config: Option<PreviewConfig>,
     /// Custom keybinds (skim --bind format: "key:action")
     pub bind: Vec<String>,
+    /// Current browse phase (affects which keybinds are shown in help)
+    pub phase: BrowsePhase,
+    /// Available tags from database (for refine search)
+    pub available_tags: Vec<String>,
+    /// Current search criteria for refine search
+    pub search_criteria: Option<RefineSearchCriteria>,
 }
 
 impl FinderConfig {
@@ -31,7 +68,31 @@ impl FinderConfig {
             ansi: false,
             preview_config: None,
             bind: Vec::new(),
+            phase: BrowsePhase::FileSelection, // Default to file phase for most use cases
+            available_tags: Vec::new(),
+            search_criteria: None,
         }
+    }
+
+    /// Set the browse phase (affects which keybinds are shown in help)
+    #[must_use]
+    pub const fn with_phase(mut self, phase: BrowsePhase) -> Self {
+        self.phase = phase;
+        self
+    }
+
+    /// Set available tags for refine search
+    #[must_use]
+    pub fn with_available_tags(mut self, tags: Vec<String>) -> Self {
+        self.available_tags = tags;
+        self
+    }
+
+    /// Set current search criteria for refine search
+    #[must_use]
+    pub fn with_search_criteria(mut self, criteria: RefineSearchCriteria) -> Self {
+        self.search_criteria = Some(criteria);
+        self
     }
 
     /// Enable multi-select
