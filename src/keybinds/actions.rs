@@ -47,6 +47,9 @@ pub enum BrowseAction {
     /// Bookmark current selection - Ctrl+B
     BookmarkSelection,
 
+    /// Refine search criteria - Ctrl+/
+    RefineSearch,
+
     /// Show help screen - Ctrl+? or F1
     ShowHelp,
     /// Cancel current operation
@@ -97,6 +100,7 @@ impl FromStr for BrowseAction {
             "goto_file" => Ok(Self::GoToFile),
             "show_history" => Ok(Self::ShowHistory),
             "bookmark_selection" => Ok(Self::BookmarkSelection),
+            "refine_search" => Ok(Self::RefineSearch),
             "show_help" => Ok(Self::ShowHelp),
             _ => Err(ParseActionError::new(s)),
         }
@@ -131,6 +135,25 @@ impl BrowseAction {
         )
     }
 
+    /// Returns whether this action is available in tag selection phase.
+    ///
+    /// Tag phase is for selecting which tags to filter by. Only navigation
+    /// and universal actions (help, cancel) are available.
+    #[must_use]
+    pub const fn available_in_tag_phase(&self) -> bool {
+        matches!(self, Self::ShowHelp | Self::Cancel)
+    }
+
+    /// Returns whether this action is available in file selection phase.
+    ///
+    /// File phase has full access to file operations, tag manipulation,
+    /// and all other browse actions.
+    #[must_use]
+    pub const fn available_in_file_phase(&self) -> bool {
+        // All actions are available in file phase
+        true
+    }
+
     /// Returns a human-readable description of the action.
     #[must_use]
     pub const fn description(&self) -> &'static str {
@@ -152,6 +175,7 @@ impl BrowseAction {
             Self::GoToFile => "Go to file",
             Self::ShowHistory => "Show recent selections",
             Self::BookmarkSelection => "Bookmark selection",
+            Self::RefineSearch => "Refine search criteria",
             Self::ShowHelp => "Show help",
             Self::Cancel => "Cancel",
         }
@@ -180,6 +204,22 @@ mod tests {
         assert!(!BrowseAction::AddTag.requires_selection());
         assert!(BrowseAction::RemoveTag.requires_selection());
         assert!(BrowseAction::CopyPath.requires_selection());
+    }
+
+    #[test]
+    fn test_phase_availability() {
+        // Tag phase: only help and cancel
+        assert!(BrowseAction::ShowHelp.available_in_tag_phase());
+        assert!(BrowseAction::Cancel.available_in_tag_phase());
+        assert!(!BrowseAction::AddTag.available_in_tag_phase());
+        assert!(!BrowseAction::DeleteFromDb.available_in_tag_phase());
+        assert!(!BrowseAction::CopyPath.available_in_tag_phase());
+
+        // File phase: all actions available
+        assert!(BrowseAction::ShowHelp.available_in_file_phase());
+        assert!(BrowseAction::AddTag.available_in_file_phase());
+        assert!(BrowseAction::DeleteFromDb.available_in_file_phase());
+        assert!(BrowseAction::CopyPath.available_in_file_phase());
     }
 
     #[test]
