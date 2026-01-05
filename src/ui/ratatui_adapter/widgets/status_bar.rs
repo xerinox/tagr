@@ -26,7 +26,7 @@ impl<'a> StatusBar<'a> {
     }
 
     /// Get style for a message level
-    fn style_for_level(&self, level: &MessageLevel) -> ratatui::style::Style {
+    fn style_for_level(&self, level: MessageLevel) -> ratatui::style::Style {
         match level {
             MessageLevel::Success => self.theme.success_style(),
             MessageLevel::Error => self.theme.error_style(),
@@ -37,7 +37,7 @@ impl<'a> StatusBar<'a> {
     }
 
     /// Get prefix for a message level
-    fn prefix_for_level(level: &MessageLevel) -> &'static str {
+    fn prefix_for_level(level: MessageLevel) -> &'static str {
         match level {
             MessageLevel::Success => "✓ ",
             MessageLevel::Error => "✗ ",
@@ -64,8 +64,8 @@ impl Widget for StatusBar<'_> {
 
         // Show the most recent message
         if let Some(msg) = self.messages.last() {
-            let style = self.style_for_level(&msg.level);
-            let prefix = Self::prefix_for_level(&msg.level);
+            let style = self.style_for_level(msg.level);
+            let prefix = Self::prefix_for_level(msg.level);
             let line = Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(msg.text.as_str(), style),

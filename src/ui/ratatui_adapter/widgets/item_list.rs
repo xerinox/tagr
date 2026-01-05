@@ -18,7 +18,7 @@ pub struct ItemList<'a> {
     theme: &'a Theme,
     /// Title for the list block
     title: String,
-    /// Optional match positions for highlighting (item_idx -> vec of char positions)
+    /// Optional match positions for highlighting (`item_idx` -> vec of char positions)
     match_positions: Option<&'a [(u32, Vec<u32>)]>,
 }
 

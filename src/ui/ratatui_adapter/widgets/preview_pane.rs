@@ -40,11 +40,13 @@ impl<'a> PreviewPane<'a> {
 
 impl Widget for PreviewPane<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let (title, lines) = match self.styled_content {
-            Some(preview) => {
-                let mut lines = preview.lines.clone();
-                
-                // Add truncation message if needed
+        let (title, lines) = self.styled_content.map_or_else(|| {
+            let empty_line = Line::styled("No preview available", self.theme.dimmed_style());
+            (String::from(" Preview "), vec![empty_line])
+        }, |preview| {
+            let mut lines = preview.lines.clone();
+            
+            // Add truncation message if needed
                 if preview.truncated {
                     lines.push(Line::raw(""));
                     lines.push(Line::styled(
@@ -58,12 +60,7 @@ impl Widget for PreviewPane<'_> {
                 }
                 
                 (preview.title.clone(), lines)
-            }
-            None => {
-                let empty_line = Line::styled("No preview available", self.theme.dimmed_style());
-                (String::from(" Preview "), vec![empty_line])
-            }
-        };
+            });
 
         let block = Block::default()
             .borders(Borders::ALL)
