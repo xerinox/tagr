@@ -341,9 +341,75 @@ impl<'a> BrowseSession<'a> {
                     data: crate::browse::models::ActionData::None,
                 },
             }),
+            BrowseAction::RefineSearch => {
+                // Get current search criteria from config
+                let criteria = self.get_current_search_criteria();
+                Ok(ActionOutcome::NeedsInput {
+                    prompt: "Refine search criteria".into(),
+                    action_id: "refine_search".into(),
+                    context: crate::browse::models::ActionContext {
+                        files: vec![],
+                        data: crate::browse::models::ActionData::SearchCriteria(criteria),
+                    },
+                })
+            }
             // Other actions not yet implemented in session layer
             _ => Err(BrowseError::ActionNotAvailable),
         }
+    }
+
+    /// Get current search criteria data
+    fn get_current_search_criteria(&self) -> crate::browse::models::SearchCriteriaData {
+        if let Some(ref params) = self.config.initial_search {
+            crate::browse::models::SearchCriteriaData {
+                tags: params.tags.clone(),
+                exclude_tags: params.exclude_tags.clone(),
+                file_patterns: params.file_patterns.clone(),
+                virtual_tags: params.virtual_tags.clone(),
+            }
+        } else if let PhaseType::FileSelection { selected_tags } = &self.current_phase.phase_type {
+            crate::browse::models::SearchCriteriaData {
+                tags: selected_tags.clone(),
+                exclude_tags: vec![],
+                file_patterns: vec![],
+                virtual_tags: vec![],
+            }
+        } else {
+            crate::browse::models::SearchCriteriaData {
+                tags: vec![],
+                exclude_tags: vec![],
+                file_patterns: vec![],
+                virtual_tags: vec![],
+            }
+        }
+    }
+
+    /// Update search parameters and refresh the file list
+    ///
+    /// # Arguments
+    ///
+    /// * `new_params` - New search parameters to apply
+    ///
+    /// # Errors
+    ///
+    /// Returns error if database queries fail
+    pub fn update_search_params(&mut self, new_params: SearchParams) -> Result<()> {
+        // Update config with new search params
+        self.config.initial_search = Some(new_params.clone());
+
+        // Re-query files with updated criteria
+        let items = query::get_matching_files(self.db, &new_params)?;
+
+        // Update current phase
+        self.current_phase = BrowserPhase {
+            phase_type: PhaseType::FileSelection {
+                selected_tags: new_params.tags.clone(),
+            },
+            items,
+            settings: self.config.file_phase_settings.clone(),
+        };
+
+        Ok(())
     }
 
     /// Refresh current phase data
@@ -377,6 +443,21 @@ impl<'a> BrowseSession<'a> {
     #[must_use]
     pub const fn config(&self) -> &BrowseConfig {
         &self.config
+    }
+
+    /// Get current search criteria for the refine search UI
+    #[must_use]
+    pub fn search_criteria(&self) -> crate::browse::models::SearchCriteriaData {
+        self.get_current_search_criteria()
+    }
+
+    /// Get all available tags from the database for the refine search UI
+    ///
+    /// # Errors
+    ///
+    /// Returns error if database query fails
+    pub fn available_tags(&self) -> Result<Vec<String>> {
+        self.db.list_all_tags().map_err(Into::into)
     }
 }
 
@@ -450,6 +531,7 @@ impl PhaseSettings {
                 ("Ctrl+e".into(), "Open in editor".into()),
                 ("Ctrl+Y".into(), "Copy paths to clipboard".into()),
                 ("Ctrl+f".into(), "Copy files to directory".into()),
+                ("F2".into(), "Refine search criteria".into()),
                 ("Esc".into(), "Cancel and exit".into()),
                 ("F1".into(), "Show this help".into()),
             ]),
@@ -521,5 +603,136 @@ mod tests {
         let result = session.execute_action(&BrowseAction::AddTag, &[]);
 
         assert!(matches!(result, Err(BrowseError::ActionNotAvailable)));
+    }
+
+    #[test]
+    fn test_update_search_params() {
+        use crate::testing::TempFile;
+        use crate::Pair;
+
+        let db = TestDb::new("test_update_search_params");
+        db.db().clear().unwrap();
+
+        // Create test files
+        let file1 = TempFile::create("file1.txt").unwrap();
+        let file2 = TempFile::create("file2.txt").unwrap();
+        let file3 = TempFile::create("file3.txt").unwrap();
+
+        // Insert test data
+        db.db()
+            .insert_pair(&Pair::new(
+                file1.path().to_path_buf(),
+                vec!["rust".into(), "code".into()],
+            ))
+            .unwrap();
+        db.db()
+            .insert_pair(&Pair::new(
+                file2.path().to_path_buf(),
+                vec!["rust".into(), "docs".into()],
+            ))
+            .unwrap();
+        db.db()
+            .insert_pair(&Pair::new(
+                file3.path().to_path_buf(),
+                vec!["python".into()],
+            ))
+            .unwrap();
+
+        // Create session with initial search for "rust"
+        let mut config = BrowseConfig::default();
+        config.initial_search = Some(SearchParams {
+            query: None,
+            tags: vec!["rust".to_string()],
+            tag_mode: crate::cli::SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: crate::cli::SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            glob_files: false,
+            virtual_tags: vec![],
+            virtual_mode: crate::cli::SearchMode::All,
+        });
+
+        let mut session = BrowseSession::new(db.db(), config).unwrap();
+
+        // Should start with 2 files (file1 and file2 have "rust" tag)
+        assert_eq!(session.current_phase().items.len(), 2);
+
+        // Update search to exclude "docs" tag
+        let new_params = SearchParams {
+            query: None,
+            tags: vec!["rust".to_string()],
+            tag_mode: crate::cli::SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: crate::cli::SearchMode::All,
+            exclude_tags: vec!["docs".to_string()],
+            regex_tag: false,
+            regex_file: false,
+            glob_files: false,
+            virtual_tags: vec![],
+            virtual_mode: crate::cli::SearchMode::All,
+        };
+
+        session.update_search_params(new_params).unwrap();
+
+        // Should now have 1 file (file1 has "rust" but not "docs")
+        assert_eq!(session.current_phase().items.len(), 1);
+    }
+
+    #[test]
+    fn test_refine_search_action_returns_needs_input() {
+        use crate::testing::TempFile;
+        use crate::Pair;
+
+        let db = TestDb::new("test_refine_search_action");
+        db.db().clear().unwrap();
+
+        let file1 = TempFile::create("file1.txt").unwrap();
+        db.db()
+            .insert_pair(&Pair::new(
+                file1.path().to_path_buf(),
+                vec!["test".into()],
+            ))
+            .unwrap();
+
+        // Create session in file phase
+        let mut config = BrowseConfig::default();
+        config.initial_search = Some(SearchParams {
+            query: None,
+            tags: vec!["test".to_string()],
+            tag_mode: crate::cli::SearchMode::Any,
+            file_patterns: vec![],
+            file_mode: crate::cli::SearchMode::All,
+            exclude_tags: vec![],
+            regex_tag: false,
+            regex_file: false,
+            glob_files: false,
+            virtual_tags: vec![],
+            virtual_mode: crate::cli::SearchMode::All,
+        });
+
+        let session = BrowseSession::new(db.db(), config).unwrap();
+
+        // Execute refine search action
+        let result = session.execute_action(&BrowseAction::RefineSearch, &[]).unwrap();
+
+        // Should return NeedsInput with search criteria
+        match result {
+            crate::browse::models::ActionOutcome::NeedsInput {
+                action_id,
+                context,
+                ..
+            } => {
+                assert_eq!(action_id, "refine_search");
+                match context.data {
+                    crate::browse::models::ActionData::SearchCriteria(criteria) => {
+                        assert_eq!(criteria.tags, vec!["test".to_string()]);
+                    }
+                    _ => panic!("Expected SearchCriteria data"),
+                }
+            }
+            _ => panic!("Expected NeedsInput outcome"),
+        }
     }
 }

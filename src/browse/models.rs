@@ -219,6 +219,22 @@ pub enum ActionData {
 
     /// Custom command execution
     Command(String),
+
+    /// Current search criteria for refinement
+    SearchCriteria(SearchCriteriaData),
+}
+
+/// Search criteria data for refine search action
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchCriteriaData {
+    /// Current included tags
+    pub tags: Vec<String>,
+    /// Current excluded tags
+    pub exclude_tags: Vec<String>,
+    /// Current file patterns
+    pub file_patterns: Vec<String>,
+    /// Current virtual tags
+    pub virtual_tags: Vec<String>,
 }
 
 // ============================================================================
