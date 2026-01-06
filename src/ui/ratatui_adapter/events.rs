@@ -130,14 +130,20 @@ fn handle_normal_mode(
         // Actions that require text input open the modal
         if action_requires_input(action) {
             let (title, _placeholder) = get_input_prompt_for_action(action);
-            // Get available tags for autocomplete if this is a tag-related action
-            let autocomplete_items = if action.contains("tag") {
-                state.available_tags.clone()
+
+            // Get tags on selected file(s)
+            let file_tags = state.get_selected_items_tags();
+
+            // For remove_tag: show only tags on the file(s), no exclusions
+            // For add_tag: show all available tags, exclude those already on file(s)
+            let (autocomplete_items, excluded_tags) = if action == "remove_tag" {
+                (file_tags, Vec::new())
+            } else if action.contains("tag") {
+                (state.available_tags.clone(), file_tags)
             } else {
-                Vec::new()
+                (Vec::new(), Vec::new())
             };
-            // Get tags already on the selected file(s) to exclude from suggestions
-            let excluded_tags = state.get_selected_items_tags();
+
             // enter_text_input(prompt, action_id, autocomplete_items, excluded_tags, multi_value)
             state.enter_text_input(title, action.clone(), autocomplete_items, excluded_tags, true);
             return EventResult::Continue;
