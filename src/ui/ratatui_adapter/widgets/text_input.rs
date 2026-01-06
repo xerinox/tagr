@@ -376,7 +376,8 @@ impl Widget for TextInputModal<'_> {
         } else {
             0
         };
-        let height = 5 + entered_tags_height + suggestions_height;
+        // Base height: 2 (modal borders) + 3 (input field) + 1 (help text) = 6
+        let height = 6 + entered_tags_height + suggestions_height;
 
         let modal_area = Self::centered_rect(width, height, area);
 
