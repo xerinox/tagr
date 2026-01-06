@@ -22,6 +22,10 @@ pub enum EventResult {
     InputSubmitted { action_id: String, values: Vec<String> },
     /// Text input cancelled
     InputCancelled,
+    /// Confirmation dialog confirmed with action ID and context
+    ConfirmSubmitted { action_id: String, context: Vec<String> },
+    /// Confirmation dialog cancelled
+    ConfirmCancelled,
     /// No action taken
     Ignored,
 }
@@ -48,6 +52,29 @@ fn get_input_prompt_for_action(action: &str) -> (String, String) {
         "copy_tags" => ("Copy Tags From".to_string(), "Enter source file path".to_string()),
         "set_tags" => ("Set Tags".to_string(), "Enter tags (replaces existing)".to_string()),
         _ => ("Input".to_string(), "Enter value".to_string()),
+    }
+}
+
+/// Check if an action requires user confirmation before executing
+#[must_use]
+fn action_requires_confirmation(action: &str) -> bool {
+    matches!(action, "delete_from_db")
+}
+
+/// Get the confirmation dialog title and message for an action
+#[must_use]
+fn get_confirm_prompt_for_action(action: &str, selected_count: usize) -> (String, String) {
+    match action {
+        "delete_from_db" => {
+            let title = "Delete from Database".to_string();
+            let message = if selected_count == 1 {
+                "Remove this file from the tagr database?".to_string()
+            } else {
+                format!("Remove {} files from the tagr database?", selected_count)
+            };
+            (title, message)
+        }
+        _ => ("Confirm Action".to_string(), "Are you sure?".to_string()),
     }
 }
 
@@ -113,6 +140,18 @@ fn handle_normal_mode(
             state.enter_text_input(title, action.clone(), autocomplete_items, true);
             return EventResult::Continue;
         }
+
+        // Actions that require confirmation open the confirm dialog
+        if action_requires_confirmation(action) {
+            let selected_keys = state.selected_keys();
+            let selected_count = selected_keys.len();
+            if selected_count > 0 {
+                let (title, message) = get_confirm_prompt_for_action(action, selected_count);
+                state.enter_confirm(title, message, action.clone(), selected_keys);
+                return EventResult::Continue;
+            }
+        }
+
         return EventResult::Confirm(Some(action.clone()));
     }
 
@@ -419,6 +458,32 @@ fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
     }
 }
 
+/// Handle events in confirm mode
+fn handle_confirm_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
+    match (key.code, key.modifiers) {
+        // Cancel confirmation
+        (KeyCode::Esc, _) | (KeyCode::Char('n'), _) | (KeyCode::Char('N'), _) => {
+            state.cancel_confirm();
+            EventResult::ConfirmCancelled
+        }
+
+        // Confirm action
+        (KeyCode::Enter, _) | (KeyCode::Char('y'), _) | (KeyCode::Char('Y'), _) => {
+            if let Some(confirm_state) = state.exit_confirm() {
+                EventResult::ConfirmSubmitted {
+                    action_id: confirm_state.action_id,
+                    context: confirm_state.context,
+                }
+            } else {
+                state.cancel_confirm();
+                EventResult::ConfirmCancelled
+            }
+        }
+
+        _ => EventResult::Continue,
+    }
+}
+
 /// Poll for events and handle them
 ///
 /// # Errors
@@ -439,10 +504,7 @@ pub fn poll_and_handle(
             Mode::Help => handle_help_mode(state, key),
             Mode::RefineSearch => handle_refine_search_mode(state, key),
             Mode::Input => handle_input_mode(state, key),
-            Mode::Confirm => {
-                // Confirm mode would be handled by confirmation dialog widget
-                EventResult::Ignored
-            }
+            Mode::Confirm => handle_confirm_mode(state, key),
         },
         Event::Mouse(mouse) => handle_mouse(state, mouse),
         Event::Resize(_, _) => EventResult::Continue,

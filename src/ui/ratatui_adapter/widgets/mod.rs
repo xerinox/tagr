@@ -2,6 +2,7 @@
 //!
 //! Custom widgets for rendering the finder interface.
 
+mod confirm_dialog;
 mod help_bar;
 mod help_overlay;
 mod item_list;
@@ -11,6 +12,7 @@ mod search_bar;
 mod status_bar;
 mod text_input;
 
+pub use confirm_dialog::{ConfirmDialog, ConfirmDialogState};
 pub use help_bar::{HelpBar, KeyHint};
 pub use help_overlay::HelpOverlay;
 pub use item_list::ItemList;

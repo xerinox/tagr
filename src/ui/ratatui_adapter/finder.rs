@@ -7,8 +7,8 @@ use super::state::{AppState, Mode};
 use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
 use super::widgets::{
-    HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, RefineSearchOverlay, SearchBar,
-    StatusBar, TextInputModal,
+    ConfirmDialog, HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, RefineSearchOverlay,
+    SearchBar, StatusBar, TextInputModal,
 };
 use crate::ui::error::Result;
 use crate::ui::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
@@ -317,6 +317,12 @@ impl RatatuiFinder {
                     frame.render_widget(input_modal, frame.area());
                 }
             }
+            Mode::Confirm => {
+                if let Some(confirm_state) = state.confirm_state() {
+                    let confirm_dialog = ConfirmDialog::new(confirm_state, theme);
+                    frame.render_widget(confirm_dialog, frame.area());
+                }
+            }
             _ => {}
         }
     }
@@ -494,6 +500,18 @@ impl RatatuiFinder {
                 }
                 EventResult::InputCancelled => {
                     // Input was cancelled, just continue browsing
+                }
+                EventResult::ConfirmSubmitted { action_id, context } => {
+                    // Confirmation dialog was confirmed - return to caller with action info
+                    // The context contains the file paths that were selected for the action
+                    return Ok(FinderResult::with_action(
+                        context,
+                        action_id,
+                        Vec::new(), // No additional values for confirmation-only actions
+                    ));
+                }
+                EventResult::ConfirmCancelled => {
+                    // Confirmation was cancelled, just continue browsing
                 }
                 EventResult::Continue | EventResult::Ignored => {}
             }

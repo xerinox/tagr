@@ -62,6 +62,8 @@
 //!     preview_config: None,
 //!     bind: vec![],
 //!     phase: BrowsePhase::FileSelection,
+//!     available_tags: vec![],
+//!     search_criteria: None,
 //! };
 //!
 //! let finder = RatatuiFinder::new();
@@ -98,6 +100,8 @@
 //!             selected: vec![],
 //!             aborted: false,
 //!             final_key: Some("enter".to_string()),
+//!             refine_search: None,
+//!             input_action: None,
 //!         })
 //!     }
 //! }

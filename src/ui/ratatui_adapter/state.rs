@@ -4,7 +4,7 @@
 //! including items, selection, query, and UI mode.
 
 use crate::ui::output::MessageLevel;
-use crate::ui::ratatui_adapter::widgets::{RefineSearchState, TextInputState};
+use crate::ui::ratatui_adapter::widgets::{ConfirmDialogState, RefineSearchState, TextInputState};
 use crate::ui::types::DisplayItem;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -93,6 +93,8 @@ pub struct AppState {
     pub refine_search_state: Option<RefineSearchState>,
     /// State for text input modal
     pub text_input_state: Option<TextInputState>,
+    /// State for confirmation dialog
+    pub confirm_state: Option<ConfirmDialogState>,
     /// Available tags for autocomplete (set by finder from config)
     pub available_tags: Vec<String>,
 }
@@ -124,6 +126,7 @@ impl AppState {
             visible_height: 20, // Default, updated during render
             refine_search_state: None,
             text_input_state: None,
+            confirm_state: None,
             available_tags: Vec::new(),
         }
     }
@@ -416,6 +419,47 @@ impl AppState {
     #[must_use]
     pub fn text_input_state(&self) -> Option<&TextInputState> {
         self.text_input_state.as_ref()
+    }
+
+    /// Enter confirmation dialog mode
+    ///
+    /// # Arguments
+    /// * `title` - Dialog title
+    /// * `message` - Message explaining what will happen
+    /// * `action_id` - Action identifier to execute on confirmation
+    /// * `context` - Additional context data (e.g., affected file paths)
+    pub fn enter_confirm(
+        &mut self,
+        title: impl Into<String>,
+        message: impl Into<String>,
+        action_id: impl Into<String>,
+        context: Vec<String>,
+    ) {
+        self.confirm_state = Some(
+            ConfirmDialogState::new(title, message, action_id).with_context(context),
+        );
+        self.mode = Mode::Confirm;
+    }
+
+    /// Exit confirmation mode with confirmed state
+    ///
+    /// Returns the confirmation state if confirmed, None if cancelled.
+    #[must_use]
+    pub fn exit_confirm(&mut self) -> Option<ConfirmDialogState> {
+        self.mode = Mode::Normal;
+        self.confirm_state.take()
+    }
+
+    /// Cancel confirmation mode without executing the action
+    pub fn cancel_confirm(&mut self) {
+        self.mode = Mode::Normal;
+        self.confirm_state = None;
+    }
+
+    /// Get immutable reference to confirm state
+    #[must_use]
+    pub fn confirm_state(&self) -> Option<&ConfirmDialogState> {
+        self.confirm_state.as_ref()
     }
 }
 
