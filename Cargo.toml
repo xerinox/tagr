@@ -42,8 +42,13 @@ nucleo = "0.5"
 ratatui = "0.30"
 crossterm = "0.28"
 
-# Optional syntax highlighting
-syntect = { version = "5.2", optional = true }
+# Optional syntax highlighting (using fancy-regex for cross-platform support)
+syntect = { version = "5.2", optional = true, default-features = false, features = ["default-fancy"] }
 
 [dev-dependencies]
 tempfile = "3.23.0"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
