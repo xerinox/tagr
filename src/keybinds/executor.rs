@@ -330,22 +330,22 @@ impl ActionExecutor {
     /// Execute the `SelectAll` action.
     ///
     /// **Note**: This is a stub implementation. Selection state is managed
-    /// by the skim UI layer. Returns `Result` for API consistency.
+    /// by the TUI layer. Returns `Result` for API consistency.
     #[allow(clippy::unnecessary_wraps)]
     fn execute_select_all(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
-            "Select all will be handled by skim UI layer".to_string(),
+            "Select all will be handled by TUI layer".to_string(),
         ))
     }
 
     /// Execute the `ClearSelection` action.
     ///
     /// **Note**: This is a stub implementation. Selection state is managed
-    /// by the skim UI layer. Returns `Result` for API consistency.
+    /// by the TUI layer. Returns `Result` for API consistency.
     #[allow(clippy::unnecessary_wraps)]
     fn execute_clear_selection(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         Ok(ActionResult::Message(
-            "Clear selection will be handled by skim UI layer".to_string(),
+            "Clear selection will be handled by TUI layer".to_string(),
         ))
     }
 

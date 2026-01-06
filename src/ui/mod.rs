@@ -2,8 +2,8 @@
 //!
 //! This module provides a backend-agnostic interface for interactive
 //! fuzzy finding, preview functionality, user input, and output.
-//! The abstraction allows swapping out CLI tools (skim, dialoguer, stdout)
-//! for custom TUI implementations (ratatui) without changing business logic.
+//! The abstraction allows swapping out CLI tools for custom TUI
+//! implementations without changing business logic.
 //!
 //! # Core Traits
 //!
@@ -26,25 +26,24 @@
 //! │  (FuzzyFinder, UserInput, etc.)         │
 //! └────────────────┬────────────────────────┘
 //!                  │ Implemented by
-//!         ┌────────┴────────┐
-//!         ▼                 ▼
-//! ┌───────────────┐  ┌──────────────┐
-//! │ CLI Adapters  │  │ TUI Adapters │
-//! │ - SkimFinder  │  │ - Ratatui    │
-//! │ - Dialoguer   │  │   (future)   │
-//! │ - Stdout      │  │              │
-//! └───────────────┘  └──────────────┘
+//!                  ▼
+//! ┌───────────────────────────────────────┐
+//! │      TUI Adapters                     │
+//! │  - RatatuiFinder (nucleo + ratatui)   │
+//! │  - Dialoguer (CLI prompts)            │
+//! │  - Stdout (output)                    │
+//! └───────────────────────────────────────┘
 //! ```
 //!
-//! # Examples
+//! # Usage
 //!
-//! ## Using the Skim Finder (Default)
+//! ## Fuzzy Finding
 //!
 //! ```no_run
-//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem};
-//! use tagr::ui::skim_adapter::SkimFinder;
-//!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem, BrowsePhase};
+//! use tagr::ui::ratatui_adapter::RatatuiFinder;
+//!
 //! let items = vec![
 //!     DisplayItem::new("file1.rs".into(), "file1.rs".into(), "file1.rs".into()),
 //!     DisplayItem::new("file2.rs".into(), "file2.rs".into(), "file2.rs".into()),
@@ -57,9 +56,12 @@
 //!     ansi: true,
 //!     preview_config: None,
 //!     bind: vec![],
+//!     phase: BrowsePhase::FileSelection,
+//!     available_tags: vec![],
+//!     search_criteria: None,
 //! };
 //!
-//! let finder = SkimFinder::new();
+//! let finder = RatatuiFinder::new();
 //! let result = finder.run(config)?;
 //!
 //! if !result.aborted {
@@ -83,6 +85,8 @@
 //!             selected: vec![],
 //!             aborted: false,
 //!             final_key: Some("enter".to_string()),
+//!             refine_search: None,
+//!             input_action: None,
 //!         })
 //!     }
 //! }
@@ -142,7 +146,7 @@
 //!
 //! - `examples/custom_frontend.rs` - Complete custom finder implementation
 //! - `docs/custom-frontend-guide.md` - Comprehensive guide for ratatui migration
-//! - `src/ui/skim_adapter.rs` - Reference implementation
+//! - `src/ui/ratatui_adapter/` - Modern ratatui implementation
 
 mod error;
 mod traits;
@@ -150,7 +154,7 @@ mod types;
 
 pub mod input;
 pub mod output;
-pub mod skim_adapter;
+pub mod ratatui_adapter;
 
 #[cfg(test)]
 pub mod mock;
@@ -158,5 +162,10 @@ pub mod mock;
 pub use error::{Result, UiError};
 pub use input::{DialoguerInput, InputError, UserInput};
 pub use output::{MessageLevel, OutputWriter, StatusBarWriter, StdoutWriter};
-pub use traits::{FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText};
-pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition};
+pub use ratatui_adapter::{RatatuiFinder, RatatuiPreviewProvider};
+pub use traits::{
+    FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText, RefineSearchCriteria,
+};
+pub use types::{
+    BrowsePhase, DisplayItem, FinderResult, ItemMetadata, PreviewPosition, RefinedSearchCriteria,
+};

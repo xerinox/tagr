@@ -1,0 +1,327 @@
+//! Native ratatui styled preview generation
+//!
+//! Converts syntect highlighting directly to ratatui styles without
+//! intermediate ANSI escape codes.
+
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+};
+use std::path::Path;
+
+#[cfg(feature = "syntax-highlighting")]
+use syntect::easy::HighlightLines;
+#[cfg(feature = "syntax-highlighting")]
+use syntect::highlighting::{FontStyle, ThemeSet};
+#[cfg(feature = "syntax-highlighting")]
+use syntect::parsing::SyntaxSet;
+
+/// Styled preview content ready for ratatui rendering
+#[derive(Debug, Clone)]
+pub struct StyledPreview {
+    /// Lines of styled text
+    pub lines: Vec<Line<'static>>,
+    /// Whether the content was truncated
+    pub truncated: bool,
+    /// Total number of lines in original file
+    pub total_lines: usize,
+    /// Title for the preview (filename, etc.)
+    pub title: String,
+}
+
+impl StyledPreview {
+    /// Create a preview with an error message
+    #[must_use]
+    pub fn error(message: impl Into<String>) -> Self {
+        let error_style = Style::default().fg(Color::Red);
+        Self {
+            lines: vec![Line::styled(message.into(), error_style)],
+            truncated: false,
+            total_lines: 1,
+            title: String::from(" Error "),
+        }
+    }
+
+    /// Create an empty preview
+    #[must_use]
+    pub fn empty() -> Self {
+        let dim_style = Style::default().fg(Color::DarkGray);
+        Self {
+            lines: vec![Line::styled("Empty file (0 bytes)", dim_style)],
+            truncated: false,
+            total_lines: 0,
+            title: String::from(" Preview "),
+        }
+    }
+
+    /// Create a preview for binary files
+    #[must_use]
+    pub fn binary(metadata: &str) -> Self {
+        let dim_style = Style::default().fg(Color::DarkGray);
+        let lines: Vec<Line<'static>> = metadata
+            .lines()
+            .map(|line| Line::styled(line.to_string(), dim_style))
+            .collect();
+        Self {
+            lines,
+            truncated: false,
+            total_lines: 0,
+            title: String::from(" Binary File "),
+        }
+    }
+}
+
+/// Generator for styled previews using native ratatui styles
+#[cfg(feature = "syntax-highlighting")]
+pub struct StyledPreviewGenerator {
+    syntax_set: SyntaxSet,
+    theme_set: ThemeSet,
+    max_lines: usize,
+}
+
+#[cfg(feature = "syntax-highlighting")]
+impl StyledPreviewGenerator {
+    /// Create a new styled preview generator
+    #[must_use]
+    pub fn new(max_lines: usize) -> Self {
+        Self {
+            syntax_set: SyntaxSet::load_defaults_newlines(),
+            theme_set: ThemeSet::load_defaults(),
+            max_lines,
+        }
+    }
+
+    /// Generate a styled preview for a file
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the file cannot be read
+    pub fn generate(&self, path: &Path) -> Result<StyledPreview, std::io::Error> {
+        if !path.exists() {
+            return Ok(StyledPreview::error(format!(
+                "File not found: {}",
+                path.display()
+            )));
+        }
+
+        let metadata = std::fs::metadata(path)?;
+        if metadata.len() == 0 {
+            return Ok(StyledPreview::empty());
+        }
+
+        // Try to read as text
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                // Binary file
+                return Ok(StyledPreview::binary(&format!(
+                    "Binary file - cannot preview\n\nSize: {} bytes",
+                    metadata.len()
+                )));
+            }
+            Err(e) => return Err(e),
+        };
+
+        let all_lines: Vec<&str> = content.lines().collect();
+        let total_lines = all_lines.len();
+        let truncated = total_lines > self.max_lines;
+        let lines_to_render: Vec<&str> = all_lines.into_iter().take(self.max_lines).collect();
+
+        // Apply syntax highlighting
+        let styled_lines = self.highlight_lines(path, &lines_to_render);
+
+        let title = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map_or_else(|| String::from(" Preview "), |n| format!(" {n} "));
+
+        Ok(StyledPreview {
+            lines: styled_lines,
+            truncated,
+            total_lines,
+            title,
+        })
+    }
+
+    /// Apply syntax highlighting to lines
+    fn highlight_lines(&self, path: &Path, lines: &[&str]) -> Vec<Line<'static>> {
+        let syntax = self
+            .syntax_set
+            .find_syntax_for_file(path)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+
+        let theme = &self.theme_set.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
+        lines
+            .iter()
+            .map(|line| {
+                highlighter
+                    .highlight_line(line, &self.syntax_set)
+                    .map_or_else(
+                        |_| Line::raw(line.to_string()),
+                        |ranges| {
+                            let spans: Vec<Span<'static>> = ranges
+                                .iter()
+                                .map(|(style, text)| {
+                                    Span::styled(text.to_string(), syntect_to_ratatui(style))
+                                })
+                                .collect();
+                            Line::from(spans)
+                        },
+                    )
+            })
+            .collect()
+    }
+}
+
+/// Convert syntect style to ratatui style
+#[cfg(feature = "syntax-highlighting")]
+fn syntect_to_ratatui(style: &syntect::highlighting::Style) -> Style {
+    let fg = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
+
+    let mut ratatui_style = Style::default().fg(fg);
+
+    // Only set background if it's not the default theme background
+    // (to avoid overriding terminal transparency)
+    if style.background.a > 0 && style.background != syntect::highlighting::Color::WHITE {
+        let bg = Color::Rgb(style.background.r, style.background.g, style.background.b);
+        ratatui_style = ratatui_style.bg(bg);
+    }
+
+    if style.font_style.contains(FontStyle::BOLD) {
+        ratatui_style = ratatui_style.add_modifier(Modifier::BOLD);
+    }
+    if style.font_style.contains(FontStyle::ITALIC) {
+        ratatui_style = ratatui_style.add_modifier(Modifier::ITALIC);
+    }
+    if style.font_style.contains(FontStyle::UNDERLINE) {
+        ratatui_style = ratatui_style.add_modifier(Modifier::UNDERLINED);
+    }
+
+    ratatui_style
+}
+
+/// Fallback generator when syntax-highlighting feature is disabled
+#[cfg(not(feature = "syntax-highlighting"))]
+pub struct StyledPreviewGenerator {
+    max_lines: usize,
+}
+
+#[cfg(not(feature = "syntax-highlighting"))]
+impl StyledPreviewGenerator {
+    #[must_use]
+    pub fn new(max_lines: usize) -> Self {
+        Self { max_lines }
+    }
+
+    pub fn generate(&self, path: &Path) -> Result<StyledPreview, std::io::Error> {
+        if !path.exists() {
+            return Ok(StyledPreview::error(format!(
+                "File not found: {}",
+                path.display()
+            )));
+        }
+
+        let metadata = std::fs::metadata(path)?;
+        if metadata.len() == 0 {
+            return Ok(StyledPreview::empty());
+        }
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                return Ok(StyledPreview::binary(&format!(
+                    "Binary file - cannot preview\n\nSize: {} bytes",
+                    metadata.len()
+                )));
+            }
+            Err(e) => return Err(e),
+        };
+
+        let all_lines: Vec<&str> = content.lines().collect();
+        let total_lines = all_lines.len();
+        let truncated = total_lines > self.max_lines;
+
+        let lines: Vec<Line<'static>> = all_lines
+            .into_iter()
+            .take(self.max_lines)
+            .map(|line| Line::raw(line.to_string()))
+            .collect();
+
+        let title = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map_or_else(|| String::from(" Preview "), |n| format!(" {} ", n));
+
+        Ok(StyledPreview {
+            lines,
+            truncated,
+            total_lines,
+            title,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_styled_preview_error() {
+        let preview = StyledPreview::error("Test error");
+        assert_eq!(preview.lines.len(), 1);
+        assert!(!preview.truncated);
+    }
+
+    #[test]
+    fn test_styled_preview_empty() {
+        let preview = StyledPreview::empty();
+        assert_eq!(preview.lines.len(), 1);
+        assert!(!preview.truncated);
+    }
+
+    #[test]
+    fn test_generator_nonexistent_file() {
+        let generator = StyledPreviewGenerator::new(100);
+        let result = generator.generate(Path::new("/nonexistent/file.txt"));
+        assert!(result.is_ok());
+        let preview = result.unwrap();
+        assert!(preview.title.contains("Error"));
+    }
+
+    #[test]
+    fn test_generator_text_file() {
+        let temp = NamedTempFile::new().unwrap();
+        fs::write(temp.path(), "Line 1\nLine 2\nLine 3").unwrap();
+
+        let generator = StyledPreviewGenerator::new(100);
+        let result = generator.generate(temp.path());
+        assert!(result.is_ok());
+
+        let preview = result.unwrap();
+        assert_eq!(preview.lines.len(), 3);
+        assert!(!preview.truncated);
+        assert_eq!(preview.total_lines, 3);
+    }
+
+    #[test]
+    fn test_generator_truncation() {
+        let temp = NamedTempFile::new().unwrap();
+        let content: String = (0..100).map(|i| format!("Line {i}\n")).collect();
+        fs::write(temp.path(), content).unwrap();
+
+        let generator = StyledPreviewGenerator::new(10);
+        let result = generator.generate(temp.path());
+        assert!(result.is_ok());
+
+        let preview = result.unwrap();
+        assert_eq!(preview.lines.len(), 10);
+        assert!(preview.truncated);
+        assert_eq!(preview.total_lines, 100);
+    }
+}

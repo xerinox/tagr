@@ -1,7 +1,7 @@
 [package]
 name = "tagr"
 description = "A fast, tag-based file organizer and search tool for the command line."
-version = "0.7.0"
+version = "0.8.0"
 authors = ["Rainer Kildal <rkildal@gmail.com>"]
 edition = "2024"
 license = "MIT"
@@ -25,19 +25,30 @@ dialoguer = "0.11"
 dirs = "6.0.0"
 glob = "0.3"
 moka = { version = "0.12", features = ["sync"] }
-byte-unit = "5.1"
+byte-unit = { version = "5.2", default-features = false, features = ["std", "byte"] }
 open = "5.3"
 rayon = "1.7"
 regex = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
-skim = "0.20.5"
 sled = "0.34.7"
-syntect = { version = "5.2", optional = true }
 thiserror = "2.0.17"
 toml = "0.8"
 serde_json = "1.0"
 csv = "1.3"
 heck = "0.5"
 
+# TUI dependencies
+nucleo = "0.5"
+ratatui = "0.30"
+crossterm = "0.28"
+
+# Optional syntax highlighting (using fancy-regex for cross-platform support)
+syntect = { version = "5.2", optional = true, default-features = false, features = ["default-fancy"] }
+
 [dev-dependencies]
 tempfile = "3.23.0"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

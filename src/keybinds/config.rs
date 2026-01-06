@@ -1,9 +1,12 @@
 //! Configuration for keybinds.
 
+use crate::ui::BrowsePhase;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use super::actions::BrowseAction;
 
 /// Errors that can occur during configuration loading.
 #[derive(Debug, thiserror::Error)]
@@ -234,11 +237,13 @@ fn default_keybinds() -> HashMap<String, KeybindDef> {
         KeybindDef::Single("ctrl-b".to_string()),
     );
 
-    // System
+    // Search Refinement
     keybinds.insert(
-        "show_help".to_string(),
-        KeybindDef::Multiple(vec!["f1".to_string()]),
+        "refine_search".to_string(),
+        KeybindDef::Multiple(vec!["ctrl-/".to_string(), "f2".to_string()]),
     );
+
+    // Note: F1/? for help is handled internally by the TUI, not as a custom keybind
 
     keybinds
 }
@@ -323,18 +328,18 @@ impl KeybindConfig {
         })
     }
 
-    /// Convert keybind configuration to skim bind strings.
+    /// Convert keybind configuration to finder-compatible format.
     ///
-    /// Returns a vector of strings in skim's --bind format: "key:accept"
-    /// Only includes actions that are not disabled.
+    /// Returns a vector of "key:action" strings that can be passed to the
+    /// finder for custom keybind handling.
     ///
-    /// Note: Filters out Tab and `BTab` (Shift+Tab) to preserve skim's
-    /// default multi-select behavior.
+    /// Note: Filters out Tab and `BTab` (Shift+Tab) to preserve the
+    /// finder's default multi-select behavior.
     #[must_use]
-    pub fn skim_bindings(&self) -> Vec<String> {
+    pub fn bindings(&self) -> Vec<String> {
         let mut bindings = Vec::new();
 
-        for def in self.keybinds.values() {
+        for (action, def) in &self.keybinds {
             let keys = match def {
                 KeybindDef::Single(key) if key != "none" => vec![key.clone()],
                 KeybindDef::Multiple(keys) => {
@@ -344,12 +349,59 @@ impl KeybindConfig {
             };
 
             for key in keys {
-                // Skip Tab and BTab to preserve skim's multi-select behavior
+                // Skip Tab and BTab to preserve multi-select behavior
                 if key == "tab" || key == "btab" {
                     continue;
                 }
 
-                bindings.push(format!("{key}:accept"));
+                // Format: "key:action" - action is needed for ratatui handler
+                bindings.push(format!("{key}:{action}"));
+            }
+        }
+
+        bindings
+    }
+
+    /// Convert keybind configuration to finder-compatible format, filtered by phase.
+    ///
+    /// Returns a vector of "key:action" strings that can be passed to the
+    /// finder. Only includes actions that are available in the specified phase.
+    ///
+    /// # Arguments
+    ///
+    /// * `phase` - The current browse phase (tag selection or file selection)
+    #[must_use]
+    pub fn bindings_for_phase(&self, phase: BrowsePhase) -> Vec<String> {
+        let mut bindings = Vec::new();
+
+        for (action_name, def) in &self.keybinds {
+            // Check if this action is available in the current phase
+            if let Ok(action) = action_name.parse::<BrowseAction>() {
+                let available = match phase {
+                    BrowsePhase::TagSelection => action.available_in_tag_phase(),
+                    BrowsePhase::FileSelection => action.available_in_file_phase(),
+                };
+                if !available {
+                    continue;
+                }
+            }
+
+            let keys = match def {
+                KeybindDef::Single(key) if key != "none" => vec![key.clone()],
+                KeybindDef::Multiple(keys) => {
+                    keys.iter().filter(|k| *k != "none").cloned().collect()
+                }
+                KeybindDef::Single(_) => continue,
+            };
+
+            for key in keys {
+                // Skip Tab and BTab to preserve multi-select behavior
+                if key == "tab" || key == "btab" {
+                    continue;
+                }
+
+                // Format: "key:action" - action is needed for ratatui handler
+                bindings.push(format!("{key}:{action_name}"));
             }
         }
 
@@ -469,5 +521,30 @@ confirm_delete = false
         // If it does exist, it will load it instead
         let result = KeybindConfig::load_or_default();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_refine_search_included_in_file_phase_bindings() {
+        use crate::ui::BrowsePhase;
+
+        let config = KeybindConfig::default();
+        let bindings = config.bindings_for_phase(BrowsePhase::FileSelection);
+
+        // Check that refine_search keybinds are included
+        let has_refine_search = bindings.iter().any(|b| b.contains("refine_search"));
+        assert!(
+            has_refine_search,
+            "Expected refine_search in bindings: {:?}",
+            bindings
+        );
+
+        // Check both keybinds are present
+        let has_ctrl_slash = bindings.iter().any(|b| b == "ctrl-/:refine_search");
+        let has_f2 = bindings.iter().any(|b| b == "f2:refine_search");
+        assert!(
+            has_ctrl_slash || has_f2,
+            "Expected ctrl-/ or f2 keybind for refine_search: {:?}",
+            bindings
+        );
     }
 }

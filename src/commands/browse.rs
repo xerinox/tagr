@@ -12,7 +12,7 @@ use crate::{
     filters::{FilterCriteria, FilterManager},
     keybinds::config::KeybindConfig,
     output,
-    ui::skim_adapter::SkimFinder,
+    ui::ratatui_adapter::RatatuiFinder,
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -30,7 +30,7 @@ impl From<config::PathFormat> for crate::browse::session::PathFormat {
 ///
 /// # Errors
 /// Returns an error if database operations fail or if the browse operation encounters issues
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn execute(
     db: &Database,
     mut search_params: Option<SearchParams>,
@@ -111,7 +111,9 @@ pub fn execute(
 
     let session =
         BrowseSession::new(db, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
-    let finder = SkimFinder::new();
+
+    let finder = RatatuiFinder::with_styled_preview(100); // Max 100 lines of syntax-highlighted preview
+
     let controller = BrowseController::new(session, finder);
 
     match controller.run() {

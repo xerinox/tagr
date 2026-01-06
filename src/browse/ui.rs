@@ -1,7 +1,7 @@
 //! UI controller for unified browser workflow
 //!
 //! This module provides the UI controller layer that bridges between the
-//! business logic (`BrowseSession`) and the UI adapters (skim, ratatui).
+//! business logic (`BrowseSession`) and the TUI adapter (ratatui).
 //!
 //! # Architecture
 //!
@@ -71,6 +71,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// # Errors
     ///
     /// Returns error if database operations or action execution fails
+    #[allow(clippy::too_many_lines)]
     pub fn run(mut self) -> Result<Option<BrowseResult>, BrowseError> {
         loop {
             let phase = self.session.current_phase();
@@ -112,7 +113,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 } => {
                     match action {
                         BrowseAction::ShowHelp => {
-                            Self::show_help(&phase.settings.help_text);
+                            // Help is handled internally by the TUI overlay (F1/?)
+                            // This branch shouldn't be reached with ratatui
                             continue;
                         }
                         BrowseAction::SelectAll | BrowseAction::ClearSelection => {
@@ -124,6 +126,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                             );
                             continue;
                         }
+                        BrowseAction::RefineSearch => {
+                            // Refine search is handled via BrowserResult::RefineSearch
+                            // The TUI overlay handles the user interaction
+                            continue;
+                        }
                         _ => {}
                     }
 
@@ -132,6 +139,93 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
                     self.handle_action_outcome(outcome)?;
 
+                    self.session.refresh_current_phase()?;
+                }
+                BrowserResult::RefineSearch {
+                    include_tags,
+                    exclude_tags,
+                    file_patterns,
+                    virtual_tags,
+                } => {
+                    // User completed refine search overlay - apply the new criteria
+                    use crate::cli::SearchParams;
+
+                    let current =
+                        self.session
+                            .config()
+                            .initial_search
+                            .clone()
+                            .unwrap_or_else(|| {
+                                if let PhaseType::FileSelection { selected_tags } =
+                                    &self.session.current_phase().phase_type
+                                {
+                                    SearchParams {
+                                        query: None,
+                                        tags: selected_tags.clone(),
+                                        tag_mode: crate::cli::SearchMode::Any,
+                                        file_patterns: vec![],
+                                        file_mode: crate::cli::SearchMode::All,
+                                        exclude_tags: vec![],
+                                        regex_tag: false,
+                                        regex_file: false,
+                                        glob_files: false,
+                                        virtual_tags: vec![],
+                                        virtual_mode: crate::cli::SearchMode::All,
+                                    }
+                                } else {
+                                    SearchParams {
+                                        query: None,
+                                        tags: vec![],
+                                        tag_mode: crate::cli::SearchMode::Any,
+                                        file_patterns: vec![],
+                                        file_mode: crate::cli::SearchMode::All,
+                                        exclude_tags: vec![],
+                                        regex_tag: false,
+                                        regex_file: false,
+                                        glob_files: false,
+                                        virtual_tags: vec![],
+                                        virtual_mode: crate::cli::SearchMode::All,
+                                    }
+                                }
+                            });
+
+                    let new_params = SearchParams {
+                        query: current.query.clone(),
+                        tags: include_tags,
+                        tag_mode: current.tag_mode,
+                        file_patterns,
+                        file_mode: current.file_mode,
+                        exclude_tags,
+                        regex_tag: current.regex_tag,
+                        regex_file: current.regex_file,
+                        glob_files: current.glob_files,
+                        virtual_tags,
+                        virtual_mode: current.virtual_mode,
+                    };
+
+                    self.session.update_search_params(new_params)?;
+                    // Continue browsing with updated criteria
+                }
+                BrowserResult::InputAction {
+                    action_id,
+                    selected_ids,
+                    values,
+                } => {
+                    // Execute action directly - confirmation already done in TUI modal
+                    // Convert selected_ids to file paths
+                    let files: Vec<PathBuf> = selected_ids.iter().map(PathBuf::from).collect();
+
+                    // Execute the action based on action_id
+                    let outcome = if values.is_empty() {
+                        // Confirmation-only action (e.g., delete_from_db)
+                        self.execute_confirmed_action(&action_id, &files)?
+                    } else {
+                        // Input action (e.g., add_tag, remove_tag)
+                        let input = values.join(" ");
+                        self.execute_action_with_input(&action_id, &files, &input)?
+                    };
+
+                    self.handle_action_outcome(outcome)?;
                     self.session.refresh_current_phase()?;
                 }
                 BrowserResult::Cancel => {
@@ -168,32 +262,74 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
-        let keybinds = phase.settings.keybind_config.skim_bindings();
+        // Convert PhaseType to BrowsePhase for keybind filtering
+        let browse_phase = match &phase.phase_type {
+            PhaseType::TagSelection => crate::ui::BrowsePhase::TagSelection,
+            PhaseType::FileSelection { .. } => crate::ui::BrowsePhase::FileSelection,
+        };
+
+        let keybinds = phase
+            .settings
+            .keybind_config
+            .bindings_for_phase(browse_phase);
+
+        let search_criteria = self.session.search_criteria();
+        let available_tags = self.session.available_tags().unwrap_or_default();
 
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
             .with_ansi(true)
-            .with_binds(keybinds);
+            .with_binds(keybinds)
+            .with_phase(browse_phase)
+            .with_available_tags(available_tags)
+            .with_search_criteria(crate::ui::RefineSearchCriteria::new(
+                search_criteria.tags,
+                search_criteria.exclude_tags,
+                search_criteria.file_patterns,
+                search_criteria.virtual_tags,
+            ));
 
-        // Run finder - returns selection or action trigger
+        let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
+            config.with_preview(preview_cfg.into())
+        } else {
+            config
+        };
+
         let result = self.finder.run(config)?;
 
         if result.aborted {
             return Ok(BrowserResult::Cancel);
         }
 
-        if let Some(key) = &result.final_key
-            && key != "enter"
+        if let Some(ref criteria) = result.refine_search {
+            return Ok(BrowserResult::RefineSearch {
+                include_tags: criteria.include_tags.clone(),
+                exclude_tags: criteria.exclude_tags.clone(),
+                file_patterns: criteria.file_patterns.clone(),
+                virtual_tags: criteria.virtual_tags.clone(),
+            });
+        }
+
+        if let Some(ref input_action) = result.input_action {
+            return Ok(BrowserResult::InputAction {
+                action_id: input_action.action_id.clone(),
+                selected_ids: result.selected.clone(),
+                values: input_action.values.clone(),
+            });
+        }
+
+        if let Some(action_name) = &result.final_key
+            && action_name != "enter"
         {
-            // Look up action for this key
-            if let Some(action_name) = phase.settings.keybind_config.action_for_key(key) {
-                // Try to convert action name to BrowseAction
-                if let Ok(action) = action_name.parse::<BrowseAction>() {
-                    return Ok(BrowserResult::Action {
-                        action,
-                        selected_ids: result.selected,
-                    });
-                }
+            // final_key contains the action name directly
+            let resolved_action = action_name.clone();
+
+            // Try to convert action name to BrowseAction
+            if let Ok(action) = resolved_action.parse::<BrowseAction>() {
+                return Ok(BrowserResult::Action {
+                    action,
+                    selected_ids: result.selected,
+                });
             }
         }
 
@@ -214,7 +350,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     ) -> DisplayItem {
         match &item.metadata {
             ItemMetadata::Tag(tag_meta) => {
-                // Tag display: "tag_name (N files)"
                 let display = format!(
                     "{} {}",
                     item.name.blue().bold(),
@@ -230,17 +365,14 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
             }
             ItemMetadata::File(file_meta) => {
-                // File display: path [tags]
                 let path_str = self.format_path(&file_meta.path, phase_type);
 
-                // Color based on existence
                 let path_display = if file_meta.cached.exists {
                     path_str.green()
                 } else {
                     path_str.red().strikethrough()
                 };
 
-                // Add tags in brackets
                 let tags_display = if file_meta.tags.is_empty() {
                     String::new()
                 } else {
@@ -264,21 +396,17 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     ///
     /// Applies `PathFormat` settings from session config
     fn format_path(&self, path: &Path, phase_type: &PhaseType) -> String {
-        // Only use configured path format in file phase
         let path_format = match phase_type {
             PhaseType::FileSelection { .. } => &self.session.config().path_format,
-            PhaseType::TagSelection => &PathFormat::Absolute, // Default for tag phase
+            PhaseType::TagSelection => &PathFormat::Absolute,
         };
 
         match path_format {
             PathFormat::Absolute => path.display().to_string(),
-            PathFormat::Relative => {
-                // Try to make path relative to current directory
-                std::env::current_dir()
-                    .ok()
-                    .and_then(|cwd| path.strip_prefix(&cwd).ok())
-                    .map_or_else(|| path.display().to_string(), |p| p.display().to_string())
-            }
+            PathFormat::Relative => std::env::current_dir()
+                .ok()
+                .and_then(|cwd| path.strip_prefix(&cwd).ok())
+                .map_or_else(|| path.display().to_string(), |p| p.display().to_string()),
             PathFormat::Basename => path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -430,42 +558,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             ))),
         }
     }
-
-    /// Display help text to user
-    fn show_help(help_text: &crate::browse::session::HelpText) {
-        use crate::browse::session::HelpText;
-
-        println!("\n{}", "━".repeat(60).bright_blue());
-
-        match help_text {
-            HelpText::TagBrowser(_) => {
-                println!("{}", "  TAG BROWSER HELP".bright_cyan().bold());
-            }
-            HelpText::FileBrowser(_) => {
-                println!("{}", "  FILE BROWSER HELP".bright_cyan().bold());
-            }
-        }
-
-        println!("{}", "━".repeat(60).bright_blue());
-
-        let keybinds = match help_text {
-            HelpText::TagBrowser(k) | HelpText::FileBrowser(k) => k,
-        };
-
-        for (key, desc) in keybinds {
-            println!("  {:<15} {}", key.bright_yellow(), desc);
-        }
-
-        println!("{}", "━".repeat(60).bright_blue());
-        println!(
-            "\nPress {} to continue (or {} to exit browse mode)...",
-            "Enter".bright_green(),
-            "ESC".bright_yellow()
-        );
-
-        let mut input = String::new();
-        let _ = std::io::stdin().read_line(&mut input);
-    }
 }
 
 /// Result from running browser phase
@@ -478,6 +570,23 @@ enum BrowserResult {
     Action {
         action: BrowseAction,
         selected_ids: Vec<String>,
+    },
+
+    /// User submitted an input/confirmation action via TUI modal
+    /// This bypasses the executor's confirmation prompts since TUI already confirmed
+    InputAction {
+        action_id: String,
+        selected_ids: Vec<String>,
+        /// Values from text input (empty for confirmation-only actions)
+        values: Vec<String>,
+    },
+
+    /// User refined search criteria (F2 overlay completed)
+    RefineSearch {
+        include_tags: Vec<String>,
+        exclude_tags: Vec<String>,
+        file_patterns: Vec<String>,
+        virtual_tags: Vec<String>,
     },
 
     /// User cancelled (ESC)
@@ -539,6 +648,8 @@ mod tests {
                 selected: result.selected.clone(),
                 aborted: result.aborted,
                 final_key: result.final_key.clone(),
+                refine_search: result.refine_search.clone(),
+                input_action: result.input_action.clone(),
             })
         }
     }
@@ -553,6 +664,8 @@ mod tests {
             selected: vec![],
             aborted: true,
             final_key: None,
+            refine_search: None,
+            input_action: None,
         }]);
 
         let controller = BrowseController::new(session, mock_finder);
