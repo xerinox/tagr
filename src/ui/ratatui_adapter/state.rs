@@ -228,6 +228,30 @@ impl AppState {
         }
     }
 
+    /// Get all tags from selected items (or current item if no selection)
+    ///
+    /// Returns the union of all tags across selected items.
+    #[must_use]
+    pub fn get_selected_items_tags(&self) -> Vec<String> {
+        let items: Vec<&DisplayItem> = if self.multi_select && !self.selected.is_empty() {
+            self.selected
+                .iter()
+                .filter_map(|&idx| self.items.get(idx))
+                .collect()
+        } else {
+            self.current_item().into_iter().collect()
+        };
+
+        // Collect unique tags from all selected items
+        let mut tags: Vec<String> = items
+            .iter()
+            .flat_map(|item| item.metadata.tags.iter().cloned())
+            .collect();
+        tags.sort();
+        tags.dedup();
+        tags
+    }
+
     /// Update the filtered indices (called after nucleo matching)
     pub fn update_filtered(&mut self, indices: Vec<u32>) {
         self.filtered_indices = indices;
@@ -377,17 +401,20 @@ impl AppState {
     /// * `prompt` - The prompt/title to display
     /// * `action_id` - Identifier for the action (e.g., "add_tag", "remove_tag")
     /// * `autocomplete_items` - Items to use for fuzzy autocomplete
+    /// * `excluded_tags` - Tags already on the file(s), excluded from suggestions
     /// * `multi_value` - Whether to accept multiple space-separated values
     pub fn enter_text_input(
         &mut self,
         prompt: impl Into<String>,
         action_id: impl Into<String>,
         autocomplete_items: Vec<String>,
+        excluded_tags: Vec<String>,
         multi_value: bool,
     ) {
         self.text_input_state = Some(
             TextInputState::new(prompt, action_id)
                 .with_autocomplete(autocomplete_items)
+                .with_excluded_tags(excluded_tags)
                 .with_multi_value(multi_value),
         );
         self.mode = Mode::Input;

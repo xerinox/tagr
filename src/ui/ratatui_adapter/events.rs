@@ -136,8 +136,10 @@ fn handle_normal_mode(
             } else {
                 Vec::new()
             };
-            // enter_text_input(prompt, action_id, autocomplete_items, multi_value)
-            state.enter_text_input(title, action.clone(), autocomplete_items, true);
+            // Get tags already on the selected file(s) to exclude from suggestions
+            let excluded_tags = state.get_selected_items_tags();
+            // enter_text_input(prompt, action_id, autocomplete_items, excluded_tags, multi_value)
+            state.enter_text_input(title, action.clone(), autocomplete_items, excluded_tags, true);
             return EventResult::Continue;
         }
 

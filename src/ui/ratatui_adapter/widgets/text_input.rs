@@ -25,6 +25,8 @@ pub struct TextInputState {
     pub cursor: usize,
     /// Available items for autocomplete
     pub autocomplete_items: Vec<String>,
+    /// Tags already on the file(s) - excluded from suggestions
+    pub excluded_tags: Vec<String>,
     /// Filtered autocomplete suggestions
     pub suggestions: Vec<String>,
     /// Currently highlighted suggestion index
@@ -48,6 +50,7 @@ impl TextInputState {
             buffer: String::new(),
             cursor: 0,
             autocomplete_items: Vec::new(),
+            excluded_tags: Vec::new(),
             suggestions: Vec::new(),
             suggestion_cursor: 0,
             show_suggestions: false,
@@ -68,6 +71,14 @@ impl TextInputState {
     #[must_use]
     pub fn with_autocomplete(mut self, items: Vec<String>) -> Self {
         self.autocomplete_items = items;
+        self.update_suggestions();
+        self
+    }
+
+    /// Set tags to exclude from suggestions (already on the file)
+    #[must_use]
+    pub fn with_excluded_tags(mut self, tags: Vec<String>) -> Self {
+        self.excluded_tags = tags;
         self.update_suggestions();
         self
     }
@@ -109,23 +120,25 @@ impl TextInputState {
     pub fn update_suggestions(&mut self) {
         let query = self.current_word().to_lowercase();
 
-        if query.is_empty() {
-            self.suggestions.clear();
-            self.show_suggestions = false;
-            return;
-        }
-
-        // Filter items that match the query (fuzzy-ish: contains)
+        // Filter items that match the query (or show all if query is empty)
         self.suggestions = self
             .autocomplete_items
             .iter()
             .filter(|item| {
-                let item_lower = item.to_lowercase();
+                // Skip tags already on the file(s)
+                if self.excluded_tags.contains(item) {
+                    return false;
+                }
                 // Skip already-entered values in multi-value mode
                 if self.multi_value && self.entered_values.contains(item) {
                     return false;
                 }
+                // If query is empty, show all available items
+                if query.is_empty() {
+                    return true;
+                }
                 // Fuzzy match: contains query chars in order
+                let item_lower = item.to_lowercase();
                 fuzzy_match(&item_lower, &query)
             })
             .take(10) // Limit suggestions
@@ -353,12 +366,17 @@ impl Widget for TextInputModal<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Calculate modal size
         let width = 60.min(area.width.saturating_sub(4));
+
+        // Calculate height for entered tags row (if any)
+        let has_entered_tags = self.state.multi_value && !self.state.entered_values.is_empty();
+        let entered_tags_height: u16 = if has_entered_tags { 2 } else { 0 };
+
         let suggestions_height = if self.state.show_suggestions {
             (self.state.suggestions.len() as u16).min(8) + 2 // +2 for borders
         } else {
             0
         };
-        let height = 5 + suggestions_height; // prompt + input + padding + suggestions
+        let height = 5 + entered_tags_height + suggestions_height;
 
         let modal_area = Self::centered_rect(width, height, area);
 
@@ -375,29 +393,55 @@ impl Widget for TextInputModal<'_> {
         let inner = block.inner(modal_area);
         block.render(modal_area, buf);
 
-        // Layout: input field + suggestions (if any) + help
-        let constraints = if self.state.show_suggestions {
-            vec![
-                Constraint::Length(3),            // Input field
-                Constraint::Length(suggestions_height.saturating_sub(2)), // Suggestions
-                Constraint::Length(1),            // Help text
-            ]
-        } else {
-            vec![
-                Constraint::Length(3),            // Input field
-                Constraint::Length(1),            // Help text
-            ]
-        };
+        // Layout: entered tags (if any) + input field + suggestions (if any) + help
+        let mut constraints = Vec::new();
+
+        if has_entered_tags {
+            constraints.push(Constraint::Length(entered_tags_height));
+        }
+        constraints.push(Constraint::Length(3)); // Input field
+
+        if self.state.show_suggestions {
+            constraints.push(Constraint::Length(suggestions_height));
+        }
+        constraints.push(Constraint::Length(1)); // Help text
 
         let chunks = Layout::vertical(constraints).split(inner);
+        let mut chunk_idx = 0;
+
+        // Render entered tags as pills (if any)
+        if has_entered_tags {
+            let tags_line = Line::from(
+                self.state
+                    .entered_values
+                    .iter()
+                    .flat_map(|tag| {
+                        vec![
+                            Span::styled(
+                                format!(" {} ", tag),
+                                Style::default()
+                                    .bg(Color::Cyan)
+                                    .fg(Color::Black)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::raw(" "),
+                        ]
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            let tags_para = Paragraph::new(tags_line);
+            tags_para.render(chunks[chunk_idx], buf);
+            chunk_idx += 1;
+        }
 
         // Render input field
         let input_block = Block::default()
             .borders(Borders::ALL)
             .border_style(self.theme.border_style());
 
-        let input_inner = input_block.inner(chunks[0]);
-        input_block.render(chunks[0], buf);
+        let input_inner = input_block.inner(chunks[chunk_idx]);
+        input_block.render(chunks[chunk_idx], buf);
+        chunk_idx += 1;
 
         // Render the buffer with cursor
         let display_width = input_inner.width as usize;
@@ -453,20 +497,31 @@ impl Widget for TextInputModal<'_> {
         let input_paragraph = Paragraph::new(line);
         input_paragraph.render(input_inner, buf);
 
-        // Render suggestions if visible
-        let help_chunk_idx = if self.state.show_suggestions {
+        // Render suggestions if visible (with border and title)
+        if self.state.show_suggestions {
             let suggestions = self.build_suggestions();
-            let list = List::new(suggestions)
-                .block(Block::default().borders(Borders::NONE));
-            list.render(chunks[1], buf);
-            2
-        } else {
-            1
-        };
+            let suggestion_count = self.state.autocomplete_items.len();
+            let shown_count = self.state.suggestions.len();
+            let title = if shown_count < suggestion_count {
+                format!(" Tags ({}/{}) ", shown_count, suggestion_count)
+            } else {
+                format!(" Tags ({}) ", shown_count)
+            };
+
+            let list = List::new(suggestions).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(self.theme.border_style())
+                    .title(title)
+                    .title_alignment(Alignment::Left),
+            );
+            list.render(chunks[chunk_idx], buf);
+            chunk_idx += 1;
+        }
 
         // Render help text
         let help_text = if self.state.show_suggestions {
-            "TAB: accept suggestion | ↑↓: navigate | Enter: submit | ESC: cancel"
+            "TAB: accept | ↑↓: navigate | Enter: submit | ESC: cancel"
         } else {
             "Enter: submit | ESC: cancel"
         };
@@ -474,7 +529,7 @@ impl Widget for TextInputModal<'_> {
         let help = Paragraph::new(help_text)
             .style(self.theme.dimmed_style())
             .alignment(Alignment::Center);
-        help.render(chunks[help_chunk_idx], buf);
+        help.render(chunks[chunk_idx], buf);
     }
 }
 
