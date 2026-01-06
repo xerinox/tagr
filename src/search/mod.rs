@@ -10,23 +10,14 @@
 //!
 //! ```no_run
 //! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
-//! # use tagr::db::Database;
-//!
-//! #[cfg(feature = "ratatui-tui")]
 //! use tagr::ui::ratatui_adapter::RatatuiFinder;
-//!
-//! #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-//! use tagr::ui::skim_adapter::SkimFinder;
+//! # use tagr::db::Database;
 //!
 //! # fn example(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
 //! let config = BrowseConfig::default();
 //! let session = BrowseSession::new(db, config)?;
 //!
-//! #[cfg(feature = "ratatui-tui")]
 //! let finder = RatatuiFinder::new();
-//!
-//! #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-//! let finder = SkimFinder::new();
 //!
 //! let controller = BrowseController::new(session, finder);
 //! controller.run()?;

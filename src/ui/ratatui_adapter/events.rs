@@ -19,11 +19,17 @@ pub enum EventResult {
     /// Query changed, needs re-matching
     QueryChanged,
     /// Text input submitted with action ID and values
-    InputSubmitted { action_id: String, values: Vec<String> },
+    InputSubmitted {
+        action_id: String,
+        values: Vec<String>,
+    },
     /// Text input cancelled
     InputCancelled,
     /// Confirmation dialog confirmed with action ID and context
-    ConfirmSubmitted { action_id: String, context: Vec<String> },
+    ConfirmSubmitted {
+        action_id: String,
+        context: Vec<String>,
+    },
     /// Confirmation dialog cancelled
     ConfirmCancelled,
     /// No action taken
@@ -46,11 +52,23 @@ fn action_requires_input(action: &str) -> bool {
 #[must_use]
 fn get_input_prompt_for_action(action: &str) -> (String, String) {
     match action {
-        "add_tag" => ("Add Tags".to_string(), "Enter tags (space-separated)".to_string()),
-        "remove_tag" => ("Remove Tags".to_string(), "Enter tags to remove".to_string()),
+        "add_tag" => (
+            "Add Tags".to_string(),
+            "Enter tags (space-separated)".to_string(),
+        ),
+        "remove_tag" => (
+            "Remove Tags".to_string(),
+            "Enter tags to remove".to_string(),
+        ),
         "rename_tag" => ("Rename Tag".to_string(), "old_name new_name".to_string()),
-        "copy_tags" => ("Copy Tags From".to_string(), "Enter source file path".to_string()),
-        "set_tags" => ("Set Tags".to_string(), "Enter tags (replaces existing)".to_string()),
+        "copy_tags" => (
+            "Copy Tags From".to_string(),
+            "Enter source file path".to_string(),
+        ),
+        "set_tags" => (
+            "Set Tags".to_string(),
+            "Enter tags (replaces existing)".to_string(),
+        ),
         _ => ("Input".to_string(), "Enter value".to_string()),
     }
 }
@@ -145,7 +163,13 @@ fn handle_normal_mode(
             };
 
             // enter_text_input(prompt, action_id, autocomplete_items, excluded_tags, multi_value)
-            state.enter_text_input(title, action.clone(), autocomplete_items, excluded_tags, true);
+            state.enter_text_input(
+                title,
+                action.clone(),
+                autocomplete_items,
+                excluded_tags,
+                true,
+            );
             return EventResult::Continue;
         }
 
@@ -470,13 +494,13 @@ fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
 fn handle_confirm_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
     match (key.code, key.modifiers) {
         // Cancel confirmation
-        (KeyCode::Esc, _) | (KeyCode::Char('n'), _) | (KeyCode::Char('N'), _) => {
+        (KeyCode::Esc | KeyCode::Char('n' | 'N'), _) => {
             state.cancel_confirm();
             EventResult::ConfirmCancelled
         }
 
         // Confirm action
-        (KeyCode::Enter, _) | (KeyCode::Char('y'), _) | (KeyCode::Char('Y'), _) => {
+        (KeyCode::Enter | KeyCode::Char('y' | 'Y'), _) => {
             if let Some(confirm_state) = state.exit_confirm() {
                 EventResult::ConfirmSubmitted {
                     action_id: confirm_state.action_id,
@@ -560,14 +584,20 @@ mod tests {
         let binds = KeybindMap::new();
 
         // Down arrow
-        let result =
-            handle_normal_mode(&mut state, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &binds);
+        let result = handle_normal_mode(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            &binds,
+        );
         assert_eq!(result, EventResult::Continue);
         assert_eq!(state.cursor, 1);
 
         // Up arrow
-        let result =
-            handle_normal_mode(&mut state, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &binds);
+        let result = handle_normal_mode(
+            &mut state,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            &binds,
+        );
         assert_eq!(result, EventResult::Continue);
         assert_eq!(state.cursor, 0);
     }
@@ -638,8 +668,11 @@ mod tests {
         let mut state = make_state();
         let binds = KeybindMap::new();
 
-        let result =
-            handle_normal_mode(&mut state, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &binds);
+        let result = handle_normal_mode(
+            &mut state,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &binds,
+        );
         assert_eq!(result, EventResult::Abort);
     }
 }

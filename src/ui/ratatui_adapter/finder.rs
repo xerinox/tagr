@@ -2,7 +2,7 @@
 //!
 //! Implements the `FuzzyFinder` trait using ratatui for UI and nucleo for matching.
 
-use super::events::{poll_and_handle, EventResult, KeybindMap};
+use super::events::{EventResult, KeybindMap, poll_and_handle};
 use super::state::{AppState, Mode};
 use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
@@ -16,16 +16,16 @@ use crate::ui::types::{FinderResult, PreviewPosition};
 use crossterm::{
     event::KeyEvent,
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use nucleo::{
-    pattern::{CaseMatching, Normalization},
     Config, Nucleo,
+    pattern::{CaseMatching, Normalization},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    Frame, Terminal,
 };
 use std::io::{self, Stdout};
 use std::path::Path;
@@ -148,9 +148,7 @@ impl RatatuiFinder {
             "end" => KeyCode::End,
             "pgup" | "pageup" => KeyCode::PageUp,
             "pgdn" | "pagedown" => KeyCode::PageDown,
-            s if s.starts_with('f') && s.len() > 1 => {
-                s[1..].parse().ok().map(KeyCode::F)?
-            }
+            s if s.starts_with('f') && s.len() > 1 => s[1..].parse().ok().map(KeyCode::F)?,
             s if s.len() == 1 => KeyCode::Char(s.chars().next()?),
             _ => return None,
         };
@@ -209,9 +207,8 @@ impl RatatuiFinder {
         let mut binds: Vec<(String, String)> = custom_binds
             .iter()
             .filter_map(|(key, action)| {
-                super::events::key_to_string(key).map(|key_str| {
-                    (key_str, Self::format_action_name(action))
-                })
+                super::events::key_to_string(key)
+                    .map(|key_str| (key_str, Self::format_action_name(action)))
             })
             .collect();
 
@@ -302,7 +299,8 @@ impl RatatuiFinder {
     ) {
         match state.mode {
             Mode::Help => {
-                let help_overlay = HelpOverlay::new(theme).with_custom_binds(overlay_binds.to_vec());
+                let help_overlay =
+                    HelpOverlay::new(theme).with_custom_binds(overlay_binds.to_vec());
                 frame.render_widget(help_overlay, frame.area());
             }
             Mode::RefineSearch => {
@@ -337,10 +335,8 @@ impl RatatuiFinder {
         preview_content: Option<&StyledPreview>,
     ) {
         // Check if preview is enabled
-        let show_preview = preview_config
-            .map(|c| c.enabled)
-            .unwrap_or(false)
-            && preview_content.is_some();
+        let show_preview =
+            preview_config.map(|c| c.enabled).unwrap_or(false) && preview_content.is_some();
 
         if !show_preview {
             // Just render item list
@@ -427,8 +423,7 @@ impl RatatuiFinder {
                         if cached_preview_key.as_deref() != Some(current_key) {
                             // Use styled_generator for native ratatui styling
                             if let Some(generator) = &self.styled_generator {
-                                cached_preview =
-                                    generator.generate(Path::new(current_key)).ok();
+                                cached_preview = generator.generate(Path::new(current_key)).ok();
                             }
                             cached_preview_key = Some(current_key.to_string());
                         }

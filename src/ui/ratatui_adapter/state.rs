@@ -333,8 +333,7 @@ impl AppState {
 
     /// Clean up expired messages
     pub fn cleanup_messages(&mut self) {
-        self.messages
-            .retain(|m| !m.is_expired(self.message_ttl));
+        self.messages.retain(|m| !m.is_expired(self.message_ttl));
     }
 
     /// Mark the finder to exit with confirmation
@@ -462,9 +461,8 @@ impl AppState {
         action_id: impl Into<String>,
         context: Vec<String>,
     ) {
-        self.confirm_state = Some(
-            ConfirmDialogState::new(title, message, action_id).with_context(context),
-        );
+        self.confirm_state =
+            Some(ConfirmDialogState::new(title, message, action_id).with_context(context));
         self.mode = Mode::Confirm;
     }
 

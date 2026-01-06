@@ -75,7 +75,9 @@ impl Widget for ConfirmDialog<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Calculate modal size - wider for longer messages
         let message_width = self.state.message.len() as u16 + 4;
-        let width = message_width.clamp(40, 70).min(area.width.saturating_sub(4));
+        let width = message_width
+            .clamp(40, 70)
+            .min(area.width.saturating_sub(4));
 
         // Height: title border + message + context preview + buttons + help
         let context_lines = if self.state.context.is_empty() {
@@ -93,7 +95,11 @@ impl Widget for ConfirmDialog<'_> {
         // Main modal block with warning-colored border
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .border_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
             .title(format!(" {} ", self.state.title))
             .title_alignment(Alignment::Center);
 
@@ -150,8 +156,7 @@ impl Widget for ConfirmDialog<'_> {
                 })
                 .collect();
 
-            let context_para = Paragraph::new(context_text)
-                .style(self.theme.dimmed_style());
+            let context_para = Paragraph::new(context_text).style(self.theme.dimmed_style());
             context_para.render(chunks[next_chunk], buf);
             next_chunk += 1;
         }
@@ -209,15 +214,12 @@ mod tests {
 
     #[test]
     fn test_confirm_dialog_with_context() {
-        let state = ConfirmDialogState::new(
-            "Delete Files",
-            "Delete from database?",
-            "delete_from_db",
-        )
-        .with_context(vec![
-            "/path/to/file1.txt".to_string(),
-            "/path/to/file2.txt".to_string(),
-        ]);
+        let state =
+            ConfirmDialogState::new("Delete Files", "Delete from database?", "delete_from_db")
+                .with_context(vec![
+                    "/path/to/file1.txt".to_string(),
+                    "/path/to/file2.txt".to_string(),
+                ]);
 
         assert_eq!(state.context.len(), 2);
     }

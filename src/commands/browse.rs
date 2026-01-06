@@ -12,13 +12,8 @@ use crate::{
     filters::{FilterCriteria, FilterManager},
     keybinds::config::KeybindConfig,
     output,
+    ui::ratatui_adapter::RatatuiFinder,
 };
-
-#[cfg(feature = "ratatui-tui")]
-use crate::ui::ratatui_adapter::RatatuiFinder;
-
-#[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-use crate::ui::skim_adapter::SkimFinder;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -35,7 +30,7 @@ impl From<config::PathFormat> for crate::browse::session::PathFormat {
 ///
 /// # Errors
 /// Returns an error if database operations fail or if the browse operation encounters issues
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn execute(
     db: &Database,
     mut search_params: Option<SearchParams>,
@@ -117,12 +112,7 @@ pub fn execute(
     let session =
         BrowseSession::new(db, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
 
-    // Select finder implementation based on feature flags
-    #[cfg(feature = "ratatui-tui")]
     let finder = RatatuiFinder::with_styled_preview(100); // Max 100 lines of syntax-highlighted preview
-
-    #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-    let finder = SkimFinder::new();
 
     let controller = BrowseController::new(session, finder);
 

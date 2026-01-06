@@ -47,7 +47,7 @@ pub struct FinderConfig {
     pub ansi: bool,
     /// Preview configuration (None = no preview)
     pub preview_config: Option<PreviewConfig>,
-    /// Custom keybinds (skim --bind format: "key:action")
+    /// Custom keybinds ("key:action" format)
     pub bind: Vec<String>,
     /// Current browse phase (affects which keybinds are shown in help)
     pub phase: BrowsePhase,
@@ -174,8 +174,8 @@ impl From<crate::config::PreviewConfig> for PreviewConfig {
 /// Trait for fuzzy finder implementations
 ///
 /// This trait abstracts away the specific fuzzy finder backend,
-/// allowing skim to be swapped out for a custom TUI implementation
-/// or other backends in the future.
+/// allowing different TUI implementations to be used without
+/// changing business logic.
 pub trait FuzzyFinder {
     /// Run the fuzzy finder with given configuration
     ///

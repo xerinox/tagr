@@ -60,7 +60,7 @@ impl FuzzyFinder for SimpleFinder {
                 aborted: true,
                 final_key: Some("esc".to_string()),
                 refine_search: None,
-                input_action: None
+                input_action: None,
             });
         }
 
@@ -77,7 +77,7 @@ impl FuzzyFinder for SimpleFinder {
             aborted: false,
             final_key: Some("enter".to_string()),
             refine_search: None,
-            input_action: None
+            input_action: None,
         })
     }
 }
@@ -157,7 +157,7 @@ impl FuzzyFinder for FilteringFinder {
                     aborted: true,
                     final_key: Some("esc".to_string()),
                     refine_search: None,
-                    input_action: None
+                    input_action: None,
                 });
             } else if input.is_empty() {
                 // Enter pressed - finalize selection
@@ -179,7 +179,7 @@ impl FuzzyFinder for FilteringFinder {
                     aborted: false,
                     final_key: Some("enter".to_string()),
                     refine_search: None,
-                    input_action: None
+                    input_action: None,
                 });
             } else if let Ok(num) = input.parse::<usize>() {
                 // Number entered - toggle selection
@@ -197,7 +197,7 @@ impl FuzzyFinder for FilteringFinder {
                             aborted: false,
                             final_key: Some("enter".to_string()),
                             refine_search: None,
-                            input_action: None
+                            input_action: None,
                         });
                     }
                 }

@@ -258,15 +258,12 @@ impl TextInputState {
     #[must_use]
     pub fn values(&self) -> Vec<String> {
         if self.multi_value {
-            self.buffer
-                .split_whitespace()
-                .map(String::from)
-                .collect()
+            self.buffer.split_whitespace().map(String::from).collect()
         } else if self.buffer.trim().is_empty() {
             Vec::new()
         } else {
-                vec![self.buffer.clone()]
-            }
+            vec![self.buffer.clone()]
+        }
     }
 
     /// Clear the input
@@ -284,7 +281,9 @@ impl TextInputState {
 
         // Find the start of the word to delete
         let trimmed = before.trim_end();
-        let new_end = trimmed.rfind(|c: char| c.is_whitespace()).map_or(0, |last_space| last_space +1);
+        let new_end = trimmed
+            .rfind(|c: char| c.is_whitespace())
+            .map_or(0, |last_space| last_space + 1);
 
         self.buffer.drain(new_end..byte_idx);
         self.cursor = self.buffer[..new_end].chars().count();
@@ -481,7 +480,11 @@ impl Widget for TextInputModal<'_> {
         let cursor_char: String = visible_text.chars().skip(cursor_offset).take(1).collect();
         let after_cursor: String = visible_text.chars().skip(cursor_offset + 1).collect();
 
-        let cursor_display = if cursor_char.is_empty() { " " } else { &cursor_char };
+        let cursor_display = if cursor_char.is_empty() {
+            " "
+        } else {
+            &cursor_char
+        };
 
         let line = Line::from(vec![
             Span::raw(before_cursor),
@@ -588,24 +591,22 @@ mod tests {
 
     #[test]
     fn test_autocomplete() {
-        let state = TextInputState::new("Test", "test_action")
-            .with_autocomplete(vec![
-                "rust".to_string(),
-                "ruby".to_string(),
-                "python".to_string(),
-            ]);
+        let state = TextInputState::new("Test", "test_action").with_autocomplete(vec![
+            "rust".to_string(),
+            "ruby".to_string(),
+            "python".to_string(),
+        ]);
 
         assert!(state.autocomplete_items.len() == 3);
     }
 
     #[test]
     fn test_suggestions_filter() {
-        let mut state = TextInputState::new("Test", "test_action")
-            .with_autocomplete(vec![
-                "rust".to_string(),
-                "ruby".to_string(),
-                "python".to_string(),
-            ]);
+        let mut state = TextInputState::new("Test", "test_action").with_autocomplete(vec![
+            "rust".to_string(),
+            "ruby".to_string(),
+            "python".to_string(),
+        ]);
 
         state.insert_char('r');
         state.insert_char('u');

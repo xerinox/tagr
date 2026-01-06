@@ -441,10 +441,9 @@ impl Widget for RefineSearchOverlay<'_> {
             .split(inner);
 
             // Search bar
-            let search_block = Block::default()
-                .borders(Borders::ALL)
-                .title(" Filter ");
-            let search_text = Paragraph::new(self.state.selection_query.clone()).block(search_block);
+            let search_block = Block::default().borders(Borders::ALL).title(" Filter ");
+            let search_text =
+                Paragraph::new(self.state.selection_query.clone()).block(search_block);
             search_text.render(chunks[0], buf);
 
             // Selection list

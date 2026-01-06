@@ -607,8 +607,8 @@ mod tests {
 
     #[test]
     fn test_update_search_params() {
-        use crate::testing::TempFile;
         use crate::Pair;
+        use crate::testing::TempFile;
 
         let db = TestDb::new("test_update_search_params");
         db.db().clear().unwrap();
@@ -682,18 +682,15 @@ mod tests {
 
     #[test]
     fn test_refine_search_action_returns_needs_input() {
-        use crate::testing::TempFile;
         use crate::Pair;
+        use crate::testing::TempFile;
 
         let db = TestDb::new("test_refine_search_action");
         db.db().clear().unwrap();
 
         let file1 = TempFile::create("file1.txt").unwrap();
         db.db()
-            .insert_pair(&Pair::new(
-                file1.path().to_path_buf(),
-                vec!["test".into()],
-            ))
+            .insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["test".into()]))
             .unwrap();
 
         // Create session in file phase
@@ -715,14 +712,14 @@ mod tests {
         let session = BrowseSession::new(db.db(), config).unwrap();
 
         // Execute refine search action
-        let result = session.execute_action(&BrowseAction::RefineSearch, &[]).unwrap();
+        let result = session
+            .execute_action(&BrowseAction::RefineSearch, &[])
+            .unwrap();
 
         // Should return NeedsInput with search criteria
         match result {
             crate::browse::models::ActionOutcome::NeedsInput {
-                action_id,
-                context,
-                ..
+                action_id, context, ..
             } => {
                 assert_eq!(action_id, "refine_search");
                 match context.data {

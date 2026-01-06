@@ -1,8 +1,7 @@
 //! Example: Browse Mode Demo
 //!
-//! This example demonstrates the interactive browse functionality.
-//! It uses the ratatui-based fuzzy finder by default, or skim if
-//! the `skim-tui` feature is enabled.
+//! This example demonstrates the interactive browse functionality
+//! using the ratatui-based fuzzy finder.
 //!
 //! Run with:
 //! ```bash
@@ -14,12 +13,7 @@ use std::path::PathBuf;
 use tagr::Pair;
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
-
-#[cfg(feature = "ratatui-tui")]
 use tagr::ui::ratatui_adapter::RatatuiFinder;
-
-#[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-use tagr::ui::skim_adapter::SkimFinder;
 
 /// Create sample files in a temporary directory
 fn create_sample_files(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
@@ -125,13 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = BrowseConfig::default();
     let session = BrowseSession::new(&db, config)?;
 
-    // Create finder and controller based on feature flags
-    #[cfg(feature = "ratatui-tui")]
+    // Create finder and controller
     let finder = RatatuiFinder::new();
-
-    #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-    let finder = SkimFinder::new();
-
     let controller = BrowseController::new(session, finder);
 
     // Run the interactive browse

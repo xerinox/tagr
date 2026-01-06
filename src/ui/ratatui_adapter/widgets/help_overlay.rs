@@ -57,9 +57,7 @@ impl<'a> HelpOverlay<'a> {
             Line::default(),
             Line::styled(
                 "  Navigation",
-                self.theme
-                    .cursor_style()
-                    .add_modifier(Modifier::UNDERLINED),
+                self.theme.cursor_style().add_modifier(Modifier::UNDERLINED),
             ),
             Line::default(),
             Self::help_line("  ↑/↓", "Move cursor"),
@@ -71,9 +69,7 @@ impl<'a> HelpOverlay<'a> {
             Line::default(),
             Line::styled(
                 "  Search",
-                self.theme
-                    .cursor_style()
-                    .add_modifier(Modifier::UNDERLINED),
+                self.theme.cursor_style().add_modifier(Modifier::UNDERLINED),
             ),
             Line::default(),
             Self::help_line("  Type", "Filter items"),
@@ -86,9 +82,7 @@ impl<'a> HelpOverlay<'a> {
             lines.push(Line::default());
             lines.push(Line::styled(
                 "  Actions",
-                self.theme
-                    .cursor_style()
-                    .add_modifier(Modifier::UNDERLINED),
+                self.theme.cursor_style().add_modifier(Modifier::UNDERLINED),
             ));
             lines.push(Line::default());
 
@@ -110,7 +104,10 @@ impl<'a> HelpOverlay<'a> {
     /// Create a help line with key and description
     fn help_line(key: &'static str, desc: &'static str) -> Line<'static> {
         Line::from(vec![
-            Span::styled(format!("{key:<14}"), ratatui::style::Style::default().fg(ratatui::style::Color::Cyan)),
+            Span::styled(
+                format!("{key:<14}"),
+                ratatui::style::Style::default().fg(ratatui::style::Color::Cyan),
+            ),
             Span::raw(desc),
         ])
     }
@@ -118,7 +115,10 @@ impl<'a> HelpOverlay<'a> {
     /// Create a help line with owned strings
     fn help_line_owned(key: String, desc: String) -> Line<'static> {
         Line::from(vec![
-            Span::styled(format!("{key:<14}"), ratatui::style::Style::default().fg(ratatui::style::Color::Cyan)),
+            Span::styled(
+                format!("{key:<14}"),
+                ratatui::style::Style::default().fg(ratatui::style::Color::Cyan),
+            ),
             Span::raw(desc),
         ])
     }

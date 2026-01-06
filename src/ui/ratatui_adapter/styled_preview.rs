@@ -181,22 +181,14 @@ impl StyledPreviewGenerator {
 /// Convert syntect style to ratatui style
 #[cfg(feature = "syntax-highlighting")]
 fn syntect_to_ratatui(style: &syntect::highlighting::Style) -> Style {
-    let fg = Color::Rgb(
-        style.foreground.r,
-        style.foreground.g,
-        style.foreground.b,
-    );
+    let fg = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
 
     let mut ratatui_style = Style::default().fg(fg);
 
     // Only set background if it's not the default theme background
     // (to avoid overriding terminal transparency)
     if style.background.a > 0 && style.background != syntect::highlighting::Color::WHITE {
-        let bg = Color::Rgb(
-            style.background.r,
-            style.background.g,
-            style.background.b,
-        );
+        let bg = Color::Rgb(style.background.r, style.background.g, style.background.b);
         ratatui_style = ratatui_style.bg(bg);
     }
 

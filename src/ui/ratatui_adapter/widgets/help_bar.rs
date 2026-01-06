@@ -63,10 +63,7 @@ impl Widget for HelpBar<'_> {
             if i > 0 {
                 spans.push(Span::styled("  ", self.theme.dimmed_style()));
             }
-            spans.push(Span::styled(
-                hint.key.as_str(),
-                self.theme.cursor_style(),
-            ));
+            spans.push(Span::styled(hint.key.as_str(), self.theme.cursor_style()));
             spans.push(Span::styled(":", self.theme.dimmed_style()));
             spans.push(Span::raw(hint.action.as_str()));
         }

@@ -2,7 +2,7 @@
 //!
 //! This module provides data models and business logic for the interactive
 //! browse functionality in Tagr. It is designed to be UI-agnostic, allowing
-//! different frontends (skim, ratatui) to use the same underlying logic.
+//! different frontends to use the same underlying logic.
 //!
 //! # Architecture
 //!
@@ -22,13 +22,7 @@
 //! ```no_run
 //! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
 //! use tagr::db::Database;
-//!
-//! // Use the appropriate finder based on feature flags
-//! #[cfg(feature = "ratatui-tui")]
 //! use tagr::ui::ratatui_adapter::RatatuiFinder;
-//!
-//! #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-//! use tagr::ui::skim_adapter::SkimFinder;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Open database
@@ -39,11 +33,7 @@
 //! let session = BrowseSession::new(&db, config)?;
 //!
 //! // Create controller with finder
-//! #[cfg(feature = "ratatui-tui")]
 //! let finder = RatatuiFinder::new();
-//!
-//! #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
-//! let finder = SkimFinder::new();
 //!
 //! let controller = BrowseController::new(session, finder);
 //!
