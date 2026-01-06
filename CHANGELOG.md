@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-01-06
+
+### Changed
+
+#### Ratatui TUI Migration (Complete)
+- **Replaced skim with ratatui + nucleo** - Complete TUI overhaul
+  - Removed `skim` dependency entirely
+  - Added `nucleo` for fast fuzzy matching (10-100x faster for large lists)
+  - Added `ratatui` for modern terminal UI framework
+  - Added `crossterm` for cross-platform terminal handling
+- **Removed feature flags** - Simplified build configuration
+  - Removed `skim-tui` and `ratatui-tui` feature flags
+  - TUI dependencies are now always included (non-optional)
+  - Only remaining feature: `syntax-highlighting` (default, uses syntect)
+- **New TUI features**
+  - Modal text input with fuzzy autocomplete for tag entry
+  - Confirmation dialogs for destructive actions (delete from DB)
+  - F1 help overlay showing all keybinds
+  - F2 refine search overlay for editing search criteria in-TUI
+  - Native ratatui syntax-highlighted preview (no ANSI parsing)
+  - Shift+↑/↓ for preview pane scrolling
+- **Code cleanup**
+  - Deleted `src/ui/skim_adapter.rs` (~400 lines removed)
+  - Removed all `#[cfg(feature = "...")]` conditional compilation
+  - Renamed `ratatui_bindings()` → `bindings()` in keybind config
+  - Applied `cargo fmt --all` formatting
+
+### Removed
+
+- `skim` dependency
+- `skim-tui` feature flag
+- `ratatui-tui` feature flag (now always included)
+- `skim_bindings()` method from KeybindConfig
+
+---
+
 ## [Unreleased]
 
 ### Added
@@ -45,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **UI Abstraction** - Backend-agnostic preview system
   - `PreviewProvider` trait for custom preview implementations
   - `PreviewText` type with ANSI metadata tracking
-  - skim adapter uses `ItemPreview::AnsiText` for colored output
+  - Native ratatui styled preview with syntax highlighting
   - Easy to add new preview providers
 
 #### Virtual Tags Feature (Complete)
@@ -330,7 +366,9 @@ for item in old_db.iter() {
 
 ### Added
 - `chrono = "0.4"` - Date/time handling for filter timestamps
-- `skim = "0.20.5"` - Fuzzy finder library
+- `nucleo = "0.5"` - Fast fuzzy matching engine
+- `ratatui = "0.30"` - Terminal UI framework
+- `crossterm = "0.28"` - Cross-platform terminal handling
 - `bincode = "2.0.0-rc.3"` - Binary serialization
 - `sled = "0.34"` - Embedded database
 - `clap = "4.5"` - CLI parsing
@@ -356,7 +394,6 @@ None at this time.
 ## Future Enhancements
 
 ### Potential Improvements
-- Preview pane - Show file content in skim preview
 - Tag statistics - Show file count per tag inline
 - Recent selections - Remember last used tags
 - Custom search queries - Complex tag expressions (e.g., `(rust AND web) OR python`)
@@ -389,14 +426,15 @@ This project evolved through several key phases:
 4. **Maintenance Features** - Cleanup command and database management
 5. **Library Development** - Exposed public API for use as a library
 6. **Documentation** - Comprehensive guides and examples
+7. **Ratatui Migration** - Replaced skim with nucleo + ratatui for modern TUI
 
 ### Code Statistics
 
 - **Core Modules**: 5 (lib, main, cli, config, db, search)
 - **Database Trees**: 2 (files, tags)
 - **CLI Commands**: 15+
-- **Example Programs**: 1 (browse_demo)
-- **Lines of Code**: ~2000+ (excluding comments)
+- **Example Programs**: 2 (browse_demo, custom_frontend)
+- **Lines of Code**: ~3000+ (excluding comments)
 
 ### Contributors
 

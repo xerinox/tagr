@@ -14,8 +14,8 @@ name = "default"
 
 # UI configuration
 [ui]
-# Fuzzy finder backend: "skim" (current), "custom" (future TUI)
-backend = "skim"
+# Fuzzy finder backend: "ratatui" (built-in TUI with nucleo fuzzy matching)
+backend = "ratatui"
 
 # Preview pane configuration
 [preview]

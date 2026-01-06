@@ -1140,7 +1140,7 @@ tagr can be used as a library in your Rust projects:
 ```rust
 use tagr::{db::Database, browse, filters::FilterManager};
 use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
-use tagr::ui::skim_adapter::SkimFinder;
+use tagr::ui::RatatuiFinder;
 use std::path::PathBuf;
 
 // Database operations
@@ -1152,10 +1152,10 @@ let files = db.find_by_tag("tag1").unwrap();
 let filter_manager = FilterManager::new(PathBuf::from("~/.config/tagr/filters.toml"));
 let filters = filter_manager.list().unwrap();
 
-// Interactive browse with skim
+// Interactive browse with ratatui
 let config = BrowseConfig::default();
 let session = BrowseSession::new(&db, config).unwrap();
-let finder = SkimFinder::new();
+let finder = RatatuiFinder::new();
 let controller = BrowseController::new(session, finder);
 
 match controller.run() {
@@ -1175,11 +1175,11 @@ match controller.run() {
 
 ### Interactive Browse API
 
-The browse functionality is cleanly separated into business logic and UI layers, making it easy to swap UI backends (e.g., skim → ratatui):
+The browse functionality is cleanly separated into business logic and UI layers:
 
 ```rust
 use tagr::browse::{BrowseSession, BrowseController, BrowseConfig, PathFormat};
-use tagr::ui::skim_adapter::SkimFinder;
+use tagr::ui::RatatuiFinder;
 
 // Configure browse session
 let config = BrowseConfig {
@@ -1190,7 +1190,7 @@ let config = BrowseConfig {
 };
 
 let session = BrowseSession::new(&db, config).unwrap();
-let controller = BrowseController::new(session, SkimFinder::new());
+let controller = BrowseController::new(session, RatatuiFinder::new());
 
 if let Ok(Some(result)) = controller.run() {
     // Process selected files
@@ -1400,7 +1400,9 @@ cargo test
 ## Dependencies
 
 - **sled** - Embedded database for persistent storage
-- **skim** - Fuzzy finder for interactive browsing
+- **nucleo** - Fast fuzzy matching engine
+- **ratatui** - Modern terminal user interface framework
+- **crossterm** - Cross-platform terminal manipulation
 - **bincode** - Efficient binary serialization
 - **clap** - Command-line argument parsing
 - **chrono** - Date/time handling for filter timestamps
