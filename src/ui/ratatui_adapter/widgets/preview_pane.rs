@@ -22,7 +22,7 @@ pub struct PreviewPane<'a> {
 impl<'a> PreviewPane<'a> {
     /// Create a new preview pane widget with styled content
     #[must_use]
-    pub fn new(content: Option<&'a StyledPreview>, theme: &'a Theme) -> Self {
+    pub const fn new(content: Option<&'a StyledPreview>, theme: &'a Theme) -> Self {
         Self {
             styled_content: content,
             theme,
@@ -32,6 +32,7 @@ impl<'a> PreviewPane<'a> {
 
     /// Set scroll offset
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub const fn scroll(mut self, scroll: usize) -> Self {
         self.scroll = scroll as u16;
         self

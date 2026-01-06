@@ -75,7 +75,7 @@ impl RatatuiFinder {
 
     /// Set custom theme
     #[must_use]
-    pub fn with_theme(mut self, theme: Theme) -> Self {
+    pub const fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
         self
     }
@@ -102,12 +102,12 @@ impl RatatuiFinder {
 
         for bind in binds {
             // Format: "key:action" e.g., "ctrl-t:add_tag"
-            if let Some((key_str, action)) = bind.split_once(':') {
-                if let Some(key_event) = Self::parse_key_string(key_str) {
-                    // Skip navigation/toggle actions - we handle those internally
-                    if !matches!(action, "accept" | "abort" | "toggle" | "up" | "down") {
-                        map.insert(key_event, action.to_string());
-                    }
+            if let Some((key_str, action)) = bind.split_once(':')
+                && let Some(key_event) = Self::parse_key_string(key_str)
+            {
+                // Skip navigation/toggle actions - we handle those internally
+                if !matches!(action, "accept" | "abort" | "toggle" | "up" | "down") {
+                    map.insert(key_event, action.to_string());
                 }
             }
         }
@@ -164,6 +164,7 @@ impl RatatuiFinder {
         // Inject items
         let injector = nucleo.injector();
         for (idx, item) in items.iter().enumerate() {
+            #[allow(clippy::cast_possible_truncation)]
             let _ = injector.push(idx as u32, |_, cols| {
                 cols[0] = item.searchable.clone().into();
             });
@@ -317,7 +318,7 @@ impl RatatuiFinder {
                     frame.render_widget(confirm_dialog, frame.area());
                 }
             }
-            _ => {}
+            Mode::Normal => {}
         }
     }
 
@@ -330,8 +331,7 @@ impl RatatuiFinder {
         preview_config: Option<&crate::ui::PreviewConfig>,
         preview_content: Option<&StyledPreview>,
     ) {
-        let show_preview =
-            preview_config.map(|c| c.enabled).unwrap_or(false) && preview_content.is_some();
+        let show_preview = preview_config.is_some_and(|c| c.enabled) && preview_content.is_some();
 
         if !show_preview {
             // Just render item list
@@ -393,11 +393,11 @@ impl RatatuiFinder {
     fn run_loop(
         &self,
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-        config: FinderConfig,
+        config: &FinderConfig,
     ) -> Result<FinderResult> {
         let mut state = AppState::new(config.items.clone(), config.multi_select);
         // Set available tags for autocomplete in text input modals
-        state.available_tags = config.available_tags.clone();
+        state.available_tags.clone_from(&config.available_tags);
         let mut nucleo = Self::create_matcher(&config.items);
         let custom_binds = Self::parse_keybinds(&config.bind);
         let hints = Self::build_hints();
@@ -412,18 +412,17 @@ impl RatatuiFinder {
 
         loop {
             // Update preview if needed - prefer styled_generator (native ratatui) over preview_provider (ANSI)
-            if let Some(preview_config) = &config.preview_config {
-                if preview_config.enabled {
-                    if let Some(current_key) = state.current_key() {
-                        if cached_preview_key.as_deref() != Some(current_key) {
-                            // Use styled_generator for native ratatui styling
-                            if let Some(generator) = &self.styled_generator {
-                                cached_preview = generator.generate(Path::new(current_key)).ok();
-                            }
-                            cached_preview_key = Some(current_key.to_string());
-                        }
-                    }
+            if let Some(preview_config) = &config.preview_config
+                && preview_config.enabled
+                && let Some(current_key) = state
+                    .current_key()
+                    .filter(|&k| cached_preview_key.as_deref() != Some(k))
+            {
+                // Use styled_generator for native ratatui styling
+                if let Some(generator) = &self.styled_generator {
+                    cached_preview = generator.generate(Path::new(current_key)).ok();
                 }
+                cached_preview_key = Some(current_key.to_string());
             }
 
             // Render
@@ -488,9 +487,6 @@ impl RatatuiFinder {
                         values,
                     ));
                 }
-                EventResult::InputCancelled => {
-                    // Input was cancelled, just continue browsing
-                }
                 EventResult::ConfirmSubmitted { action_id, context } => {
                     // Confirmation dialog was confirmed - return to caller with action info
                     // The context contains the file paths that were selected for the action
@@ -500,10 +496,12 @@ impl RatatuiFinder {
                         Vec::new(), // No additional values for confirmation-only actions
                     ));
                 }
-                EventResult::ConfirmCancelled => {
-                    // Confirmation was cancelled, just continue browsing
+                EventResult::InputCancelled
+                | EventResult::ConfirmCancelled
+                | EventResult::Continue
+                | EventResult::Ignored => {
+                    // Input/Confirmation cancelled or ignored, just continue browsing
                 }
-                EventResult::Continue | EventResult::Ignored => {}
             }
 
             if state.should_exit {
@@ -536,7 +534,7 @@ impl FuzzyFinder for RatatuiFinder {
         let mut terminal = Self::setup_terminal()?;
 
         // Run the event loop, ensuring cleanup happens
-        let result = self.run_loop(&mut terminal, config);
+        let result = self.run_loop(&mut terminal, &config);
 
         // Cleanup terminal (always, even on error)
         if let Err(e) = Self::cleanup_terminal() {

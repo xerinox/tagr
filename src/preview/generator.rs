@@ -78,7 +78,7 @@ impl PreviewGenerator {
 
         match self.generate_text_preview(path, file_size) {
             Ok(content) => Ok(content),
-            Err(PreviewError::InvalidUtf8(_)) => Ok(self.generate_binary_preview(path, &metadata)),
+            Err(PreviewError::InvalidUtf8(_)) => Ok(Self::generate_binary_preview(path, &metadata)),
             Err(e) => Err(e),
         }
     }
@@ -188,7 +188,7 @@ impl PreviewGenerator {
             .collect()
     }
 
-    fn generate_binary_preview(&self, path: &Path, metadata: &fs::Metadata) -> PreviewContent {
+    fn generate_binary_preview(path: &Path, metadata: &fs::Metadata) -> PreviewContent {
         let file_metadata = FileMetadata {
             path: path.to_path_buf(),
             size: metadata.len(),
@@ -196,13 +196,13 @@ impl PreviewGenerator {
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64),
+                .and_then(|d| d.as_secs().try_into().ok()),
             permissions: Some(Self::format_permissions(metadata)),
             file_type: Self::detect_file_type(path),
         };
 
         if Self::is_image(path)
-            && let Some(image_meta) = self.extract_image_metadata(path, file_metadata.clone())
+            && let Some(image_meta) = Self::extract_image_metadata(path, file_metadata.clone())
         {
             return PreviewContent::Image {
                 metadata: image_meta,
@@ -268,7 +268,6 @@ impl PreviewGenerator {
     /// Use image crate to extract actual dimensions and format information.
     #[allow(clippy::unnecessary_wraps)]
     const fn extract_image_metadata(
-        &self,
         _path: &Path,
         file_metadata: FileMetadata,
     ) -> Option<ImageMetadata> {

@@ -37,7 +37,7 @@ impl<'a> StatusBar<'a> {
     }
 
     /// Get prefix for a message level
-    fn prefix_for_level(level: MessageLevel) -> &'static str {
+    const fn prefix_for_level(level: MessageLevel) -> &'static str {
         match level {
             MessageLevel::Success => "✓ ",
             MessageLevel::Error => "✗ ",

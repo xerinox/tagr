@@ -403,12 +403,10 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
         match path_format {
             PathFormat::Absolute => path.display().to_string(),
-            PathFormat::Relative => {
-                std::env::current_dir()
-                    .ok()
-                    .and_then(|cwd| path.strip_prefix(&cwd).ok())
-                    .map_or_else(|| path.display().to_string(), |p| p.display().to_string())
-            }
+            PathFormat::Relative => std::env::current_dir()
+                .ok()
+                .and_then(|cwd| path.strip_prefix(&cwd).ok())
+                .map_or_else(|| path.display().to_string(), |p| p.display().to_string()),
             PathFormat::Basename => path
                 .file_name()
                 .and_then(|n| n.to_str())

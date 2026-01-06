@@ -72,6 +72,7 @@ impl<'a> ConfirmDialog<'a> {
 }
 
 impl Widget for ConfirmDialog<'_> {
+    #[allow(clippy::cast_possible_truncation)]
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Calculate modal size - wider for longer messages
         let message_width = self.state.message.len() as u16 + 4;

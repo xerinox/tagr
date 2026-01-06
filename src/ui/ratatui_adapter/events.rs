@@ -88,7 +88,7 @@ fn get_confirm_prompt_for_action(action: &str, selected_count: usize) -> (String
             let message = if selected_count == 1 {
                 "Remove this file from the tagr database?".to_string()
             } else {
-                format!("Remove {} files from the tagr database?", selected_count)
+                format!("Remove {selected_count} files from the tagr database?")
             };
             (title, message)
         }
@@ -300,14 +300,10 @@ fn handle_normal_mode(
 }
 
 /// Handle events in help mode
-fn handle_help_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
+const fn handle_help_mode(state: &mut AppState, _key: KeyEvent) -> EventResult {
     // Any key closes help
     state.mode = Mode::Normal;
-    if key.code == KeyCode::Esc {
-        EventResult::Continue
-    } else {
-        EventResult::Continue
-    }
+    EventResult::Continue
 }
 
 /// Handle events in refine search mode

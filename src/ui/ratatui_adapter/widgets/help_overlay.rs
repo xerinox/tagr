@@ -87,7 +87,7 @@ impl<'a> HelpOverlay<'a> {
             lines.push(Line::default());
 
             for (key, action) in &self.custom_binds {
-                lines.push(Self::help_line_owned(format!("  {key}"), action.clone()));
+                lines.push(Self::help_line_owned(&format!("  {key}"), action.clone()));
             }
         }
 
@@ -113,7 +113,7 @@ impl<'a> HelpOverlay<'a> {
     }
 
     /// Create a help line with owned strings
-    fn help_line_owned(key: String, desc: String) -> Line<'static> {
+    fn help_line_owned(key: &str, desc: String) -> Line<'static> {
         Line::from(vec![
             Span::styled(
                 format!("{key:<14}"),

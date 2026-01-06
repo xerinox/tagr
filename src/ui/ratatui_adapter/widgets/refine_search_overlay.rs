@@ -160,12 +160,12 @@ impl RefineSearchState {
     }
 
     /// Move to next field
-    pub fn next_field(&mut self) {
+    pub const fn next_field(&mut self) {
         self.selected_field = self.selected_field.next();
     }
 
     /// Move to previous field
-    pub fn prev_field(&mut self) {
+    pub const fn prev_field(&mut self) {
         self.selected_field = self.selected_field.prev();
     }
 
@@ -252,14 +252,14 @@ impl RefineSearchState {
     }
 
     /// Move cursor up in selection
-    pub fn selection_up(&mut self) {
+    pub const fn selection_up(&mut self) {
         if self.selection_cursor > 0 {
             self.selection_cursor -= 1;
         }
     }
 
     /// Move cursor down in selection
-    pub fn selection_down(&mut self) {
+    pub const fn selection_down(&mut self) {
         if self.selection_cursor + 1 < self.selection_items.len() {
             self.selection_cursor += 1;
         }

@@ -105,6 +105,7 @@ impl AppState {
     pub fn new(items: Vec<DisplayItem>, multi_select: bool) -> Self {
         let item_count = items.len();
         // Initially all items are visible (no filter applied)
+        #[allow(clippy::cast_possible_truncation)]
         let filtered_indices: Vec<u32> = (0..item_count as u32).collect();
 
         Self {
@@ -132,7 +133,7 @@ impl AppState {
     }
 
     /// Move cursor up
-    pub fn cursor_up(&mut self) {
+    pub const fn cursor_up(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
             self.adjust_scroll();
@@ -140,7 +141,7 @@ impl AppState {
     }
 
     /// Move cursor down
-    pub fn cursor_down(&mut self) {
+    pub const fn cursor_down(&mut self) {
         if self.cursor + 1 < self.filtered_indices.len() {
             self.cursor += 1;
             self.adjust_scroll();
@@ -148,7 +149,7 @@ impl AppState {
     }
 
     /// Move cursor up by one page
-    pub fn page_up(&mut self) {
+    pub const fn page_up(&mut self) {
         self.cursor = self.cursor.saturating_sub(self.visible_height);
         self.adjust_scroll();
     }
@@ -161,19 +162,19 @@ impl AppState {
     }
 
     /// Jump to first item
-    pub fn jump_to_start(&mut self) {
+    pub const fn jump_to_start(&mut self) {
         self.cursor = 0;
         self.adjust_scroll();
     }
 
     /// Jump to last item
-    pub fn jump_to_end(&mut self) {
+    pub const fn jump_to_end(&mut self) {
         self.cursor = self.filtered_indices.len().saturating_sub(1);
         self.adjust_scroll();
     }
 
     /// Adjust scroll offset to keep cursor visible
-    fn adjust_scroll(&mut self) {
+    const fn adjust_scroll(&mut self) {
         // Ensure cursor is visible in the viewport
         if self.cursor < self.scroll_offset {
             self.scroll_offset = self.cursor;
@@ -275,8 +276,7 @@ impl AppState {
             let prev_char_boundary = self.query[..self.query_cursor]
                 .char_indices()
                 .next_back()
-                .map(|(i, _)| i)
-                .unwrap_or(0);
+                .map_or(0, |(i, _)| i);
             self.query.remove(prev_char_boundary);
             self.query_cursor = prev_char_boundary;
         }
@@ -295,8 +295,7 @@ impl AppState {
             self.query_cursor = self.query[..self.query_cursor]
                 .char_indices()
                 .next_back()
-                .map(|(i, _)| i)
-                .unwrap_or(0);
+                .map_or(0, |(i, _)| i);
         }
     }
 
@@ -306,8 +305,7 @@ impl AppState {
             self.query_cursor = self.query[self.query_cursor..]
                 .char_indices()
                 .nth(1)
-                .map(|(i, _)| self.query_cursor + i)
-                .unwrap_or(self.query.len());
+                .map_or(self.query.len(), |(i, _)| self.query_cursor + i);
         }
     }
 
@@ -377,20 +375,20 @@ impl AppState {
 
     /// Exit refine search mode and return collected criteria
     #[must_use]
-    pub fn exit_refine_search(&mut self) -> Option<RefineSearchState> {
+    pub const fn exit_refine_search(&mut self) -> Option<RefineSearchState> {
         self.mode = Mode::Normal;
         self.refine_search_state.take()
     }
 
     /// Get mutable reference to refine search state
     #[must_use]
-    pub fn refine_search_state_mut(&mut self) -> Option<&mut RefineSearchState> {
+    pub const fn refine_search_state_mut(&mut self) -> Option<&mut RefineSearchState> {
         self.refine_search_state.as_mut()
     }
 
     /// Get immutable reference to refine search state
     #[must_use]
-    pub fn refine_search_state(&self) -> Option<&RefineSearchState> {
+    pub const fn refine_search_state(&self) -> Option<&RefineSearchState> {
         self.refine_search_state.as_ref()
     }
 
@@ -398,7 +396,7 @@ impl AppState {
     ///
     /// # Arguments
     /// * `prompt` - The prompt/title to display
-    /// * `action_id` - Identifier for the action (e.g., "add_tag", "remove_tag")
+    /// * `action_id` - Identifier for the action (e.g., "`add_tag`", "`remove_tag`")
     /// * `autocomplete_items` - Items to use for fuzzy autocomplete
     /// * `excluded_tags` - Tags already on the file(s), excluded from suggestions
     /// * `multi_value` - Whether to accept multiple space-separated values
@@ -424,7 +422,7 @@ impl AppState {
     /// Returns `None` if not in input mode, otherwise returns the input state
     /// with all entered values.
     #[must_use]
-    pub fn exit_text_input(&mut self) -> Option<TextInputState> {
+    pub const fn exit_text_input(&mut self) -> Option<TextInputState> {
         self.mode = Mode::Normal;
         self.text_input_state.take()
     }
@@ -437,13 +435,13 @@ impl AppState {
 
     /// Get mutable reference to text input state
     #[must_use]
-    pub fn text_input_state_mut(&mut self) -> Option<&mut TextInputState> {
+    pub const fn text_input_state_mut(&mut self) -> Option<&mut TextInputState> {
         self.text_input_state.as_mut()
     }
 
     /// Get immutable reference to text input state
     #[must_use]
-    pub fn text_input_state(&self) -> Option<&TextInputState> {
+    pub const fn text_input_state(&self) -> Option<&TextInputState> {
         self.text_input_state.as_ref()
     }
 
@@ -470,7 +468,7 @@ impl AppState {
     ///
     /// Returns the confirmation state if confirmed, None if cancelled.
     #[must_use]
-    pub fn exit_confirm(&mut self) -> Option<ConfirmDialogState> {
+    pub const fn exit_confirm(&mut self) -> Option<ConfirmDialogState> {
         self.mode = Mode::Normal;
         self.confirm_state.take()
     }
@@ -483,7 +481,7 @@ impl AppState {
 
     /// Get immutable reference to confirm state
     #[must_use]
-    pub fn confirm_state(&self) -> Option<&ConfirmDialogState> {
+    pub const fn confirm_state(&self) -> Option<&ConfirmDialogState> {
         self.confirm_state.as_ref()
     }
 }

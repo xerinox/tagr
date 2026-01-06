@@ -62,7 +62,7 @@ impl TextInputState {
 
     /// Enable multi-value mode (space-separated values)
     #[must_use]
-    pub fn with_multi_value(mut self, multi: bool) -> Self {
+    pub const fn with_multi_value(mut self, multi: bool) -> Self {
         self.multi_value = multi;
         self
     }
@@ -185,7 +185,7 @@ impl TextInputState {
     }
 
     /// Move cursor left
-    pub fn cursor_left(&mut self) {
+    pub const fn cursor_left(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
         }
@@ -200,7 +200,7 @@ impl TextInputState {
     }
 
     /// Move cursor to start
-    pub fn cursor_home(&mut self) {
+    pub const fn cursor_home(&mut self) {
         self.cursor = 0;
     }
 
@@ -210,7 +210,7 @@ impl TextInputState {
     }
 
     /// Move suggestion cursor up
-    pub fn suggestion_up(&mut self) {
+    pub const fn suggestion_up(&mut self) {
         if self.suggestion_cursor > 0 {
             self.suggestion_cursor -= 1;
         } else if !self.suggestions.is_empty() {
@@ -219,7 +219,7 @@ impl TextInputState {
     }
 
     /// Move suggestion cursor down
-    pub fn suggestion_down(&mut self) {
+    pub const fn suggestion_down(&mut self) {
         if self.suggestion_cursor + 1 < self.suggestions.len() {
             self.suggestion_cursor += 1;
         } else {
@@ -364,7 +364,10 @@ impl Widget for TextInputModal<'_> {
         let entered_tags_height: u16 = if has_entered_tags { 2 } else { 0 };
 
         let suggestions_height = if self.state.show_suggestions {
-            (self.state.suggestions.len() as u16).min(8) + 2 // +2 for borders
+            u16::try_from(self.state.suggestions.len())
+                .unwrap_or(u16::MAX)
+                .min(8)
+                + 2 // +2 for borders
         } else {
             0
         };
@@ -411,7 +414,7 @@ impl Widget for TextInputModal<'_> {
                     .flat_map(|tag| {
                         vec![
                             Span::styled(
-                                format!(" {} ", tag),
+                                format!(" {tag} "),
                                 Style::default()
                                     .bg(Color::Cyan)
                                     .fg(Color::Black)
@@ -500,9 +503,9 @@ impl Widget for TextInputModal<'_> {
             let suggestion_count = self.state.autocomplete_items.len();
             let shown_count = self.state.suggestions.len();
             let title = if shown_count < suggestion_count {
-                format!(" Tags ({}/{}) ", shown_count, suggestion_count)
+                format!(" Tags ({shown_count}/{suggestion_count}) ")
             } else {
-                format!(" Tags ({}) ", shown_count)
+                format!(" Tags ({shown_count}) ")
             };
 
             let list = List::new(suggestions).block(

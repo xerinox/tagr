@@ -133,7 +133,7 @@ impl StyledPreviewGenerator {
         let title = path
             .file_name()
             .and_then(|n| n.to_str())
-            .map_or_else(|| String::from(" Preview "), |n| format!(" {} ", n));
+            .map_or_else(|| String::from(" Preview "), |n| format!(" {n} "));
 
         Ok(StyledPreview {
             lines: styled_lines,
@@ -158,21 +158,20 @@ impl StyledPreviewGenerator {
         lines
             .iter()
             .map(|line| {
-                match highlighter.highlight_line(line, &self.syntax_set) {
-                    Ok(ranges) => {
-                        let spans: Vec<Span<'static>> = ranges
-                            .iter()
-                            .map(|(style, text)| {
-                                Span::styled(text.to_string(), syntect_to_ratatui(style))
-                            })
-                            .collect();
-                        Line::from(spans)
-                    }
-                    Err(_) => {
-                        // Fallback to plain text
-                        Line::raw(line.to_string())
-                    }
-                }
+                highlighter
+                    .highlight_line(line, &self.syntax_set)
+                    .map_or_else(
+                        |_| Line::raw(line.to_string()),
+                        |ranges| {
+                            let spans: Vec<Span<'static>> = ranges
+                                .iter()
+                                .map(|(style, text)| {
+                                    Span::styled(text.to_string(), syntect_to_ratatui(style))
+                                })
+                                .collect();
+                            Line::from(spans)
+                        },
+                    )
             })
             .collect()
     }

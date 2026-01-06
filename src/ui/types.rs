@@ -112,14 +112,14 @@ pub struct FinderResult {
     pub final_key: Option<String>,
     /// Refined search criteria (if `refine_search` was triggered)
     pub refine_search: Option<RefinedSearchCriteria>,
-    /// Input action that was submitted (action_id, values)
+    /// Input action that was submitted (`action_id`, values)
     pub input_action: Option<InputAction>,
 }
 
 /// Input action submitted from modal text input
 #[derive(Debug, Clone)]
 pub struct InputAction {
-    /// The action identifier (e.g., "add_tag", "remove_tag")
+    /// The action identifier (e.g., "`add_tag`", "`remove_tag`")
     pub action_id: String,
     /// The values entered by the user
     pub values: Vec<String>,

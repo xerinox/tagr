@@ -354,28 +354,31 @@ impl<'a> BrowseSession<'a> {
 
     /// Get current search criteria data
     fn get_current_search_criteria(&self) -> crate::browse::models::SearchCriteriaData {
-        if let Some(ref params) = self.config.initial_search {
-            crate::browse::models::SearchCriteriaData {
+        self.config.initial_search.as_ref().map_or_else(
+            || {
+                if let PhaseType::FileSelection { selected_tags } = &self.current_phase.phase_type {
+                    crate::browse::models::SearchCriteriaData {
+                        tags: selected_tags.clone(),
+                        exclude_tags: vec![],
+                        file_patterns: vec![],
+                        virtual_tags: vec![],
+                    }
+                } else {
+                    crate::browse::models::SearchCriteriaData {
+                        tags: vec![],
+                        exclude_tags: vec![],
+                        file_patterns: vec![],
+                        virtual_tags: vec![],
+                    }
+                }
+            },
+            |params| crate::browse::models::SearchCriteriaData {
                 tags: params.tags.clone(),
                 exclude_tags: params.exclude_tags.clone(),
                 file_patterns: params.file_patterns.clone(),
                 virtual_tags: params.virtual_tags.clone(),
-            }
-        } else if let PhaseType::FileSelection { selected_tags } = &self.current_phase.phase_type {
-            crate::browse::models::SearchCriteriaData {
-                tags: selected_tags.clone(),
-                exclude_tags: vec![],
-                file_patterns: vec![],
-                virtual_tags: vec![],
-            }
-        } else {
-            crate::browse::models::SearchCriteriaData {
-                tags: vec![],
-                exclude_tags: vec![],
-                file_patterns: vec![],
-                virtual_tags: vec![],
-            }
-        }
+            },
+        )
     }
 
     /// Update search parameters and refresh the file list
@@ -395,7 +398,7 @@ impl<'a> BrowseSession<'a> {
 
         self.current_phase = BrowserPhase {
             phase_type: PhaseType::FileSelection {
-                selected_tags: new_params.tags.clone(),
+                selected_tags: new_params.tags,
             },
             items,
             settings: self.config.file_phase_settings.clone(),
