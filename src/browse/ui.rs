@@ -204,6 +204,31 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     self.session.update_search_params(new_params)?;
                     // Continue browsing with updated criteria
                 }
+                BrowserResult::InputAction {
+                    action_id,
+                    selected_ids,
+                    values,
+                } => {
+                    // Execute action directly - confirmation already done in TUI modal
+                    // Convert selected_ids to file paths
+                    let files: Vec<PathBuf> = selected_ids
+                        .iter()
+                        .map(|id| PathBuf::from(id))
+                        .collect();
+
+                    // Execute the action based on action_id
+                    let outcome = if values.is_empty() {
+                        // Confirmation-only action (e.g., delete_from_db)
+                        self.execute_confirmed_action(&action_id, &files)?
+                    } else {
+                        // Input action (e.g., add_tag, remove_tag)
+                        let input = values.join(" ");
+                        self.execute_action_with_input(&action_id, &files, &input)?
+                    };
+
+                    self.handle_action_outcome(outcome)?;
+                    self.session.refresh_current_phase()?;
+                }
                 BrowserResult::Cancel => {
                     // User pressed ESC
                     return Ok(None);
@@ -292,6 +317,15 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 exclude_tags: criteria.exclude_tags.clone(),
                 file_patterns: criteria.file_patterns.clone(),
                 virtual_tags: criteria.virtual_tags.clone(),
+            });
+        }
+
+        // Check if this was an input/confirmation action from TUI modal
+        if let Some(ref input_action) = result.input_action {
+            return Ok(BrowserResult::InputAction {
+                action_id: input_action.action_id.clone(),
+                selected_ids: result.selected.clone(),
+                values: input_action.values.clone(),
             });
         }
 
@@ -773,6 +807,15 @@ enum BrowserResult {
     Action {
         action: BrowseAction,
         selected_ids: Vec<String>,
+    },
+
+    /// User submitted an input/confirmation action via TUI modal
+    /// This bypasses the executor's confirmation prompts since TUI already confirmed
+    InputAction {
+        action_id: String,
+        selected_ids: Vec<String>,
+        /// Values from text input (empty for confirmation-only actions)
+        values: Vec<String>,
     },
 
     /// User refined search criteria (F2 overlay completed)
