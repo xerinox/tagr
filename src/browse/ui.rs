@@ -126,7 +126,9 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                             continue;
                         }
                         BrowseAction::RefineSearch => {
-                            // Handle refine search specially since it needs to update session state
+                            // For skim TUI: Handle refine search specially since it needs to update session state
+                            // For ratatui TUI: This is handled via BrowserResult::RefineSearch
+                            #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
                             if let Err(e) = self.handle_refine_search() {
                                 eprintln!("Failed to refine search: {e}");
                             }
@@ -141,6 +143,66 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     self.handle_action_outcome(outcome)?;
 
                     self.session.refresh_current_phase()?;
+                }
+                BrowserResult::RefineSearch {
+                    include_tags,
+                    exclude_tags,
+                    file_patterns,
+                    virtual_tags,
+                } => {
+                    // User completed refine search overlay - apply the new criteria
+                    use crate::cli::SearchParams;
+
+                    let current = self.session.config().initial_search.clone().unwrap_or_else(|| {
+                        if let PhaseType::FileSelection { selected_tags } =
+                            &self.session.current_phase().phase_type
+                        {
+                            SearchParams {
+                                query: None,
+                                tags: selected_tags.clone(),
+                                tag_mode: crate::cli::SearchMode::Any,
+                                file_patterns: vec![],
+                                file_mode: crate::cli::SearchMode::All,
+                                exclude_tags: vec![],
+                                regex_tag: false,
+                                regex_file: false,
+                                glob_files: false,
+                                virtual_tags: vec![],
+                                virtual_mode: crate::cli::SearchMode::All,
+                            }
+                        } else {
+                            SearchParams {
+                                query: None,
+                                tags: vec![],
+                                tag_mode: crate::cli::SearchMode::Any,
+                                file_patterns: vec![],
+                                file_mode: crate::cli::SearchMode::All,
+                                exclude_tags: vec![],
+                                regex_tag: false,
+                                regex_file: false,
+                                glob_files: false,
+                                virtual_tags: vec![],
+                                virtual_mode: crate::cli::SearchMode::All,
+                            }
+                        }
+                    });
+
+                    let new_params = SearchParams {
+                        query: current.query.clone(),
+                        tags: include_tags,
+                        tag_mode: current.tag_mode,
+                        file_patterns,
+                        file_mode: current.file_mode,
+                        exclude_tags,
+                        regex_tag: current.regex_tag,
+                        regex_file: current.regex_file,
+                        glob_files: current.glob_files,
+                        virtual_tags,
+                        virtual_mode: current.virtual_mode,
+                    };
+
+                    self.session.update_search_params(new_params)?;
+                    // Continue browsing with updated criteria
                 }
                 BrowserResult::Cancel => {
                     // User pressed ESC
@@ -221,6 +283,16 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
         if result.aborted {
             return Ok(BrowserResult::Cancel);
+        }
+
+        // Check if this was a refine search result (F2 overlay completed)
+        if let Some(ref criteria) = result.refine_search {
+            return Ok(BrowserResult::RefineSearch {
+                include_tags: criteria.include_tags.clone(),
+                exclude_tags: criteria.exclude_tags.clone(),
+                file_patterns: criteria.file_patterns.clone(),
+                virtual_tags: criteria.virtual_tags.clone(),
+            });
         }
 
         // Check if this was a custom action (not Enter/accept)
@@ -482,14 +554,18 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         }
     }
 
-    /// Handle refine search action
+    /// Handle refine search action (CLI prompts for skim TUI)
     ///
     /// Prompts the user to modify the current search criteria (tags, exclusions,
     /// file patterns, virtual tags) and updates the session with new parameters.
     ///
+    /// For ratatui TUI, refine search is handled via the overlay widget and
+    /// `BrowserResult::RefineSearch` instead.
+    ///
     /// # Errors
     ///
     /// Returns error if prompting fails or database queries fail
+    #[cfg(all(feature = "skim-tui", not(feature = "ratatui-tui")))]
     fn handle_refine_search(&mut self) -> Result<(), BrowseError> {
         use crate::cli::SearchParams;
 
@@ -697,6 +773,14 @@ enum BrowserResult {
     Action {
         action: BrowseAction,
         selected_ids: Vec<String>,
+    },
+
+    /// User refined search criteria (F2 overlay completed)
+    RefineSearch {
+        include_tags: Vec<String>,
+        exclude_tags: Vec<String>,
+        file_patterns: Vec<String>,
+        virtual_tags: Vec<String>,
     },
 
     /// User cancelled (ESC)
