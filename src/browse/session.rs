@@ -158,7 +158,6 @@ impl<'a> BrowseSession<'a> {
     /// Returns error if database queries fail
     pub fn new(db: &'a Database, config: BrowseConfig) -> Result<Self> {
         let current_phase = if let Some(ref search_params) = config.initial_search {
-            // Skip tag selection, go directly to file browser
             let items = query::get_matching_files(db, search_params)?;
 
             BrowserPhase {
@@ -169,7 +168,6 @@ impl<'a> BrowseSession<'a> {
                 settings: config.file_phase_settings.clone(),
             }
         } else {
-            // Start with tag selection
             let items = query::get_available_tags(db)?;
 
             BrowserPhase {
@@ -209,14 +207,12 @@ impl<'a> BrowseSession<'a> {
                     return Ok(AcceptResult::Cancelled);
                 }
 
-                // Query files with selected tags
                 let items = query::get_files_by_tags(self.db, &selected_ids, SearchMode::Any)?;
 
                 if items.is_empty() {
                     return Ok(AcceptResult::NoData);
                 }
 
-                // Transition to file browser
                 self.current_phase = BrowserPhase {
                     phase_type: PhaseType::FileSelection {
                         selected_tags: selected_ids,
@@ -233,7 +229,6 @@ impl<'a> BrowseSession<'a> {
                     return Ok(AcceptResult::Cancelled);
                 }
 
-                // Extract paths from item IDs
                 let selected_files: Vec<PathBuf> = self
                     .current_phase
                     .items
@@ -342,7 +337,6 @@ impl<'a> BrowseSession<'a> {
                 },
             }),
             BrowseAction::RefineSearch => {
-                // Get current search criteria from config
                 let criteria = self.get_current_search_criteria();
                 Ok(ActionOutcome::NeedsInput {
                     prompt: "Refine search criteria".into(),
@@ -394,13 +388,11 @@ impl<'a> BrowseSession<'a> {
     ///
     /// Returns error if database queries fail
     pub fn update_search_params(&mut self, new_params: SearchParams) -> Result<()> {
-        // Update config with new search params
         self.config.initial_search = Some(new_params.clone());
 
         // Re-query files with updated criteria
         let items = query::get_matching_files(self.db, &new_params)?;
 
-        // Update current phase
         self.current_phase = BrowserPhase {
             phase_type: PhaseType::FileSelection {
                 selected_tags: new_params.tags.clone(),
@@ -613,12 +605,10 @@ mod tests {
         let db = TestDb::new("test_update_search_params");
         db.db().clear().unwrap();
 
-        // Create test files
         let file1 = TempFile::create("file1.txt").unwrap();
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        // Insert test data
         db.db()
             .insert_pair(&Pair::new(
                 file1.path().to_path_buf(),
@@ -638,7 +628,6 @@ mod tests {
             ))
             .unwrap();
 
-        // Create session with initial search for "rust"
         let mut config = BrowseConfig::default();
         config.initial_search = Some(SearchParams {
             query: None,
@@ -656,10 +645,8 @@ mod tests {
 
         let mut session = BrowseSession::new(db.db(), config).unwrap();
 
-        // Should start with 2 files (file1 and file2 have "rust" tag)
         assert_eq!(session.current_phase().items.len(), 2);
 
-        // Update search to exclude "docs" tag
         let new_params = SearchParams {
             query: None,
             tags: vec!["rust".to_string()],
@@ -676,7 +663,6 @@ mod tests {
 
         session.update_search_params(new_params).unwrap();
 
-        // Should now have 1 file (file1 has "rust" but not "docs")
         assert_eq!(session.current_phase().items.len(), 1);
     }
 
@@ -693,7 +679,6 @@ mod tests {
             .insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["test".into()]))
             .unwrap();
 
-        // Create session in file phase
         let mut config = BrowseConfig::default();
         config.initial_search = Some(SearchParams {
             query: None,
@@ -711,7 +696,6 @@ mod tests {
 
         let session = BrowseSession::new(db.db(), config).unwrap();
 
-        // Execute refine search action
         let result = session
             .execute_action(&BrowseAction::RefineSearch, &[])
             .unwrap();

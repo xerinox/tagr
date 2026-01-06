@@ -185,7 +185,6 @@ impl RatatuiFinder {
         // Tick to process matching
         nucleo.tick(100);
 
-        // Get snapshot and extract indices
         let snapshot = nucleo.snapshot();
         snapshot.matched_items(..).map(|item| *item.data).collect()
     }
@@ -250,11 +249,8 @@ impl RatatuiFinder {
     ) {
         let area = frame.area();
 
-        // Update visible height for scroll calculations
-        // Approximate: total height - search (3) - status (3) - help (1) - borders
         state.visible_height = (area.height.saturating_sub(8)) as usize;
 
-        // Main layout: search bar, content area, status bar, help bar
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -334,7 +330,6 @@ impl RatatuiFinder {
         preview_config: Option<&crate::ui::PreviewConfig>,
         preview_content: Option<&StyledPreview>,
     ) {
-        // Check if preview is enabled
         let show_preview =
             preview_config.map(|c| c.enabled).unwrap_or(false) && preview_content.is_some();
 
@@ -511,16 +506,13 @@ impl RatatuiFinder {
                 EventResult::Continue | EventResult::Ignored => {}
             }
 
-            // Check exit condition
             if state.should_exit {
                 break;
             }
 
-            // Cleanup expired messages
             state.cleanup_messages();
         }
 
-        // Build result
         if state.aborted {
             Ok(FinderResult::aborted())
         } else {

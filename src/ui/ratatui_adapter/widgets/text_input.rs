@@ -230,20 +230,13 @@ impl TextInputState {
     /// Accept the current autocomplete suggestion (TAB)
     pub fn accept_suggestion(&mut self) {
         if let Some(suggestion) = self.suggestions.get(self.suggestion_cursor).cloned() {
-            // Replace current word with suggestion
             let word_start = self.current_word_byte_start();
             let byte_idx = self.byte_index();
 
-            // Remove current word
             self.buffer.drain(word_start..byte_idx);
-
-            // Insert suggestion
             self.buffer.insert_str(word_start, &suggestion);
-
-            // Update cursor
             self.cursor = self.buffer[..word_start].chars().count() + suggestion.chars().count();
 
-            // In multi-value mode, add space after accepted suggestion
             if self.multi_value {
                 self.buffer.insert(self.byte_index(), ' ');
                 self.cursor += 1;

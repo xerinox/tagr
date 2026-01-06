@@ -268,13 +268,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             PhaseType::FileSelection { .. } => crate::ui::BrowsePhase::FileSelection,
         };
 
-        // Get keybinds filtered by phase
         let keybinds = phase
             .settings
             .keybind_config
             .bindings_for_phase(browse_phase);
 
-        // Get search criteria and available tags for refine search
         let search_criteria = self.session.search_criteria();
         let available_tags = self.session.available_tags().unwrap_or_default();
 
@@ -291,21 +289,18 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 search_criteria.virtual_tags,
             ));
 
-        // Add preview config if enabled for this phase
         let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
             config.with_preview(preview_cfg.into())
         } else {
             config
         };
 
-        // Run finder - returns selection or action trigger
         let result = self.finder.run(config)?;
 
         if result.aborted {
             return Ok(BrowserResult::Cancel);
         }
 
-        // Check if this was a refine search result (F2 overlay completed)
         if let Some(ref criteria) = result.refine_search {
             return Ok(BrowserResult::RefineSearch {
                 include_tags: criteria.include_tags.clone(),
@@ -315,7 +310,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             });
         }
 
-        // Check if this was an input/confirmation action from TUI modal
         if let Some(ref input_action) = result.input_action {
             return Ok(BrowserResult::InputAction {
                 action_id: input_action.action_id.clone(),
@@ -324,7 +318,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             });
         }
 
-        // Check if this was a custom action (not Enter/accept)
         if let Some(action_name) = &result.final_key
             && action_name != "enter"
         {
@@ -357,7 +350,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     ) -> DisplayItem {
         match &item.metadata {
             ItemMetadata::Tag(tag_meta) => {
-                // Tag display: "tag_name (N files)"
                 let display = format!(
                     "{} {}",
                     item.name.blue().bold(),
@@ -373,17 +365,14 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
             }
             ItemMetadata::File(file_meta) => {
-                // File display: path [tags]
                 let path_str = self.format_path(&file_meta.path, phase_type);
 
-                // Color based on existence
                 let path_display = if file_meta.cached.exists {
                     path_str.green()
                 } else {
                     path_str.red().strikethrough()
                 };
 
-                // Add tags in brackets
                 let tags_display = if file_meta.tags.is_empty() {
                     String::new()
                 } else {
@@ -407,16 +396,14 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     ///
     /// Applies `PathFormat` settings from session config
     fn format_path(&self, path: &Path, phase_type: &PhaseType) -> String {
-        // Only use configured path format in file phase
         let path_format = match phase_type {
             PhaseType::FileSelection { .. } => &self.session.config().path_format,
-            PhaseType::TagSelection => &PathFormat::Absolute, // Default for tag phase
+            PhaseType::TagSelection => &PathFormat::Absolute,
         };
 
         match path_format {
             PathFormat::Absolute => path.display().to_string(),
             PathFormat::Relative => {
-                // Try to make path relative to current directory
                 std::env::current_dir()
                     .ok()
                     .and_then(|cwd| path.strip_prefix(&cwd).ok())
