@@ -370,7 +370,11 @@ pub enum ConfigCommands {
 #[derive(Subcommand, Debug, Clone)]
 pub enum TagsCommands {
     /// List all tags in the database
-    List,
+    List {
+        /// Display tags in tree format showing hierarchical relationships
+        #[arg(long = "tree")]
+        tree: bool,
+    },
 
     /// Remove a tag from all files (cleans up files with no remaining tags)
     #[command(visible_alias = "rm")]
