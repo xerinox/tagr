@@ -213,6 +213,9 @@ fn test_e2e_search_execute_with_glob_flag() {
         params,
         None,
         None,
+        false, // has_explicit_tag_mode
+        false, // has_explicit_file_mode
+        false, // has_explicit_virtual_mode
         config::PathFormat::Absolute,
         /*quiet*/ true,
     );

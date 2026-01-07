@@ -150,34 +150,55 @@ pub struct BrowseContext {
 }
 
 impl SearchParams {
-    /// Merge with another `SearchParams` (typically from a loaded filter)
+    /// Merge with another `SearchParams` to create combined criteria
     ///
-    /// This extends the current params with additional criteria:
-    /// - Tags and file patterns are combined
+    /// This adds criteria from `other` on top of self:
+    /// - Tags and file patterns are combined (deduplicated)
     /// - Exclusions are merged
-    /// - Regex flags are OR'd
-    /// - Modes are preserved from self (CLI takes precedence)
+    /// - Regex and glob flags are OR'd (if either is true, result is true)
+    /// - Modes from `other` always override self's modes
+    ///
+    /// Typical usage when loading filters: `filter_params.merge(&cli_params)`
+    /// The caller is responsible for preserving modes when appropriate.
     pub fn merge(&mut self, other: &Self) {
+        // Merge tags
         for tag in &other.tags {
             if !self.tags.contains(tag) {
                 self.tags.push(tag.clone());
             }
         }
 
+        // Merge file patterns
         for pattern in &other.file_patterns {
             if !self.file_patterns.contains(pattern) {
                 self.file_patterns.push(pattern.clone());
             }
         }
 
+        // Merge exclusions
         for exclude in &other.exclude_tags {
             if !self.exclude_tags.contains(exclude) {
                 self.exclude_tags.push(exclude.clone());
             }
         }
 
+        // Merge virtual tags
+        for vtag in &other.virtual_tags {
+            if !self.virtual_tags.contains(vtag) {
+                self.virtual_tags.push(vtag.clone());
+            }
+        }
+
+        // OR the boolean flags
         self.regex_tag = self.regex_tag || other.regex_tag;
         self.regex_file = self.regex_file || other.regex_file;
+        self.glob_files = self.glob_files || other.glob_files;
+        self.no_hierarchy = self.no_hierarchy || other.no_hierarchy;
+
+        // Modes from other always override (caller handles preservation if needed)
+        self.tag_mode = other.tag_mode;
+        self.file_mode = other.file_mode;
+        self.virtual_mode = other.virtual_mode;
     }
 }
 

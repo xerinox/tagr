@@ -74,21 +74,16 @@ impl TagSchema {
     ///
     /// # Errors
     /// Returns error if:
-    /// - Alias or canonical tag contains reserved delimiter
+    /// - Alias contains reserved delimiter (canonical can be hierarchical)
     /// - Alias already exists with different canonical
     /// - Adding alias would create circular reference
     pub fn add_alias(&mut self, alias: &str, canonical: &str) -> Result<()> {
-        // Validate tags don't contain reserved delimiter
+        // Validate alias doesn't contain reserved delimiter
+        // (canonical CAN be hierarchical, e.g., js → lang:javascript)
         if alias.contains(HIERARCHY_DELIMITER) {
             return Err(SchemaError::InvalidTag(format!(
                 "Alias '{}' contains reserved delimiter '{}'",
                 alias, HIERARCHY_DELIMITER
-            )));
-        }
-        if canonical.contains(HIERARCHY_DELIMITER) {
-            return Err(SchemaError::InvalidTag(format!(
-                "Canonical tag '{}' contains reserved delimiter '{}'",
-                canonical, HIERARCHY_DELIMITER
             )));
         }
 
@@ -367,12 +362,13 @@ mod tests {
     fn test_reserved_delimiter_validation() {
         let mut schema = TagSchema::new();
 
-        // Cannot use delimiter in flat aliases
+        // Cannot use delimiter in alias (left side)
         let result = schema.add_alias("lang:js", "javascript");
         assert!(matches!(result, Err(SchemaError::InvalidTag(_))));
 
+        // CAN use delimiter in canonical (right side) - this is allowed now
         let result = schema.add_alias("js", "lang:javascript");
-        assert!(matches!(result, Err(SchemaError::InvalidTag(_))));
+        assert!(result.is_ok());
     }
 
     #[test]

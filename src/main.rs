@@ -358,7 +358,11 @@ fn main() -> Result<()> {
                 let ctx = command.get_tag_context().unwrap();
                 commands::tag(&db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet)?;
             }
-            Commands::Search { filter_args, .. } => {
+            Commands::Search {
+                filter_args,
+                criteria,
+                ..
+            } => {
                 let params = command.get_search_params().ok_or_else(|| {
                     TagrError::InvalidInput("Failed to parse search parameters".into())
                 })?;
@@ -368,11 +372,19 @@ fn main() -> Result<()> {
                     .as_ref()
                     .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
 
+                // Determine if user explicitly provided mode flags
+                let has_explicit_tag_mode = criteria.any_tag || criteria.all_tags;
+                let has_explicit_file_mode = criteria.any_file || criteria.all_files;
+                let has_explicit_virtual_mode = criteria.any_virtual || criteria.all_virtual;
+
                 commands::search(
                     &db,
                     params,
                     filter_args.filter.as_deref(),
                     save_filter,
+                    has_explicit_tag_mode,
+                    has_explicit_file_mode,
+                    has_explicit_virtual_mode,
                     path_format,
                     quiet,
                 )?;

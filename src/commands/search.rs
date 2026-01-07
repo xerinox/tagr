@@ -15,6 +15,11 @@ type Result<T> = std::result::Result<T, TagrError>;
 
 /// Execute the search command
 ///
+/// # Arguments
+/// * `has_explicit_tag_mode` - True if user provided --any-tag or --all-tags flags
+/// * `has_explicit_file_mode` - True if user provided --any-file or --all-files flags
+/// * `has_explicit_virtual_mode` - True if user provided --any-virtual or --all-virtual flags
+///
 /// # Errors
 /// Returns an error if database operations fail or search parameters are invalid
 pub fn execute(
@@ -22,6 +27,9 @@ pub fn execute(
     mut params: SearchParams,
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
+    has_explicit_tag_mode: bool,
+    has_explicit_file_mode: bool,
+    has_explicit_virtual_mode: bool,
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
@@ -30,8 +38,34 @@ pub fn execute(
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
 
-        let filter_params = SearchParams::from(&filter.criteria);
-        params.merge(&filter_params);
+        // Start with filter params as base, then merge CLI overrides
+        let mut filter_params = SearchParams::from(&filter.criteria);
+        let cli_tag_mode = params.tag_mode;
+        let cli_file_mode = params.file_mode;
+        let cli_virtual_mode = params.virtual_mode;
+
+        filter_params.merge(&params);
+
+        // If user didn't explicitly provide mode flags, keep filter's modes
+        if !has_explicit_tag_mode {
+            filter_params.tag_mode = filter.criteria.tag_mode.into();
+        } else {
+            filter_params.tag_mode = cli_tag_mode;
+        }
+
+        if !has_explicit_file_mode {
+            filter_params.file_mode = filter.criteria.file_mode.into();
+        } else {
+            filter_params.file_mode = cli_file_mode;
+        }
+
+        if !has_explicit_virtual_mode {
+            filter_params.virtual_mode = filter.criteria.virtual_mode.into();
+        } else {
+            filter_params.virtual_mode = cli_virtual_mode;
+        }
+
+        params = filter_params;
 
         manager.record_use(name)?;
 
@@ -222,9 +256,19 @@ mod tests {
             virtual_mode: SearchMode::All,
             no_hierarchy: false,
         };
-        let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
-            .err()
-            .expect("should error");
+        let err = execute(
+            db,
+            params,
+            None,
+            None,
+            false,
+            false,
+            false,
+            config::PathFormat::Absolute,
+            true,
+        )
+        .err()
+        .expect("should error");
         match err {
             TagrError::InvalidInput(msg) => {
                 assert!(msg.contains("Glob-like file pattern"));
@@ -251,7 +295,17 @@ mod tests {
             virtual_mode: SearchMode::All,
             no_hierarchy: false,
         };
-        let res = execute(db, params, None, None, config::PathFormat::Absolute, true);
+        let res = execute(
+            db,
+            params,
+            None,
+            None,
+            false,
+            false,
+            false,
+            config::PathFormat::Absolute,
+            true,
+        );
         assert!(res.is_ok());
     }
 
@@ -273,9 +327,19 @@ mod tests {
             virtual_mode: SearchMode::All,
             no_hierarchy: false,
         };
-        let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
-            .err()
-            .expect("should error");
+        let err = execute(
+            db,
+            params,
+            None,
+            None,
+            false,
+            false,
+            false,
+            config::PathFormat::Absolute,
+            true,
+        )
+        .err()
+        .expect("should error");
         match err {
             TagrError::PatternError(_) => {}
             _ => panic!("Expected PatternError for glob-like tag token"),
