@@ -35,6 +35,7 @@ use crate::config::PreviewConfig;
 use crate::db::Database;
 use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::config::KeybindConfig;
+use crate::schema::{self, TagSchema};
 use std::path::PathBuf;
 
 /// Browse session error type
@@ -64,6 +65,7 @@ pub struct BrowseSession<'a> {
     db: &'a Database,
     config: BrowseConfig,
     current_phase: BrowserPhase,
+    schema: Option<TagSchema>,
 }
 
 /// Configuration for browse session
@@ -181,6 +183,7 @@ impl<'a> BrowseSession<'a> {
             db,
             config,
             current_phase,
+            schema: schema::load_default_schema().ok(),
         })
     }
 
@@ -188,6 +191,12 @@ impl<'a> BrowseSession<'a> {
     #[must_use]
     pub const fn current_phase(&self) -> &BrowserPhase {
         &self.current_phase
+    }
+
+    /// Get the tag schema (if loaded)
+    #[must_use]
+    pub const fn schema(&self) -> Option<&TagSchema> {
+        self.schema.as_ref()
     }
 
     /// Handle "Accept" action (Enter key) in current phase

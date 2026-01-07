@@ -435,7 +435,7 @@ impl RatatuiFinder {
             use super::widgets::TagTreeState;
             let mut tag_tree_state = TagTreeState::new();
 
-            // Build tag tree from items (extract tag names and file counts)
+            // Build tag tree from items (extract tag names, file counts, and display info)
             let tags: Vec<(String, usize)> = config
                 .items
                 .iter()
@@ -445,7 +445,14 @@ impl RatatuiFinder {
                 })
                 .collect();
 
-            tag_tree_state.build_from_tags(tags);
+            // Build a map of tag -> display text for alias information
+            let display_map: std::collections::HashMap<String, String> = config
+                .items
+                .iter()
+                .map(|item| (item.key.clone(), item.display.clone()))
+                .collect();
+
+            tag_tree_state.build_from_tags_with_display(tags, display_map);
             state.tag_tree_state = Some(tag_tree_state);
 
             // Synchronize the initial cursor position

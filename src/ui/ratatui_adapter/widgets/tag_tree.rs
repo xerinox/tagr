@@ -56,6 +56,8 @@ struct TagTreeNodeRef {
     depth: usize,
     /// Whether it's an actual tag
     is_actual_tag: bool,
+    /// Display text with aliases (optional)
+    display_text: Option<String>,
 }
 
 impl TagTreeNode {
@@ -100,6 +102,7 @@ impl TagTreeNode {
             file_count: self.file_count,
             depth: self.depth,
             is_actual_tag: self.is_actual_tag,
+            display_text: None, // Will be set by build_from_tags_with_display
         });
 
         if self.is_expanded {
@@ -121,6 +124,54 @@ impl TagTreeState {
             visible_nodes: Vec::new(),
             selected_tags: HashSet::new(),
         }
+    }
+
+    /// Build tree from tags with display text for aliases
+    pub fn build_from_tags_with_display(
+        &mut self,
+        tags: Vec<(String, usize)>,
+        display_map: std::collections::HashMap<String, String>,
+    ) {
+        // First build the tree structure
+        self.build_from_tags(tags);
+
+        // Then update display_text for actual tags, extracting alias info
+        for node in &mut self.visible_nodes {
+            if let Some(display) = display_map.get(&node.full_path) {
+                // Strip ANSI codes and extract just the alias portion
+                let clean_display = Self::strip_ansi_codes(display);
+
+                // Extract aliases from format: "tag_name (alias1, alias2) (X files)"
+                if let Some(alias_text) = Self::extract_aliases(&clean_display) {
+                    // Format with short name: "name (aliases) (X files)"
+                    node.display_text = Some(format!(
+                        "{} {} ({} files)",
+                        node.name, alias_text, node.file_count
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Extract alias portion from display text
+    fn extract_aliases(text: &str) -> Option<String> {
+        // Look for pattern: "tag_name (alias1, alias2) (X files)"
+        // We want to extract just "(alias1, alias2)"
+        let parts: Vec<&str> = text.split(" (").collect();
+        if parts.len() >= 3 {
+            // Second part should be "alias1, alias2)"
+            let alias_part = parts[1].trim_end_matches(')');
+            if !alias_part.is_empty() && !alias_part.contains("files") {
+                return Some(format!("({})", alias_part));
+            }
+        }
+        None
+    }
+
+    /// Strip ANSI escape codes from text
+    fn strip_ansi_codes(text: &str) -> String {
+        let re = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+        re.replace_all(text, "").to_string()
     }
 
     /// Build tree from flat tag list with file counts
@@ -320,14 +371,65 @@ impl TagTreeState {
     pub fn toggle_tag_selection(&mut self) {
         if let Some(node_ref) = self.visible_nodes.get(self.selected) {
             if node_ref.is_actual_tag {
+                // Regular tag - toggle single selection
                 let path = node_ref.full_path.clone();
                 if self.selected_tags.contains(&path) {
                     self.selected_tags.remove(&path);
                 } else {
                     self.selected_tags.insert(path);
                 }
+            } else {
+                // Parent node - toggle all children
+                let parent_path = node_ref.full_path.clone();
+                let children = self.get_all_descendant_tags(&parent_path);
+
+                if children.is_empty() {
+                    return;
+                }
+
+                // Check if all children are selected
+                let all_selected = children
+                    .iter()
+                    .all(|child| self.selected_tags.contains(child));
+
+                if all_selected {
+                    // Deselect all children
+                    for child in children {
+                        self.selected_tags.remove(&child);
+                    }
+                } else {
+                    // Select all children
+                    for child in children {
+                        self.selected_tags.insert(child);
+                    }
+                }
             }
         }
+    }
+
+    /// Get all descendant tags (actual tags only, not inferred parents) under a parent path
+    fn get_all_descendant_tags(&self, parent_path: &str) -> Vec<String> {
+        let prefix = format!("{}:", parent_path);
+
+        self.roots
+            .iter()
+            .flat_map(|root| Self::collect_descendant_tags(root, &prefix))
+            .collect()
+    }
+
+    /// Recursively collect descendant tags
+    fn collect_descendant_tags(node: &TagTreeNode, prefix: &str) -> Vec<String> {
+        let mut tags = Vec::new();
+
+        if node.full_path.starts_with(prefix) && node.is_actual_tag {
+            tags.push(node.full_path.clone());
+        }
+
+        for child in &node.children {
+            tags.extend(Self::collect_descendant_tags(child, prefix));
+        }
+
+        tags
     }
 
     /// Get currently selected tag path (if any)
@@ -342,6 +444,83 @@ impl TagTreeState {
     #[must_use]
     pub fn selected_tag_paths(&self) -> Vec<String> {
         self.selected_tags.iter().cloned().collect()
+    }
+
+    /// Select a specific tag by its full path (for synchronization)
+    pub fn select_tag(&mut self, tag_path: &str) {
+        // Find the tag in visible nodes and update selected index
+        if let Some(pos) = self
+            .visible_nodes
+            .iter()
+            .position(|n| n.full_path == tag_path)
+        {
+            self.selected = pos;
+        }
+    }
+
+    /// Filter visible tags based on a list of allowed tag paths
+    pub fn filter_visible_tags(&mut self, allowed_tags: &[String]) {
+        if allowed_tags.is_empty() {
+            // No matches - clear visible nodes to show "No matching tags" message
+            self.visible_nodes.clear();
+            self.selected = 0;
+            return;
+        }
+
+        // Filter visible nodes to only show tags in the allowed list
+        let allowed_set: HashSet<&str> = allowed_tags.iter().map(String::as_str).collect();
+
+        self.visible_nodes.clear();
+        for root in &self.roots {
+            Self::collect_visible_filtered(root, &mut self.visible_nodes, &allowed_set);
+        }
+
+        // Ensure selected is within bounds
+        if self.selected >= self.visible_nodes.len() {
+            self.selected = self.visible_nodes.len().saturating_sub(1);
+        }
+    }
+
+    /// Collect visible nodes that match the filter
+    fn collect_visible_filtered(
+        node: &TagTreeNode,
+        output: &mut Vec<TagTreeNodeRef>,
+        allowed: &HashSet<&str>,
+    ) {
+        // Check if this node or any of its children match the filter
+        let node_matches = allowed.contains(node.full_path.as_str());
+        let has_matching_children = Self::has_matching_children(node, allowed);
+
+        // Show this node if it matches OR if it has matching children (to show the path)
+        if node_matches || has_matching_children {
+            output.push(TagTreeNodeRef {
+                full_path: node.full_path.clone(),
+                name: node.name.clone(),
+                file_count: node.file_count,
+                depth: node.depth,
+                is_actual_tag: node.is_actual_tag,
+                display_text: None,
+            });
+
+            // If expanded, recurse into children
+            if node.is_expanded {
+                for child in &node.children {
+                    Self::collect_visible_filtered(child, output, allowed);
+                }
+            }
+        }
+    }
+
+    /// Check if a node has any matching children (recursively)
+    fn has_matching_children(node: &TagTreeNode, allowed: &HashSet<&str>) -> bool {
+        for child in &node.children {
+            if allowed.contains(child.full_path.as_str())
+                || Self::has_matching_children(child, allowed)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// Get count of visible nodes
@@ -414,6 +593,15 @@ impl StatefulWidget for TagTree<'_> {
             return;
         }
 
+        // Show message if no visible nodes
+        if state.visible_nodes.is_empty() {
+            let message = "No matching tags";
+            let x = area.x + (area.width.saturating_sub(message.len() as u16)) / 2;
+            let y = area.y + area.height / 2;
+            buf.set_string(x, y, message, Style::default().fg(Color::DarkGray));
+            return;
+        }
+
         let visible_height = area.height as usize;
 
         // Adjust scroll offset to keep selected item visible
@@ -439,13 +627,9 @@ impl StatefulWidget for TagTree<'_> {
             // Build the line with tree characters
             let mut spans = Vec::new();
 
-            // Indentation
+            // Indentation - use consistent padding for all items
             let indent = "  ".repeat(node_ref.depth);
             spans.push(Span::raw(indent));
-
-            // Tree character (├── or └──)
-            let tree_char = if node_ref.depth > 0 { "├── " } else { "" };
-            spans.push(Span::raw(tree_char));
 
             // Selection checkmark for actual tags (green ✓)
             if node_ref.is_actual_tag {
@@ -454,6 +638,9 @@ impl StatefulWidget for TagTree<'_> {
                 } else {
                     spans.push(Span::raw("  "));
                 }
+            } else {
+                // Parent nodes get same spacing as checkmark to align properly
+                spans.push(Span::raw("  "));
             }
 
             // Tag name
@@ -467,7 +654,10 @@ impl StatefulWidget for TagTree<'_> {
                 self.inferred_style
             };
 
-            let display_text = if node_ref.is_actual_tag {
+            let display_text = if let Some(ref custom_display) = node_ref.display_text {
+                // Use custom display text (includes aliases)
+                custom_display.clone()
+            } else if node_ref.is_actual_tag {
                 format!("{} ({})", node_ref.name, node_ref.file_count)
             } else {
                 format!("{} (parent)", node_ref.name)

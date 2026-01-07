@@ -10,11 +10,14 @@
 use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
 use crate::db::{Database, DbError};
+use std::collections::HashMap;
 
 /// Query all available tags from the database with file counts
 ///
 /// Returns tags as `TagrItem` instances with metadata including the number
-/// of files associated with each tag.
+/// of files associated with each tag. When a schema is available, this
+/// function consolidates aliases into their canonical forms (e.g., `js` and
+/// `javascript` are merged into a single `javascript` tag with combined file count).
 ///
 /// # Arguments
 /// * `db` - Database to query
@@ -35,12 +38,36 @@ use crate::db::{Database, DbError};
 pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
     let tag_names = db.list_all_tags()?;
 
-    let tags: Result<Vec<TagrItem>, DbError> = tag_names
-        .into_iter()
-        .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
-        .collect();
+    // Load schema to consolidate aliases
+    let schema = crate::schema::load_default_schema().ok();
 
-    tags
+    if let Some(schema) = schema {
+        // Group tags by canonical form and sum file counts
+        let mut canonical_map: HashMap<String, usize> = HashMap::new();
+
+        for tag_name in tag_names {
+            let canonical = schema.canonicalize(&tag_name);
+            let file_count = db.find_by_tag(&tag_name)?.len();
+            *canonical_map.entry(canonical).or_insert(0) += file_count;
+        }
+
+        // Convert to TagrItem instances
+        let mut tags: Vec<TagrItem> = canonical_map
+            .into_iter()
+            .map(|(canonical, file_count)| TagrItem::tag(canonical, file_count))
+            .collect();
+
+        tags.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(tags)
+    } else {
+        // No schema - use original behavior
+        let tags: Result<Vec<TagrItem>, DbError> = tag_names
+            .into_iter()
+            .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
+            .collect();
+
+        tags
+    }
 }
 
 /// Query files matching the given search parameters

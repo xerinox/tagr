@@ -223,8 +223,24 @@ impl AppState {
     ///
     /// If multi-select is enabled, returns selected items.
     /// Otherwise, returns the current item.
+    ///
+    /// In TagSelection phase, returns tags from the tag tree's multi-select state.
     #[must_use]
     pub fn selected_keys(&self) -> Vec<String> {
+        // In tag selection phase, use tag tree selections
+        if self.is_tag_selection_phase() {
+            let tree_selections = self.tag_tree_selected_tags();
+            if !tree_selections.is_empty() {
+                return tree_selections;
+            }
+            // Fall back to current item if no tree selections
+            return self
+                .current_item()
+                .map(|item| vec![item.key.clone()])
+                .unwrap_or_default();
+        }
+
+        // In file selection phase, use standard multi-select logic
         if self.multi_select && !self.selected.is_empty() {
             self.selected
                 .iter()
@@ -270,6 +286,12 @@ impl AppState {
         }
         self.scroll_offset = 0;
         self.adjust_scroll();
+
+        // Filter tag tree to match query
+        if self.is_tag_selection_phase() {
+            self.filter_tag_tree();
+            self.sync_tag_tree_with_cursor();
+        }
     }
 
     /// Add a character to the query
@@ -599,6 +621,38 @@ impl AppState {
                     self.adjust_scroll();
                 }
             }
+        }
+    }
+
+    /// Synchronize tag tree cursor with items list cursor (reverse sync)
+    ///
+    /// When the items list is filtered/navigated, update the tag tree cursor
+    /// to match the currently selected item in the filtered list.
+    pub fn sync_tag_tree_with_cursor(&mut self) {
+        if !self.filtered_indices.is_empty() && self.cursor < self.filtered_indices.len() {
+            // Get the actual item at the current cursor position
+            #[allow(clippy::cast_possible_truncation)]
+            let item_idx = self.filtered_indices[self.cursor] as usize;
+            if let Some(item) = self.items.get(item_idx) {
+                // Update tag tree to select this tag
+                if let Some(ref mut tree) = self.tag_tree_state {
+                    tree.select_tag(&item.key);
+                }
+            }
+        }
+    }
+
+    /// Filter tag tree based on current search query
+    fn filter_tag_tree(&mut self) {
+        if let Some(ref mut tree) = self.tag_tree_state {
+            // Get the keys of visible/filtered items
+            let visible_tags: Vec<String> = self
+                .filtered_indices
+                .iter()
+                .filter_map(|&idx| self.items.get(idx as usize).map(|item| item.key.clone()))
+                .collect();
+
+            tree.filter_visible_tags(&visible_tags);
         }
     }
 }
