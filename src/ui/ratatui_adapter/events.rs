@@ -203,15 +203,23 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Navigation
+        // Navigation - route to tag tree if in TagSelection phase
         (KeyCode::Up, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
-            state.cursor_up();
+            if state.is_tag_selection_phase() {
+                state.tag_tree_move_up();
+            } else {
+                state.cursor_up();
+            }
             EventResult::Continue
         }
         (KeyCode::Down, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
-            state.cursor_down();
+            if state.is_tag_selection_phase() {
+                state.tag_tree_move_down();
+            } else {
+                state.cursor_down();
+            }
             EventResult::Continue
         }
         (KeyCode::PageUp, _) => {
@@ -231,15 +239,31 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Multi-select
+        // Multi-select / Tag tree toggle
         (KeyCode::Tab, _) => {
-            state.toggle_selection();
-            state.cursor_down();
+            if state.is_tag_selection_phase() {
+                state.tag_tree_toggle_selection();
+                state.tag_tree_move_down();
+            } else {
+                state.toggle_selection();
+                state.cursor_down();
+            }
             EventResult::Continue
         }
         (KeyCode::BackTab, _) => {
-            state.toggle_selection();
-            state.cursor_up();
+            if state.is_tag_selection_phase() {
+                state.tag_tree_toggle_selection();
+                state.tag_tree_move_up();
+            } else {
+                state.toggle_selection();
+                state.cursor_up();
+            }
+            EventResult::Continue
+        }
+
+        // Tag tree expansion toggle (Space key in TagSelection phase)
+        (KeyCode::Char(' '), KeyModifiers::NONE) if state.is_tag_selection_phase() => {
+            state.tag_tree_toggle_expand();
             EventResult::Continue
         }
 

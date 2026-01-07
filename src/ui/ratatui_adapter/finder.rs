@@ -322,15 +322,44 @@ impl RatatuiFinder {
         }
     }
 
-    /// Render the content area (items + preview)
+    /// Render the content area (items + preview OR tag tree + live results)
     fn render_content(
         frame: &mut Frame,
-        state: &AppState,
+        state: &mut AppState,
         theme: &Theme,
         area: Rect,
         preview_config: Option<&crate::ui::PreviewConfig>,
         preview_content: Option<&StyledPreview>,
     ) {
+        use super::widgets::tag_tree_with_border;
+        use crate::ui::types::BrowsePhase;
+
+        // Special rendering for TagSelection phase - show tag tree + live results
+        if state.phase == BrowsePhase::TagSelection {
+            // Split horizontally: tag tree (left) | result preview (right)
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(50), // Tag tree
+                    Constraint::Percentage(50), // Live results
+                ])
+                .split(area);
+
+            // Render tag tree on the left
+            if let Some(tag_tree_state) = &mut state.tag_tree_state {
+                let tag_tree = tag_tree_with_border("Tag Hierarchy");
+                frame.render_stateful_widget(tag_tree, chunks[0], tag_tree_state);
+            }
+
+            // Render live results on the right (filtered file list based on selected tags)
+            // For now, just show "Results will appear here" placeholder
+            // TODO: Implement live result updates
+            let item_list = ItemList::new(state, theme);
+            frame.render_widget(item_list, chunks[1]);
+            return;
+        }
+
+        // Regular FileSelection phase rendering
         let show_preview = preview_config.is_some_and(|c| c.enabled) && preview_content.is_some();
 
         if !show_preview {
@@ -398,6 +427,30 @@ impl RatatuiFinder {
         let mut state = AppState::new(config.items.clone(), config.multi_select);
         // Set available tags for autocomplete in text input modals
         state.available_tags.clone_from(&config.available_tags);
+
+        // Set phase and initialize tag tree if in TagSelection phase
+        state.phase = config.phase;
+        if config.phase == crate::ui::types::BrowsePhase::TagSelection {
+            use super::widgets::TagTreeState;
+            let mut tag_tree_state = TagTreeState::new();
+
+            // Build tag tree from items (extract tag names and file counts)
+            let tags: Vec<(String, usize)> = config
+                .items
+                .iter()
+                .filter_map(|item| {
+                    // Extract file count from metadata.index field
+                    item.metadata.index.map(|count| (item.key.clone(), count))
+                })
+                .collect();
+
+            tag_tree_state.build_from_tags(tags);
+            state.tag_tree_state = Some(tag_tree_state);
+
+            // Synchronize the initial cursor position
+            state.sync_cursor_with_tag_tree();
+        }
+
         let mut nucleo = Self::create_matcher(&config.items);
         let custom_binds = Self::parse_keybinds(&config.bind);
         let hints = Self::build_hints();

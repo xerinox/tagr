@@ -360,7 +360,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 );
 
                 let metadata = crate::ui::ItemMetadata {
-                    index: Some(index),
+                    index: Some(tag_meta.file_count), // Store file_count for tag tree
                     tags: vec![],
                     exists: true,
                 };

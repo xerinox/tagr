@@ -6,6 +6,7 @@ use crate::ui::types::DisplayItem;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
+    style::Color,
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Widget},
 };
@@ -54,19 +55,38 @@ impl<'a> ItemList<'a> {
 
     /// Render a single item
     fn render_item(&self, item: &DisplayItem, item_idx: usize, is_cursor: bool) -> ListItem<'a> {
-        let is_selected = self.state.is_selected(item_idx);
+        let is_selected = if self.state.is_tag_selection_phase() {
+            // In TagSelection phase, check tag tree selection
+            self.state
+                .tag_tree_state
+                .as_ref()
+                .map_or(false, |tree| tree.selected_tags.contains(&item.key))
+        } else {
+            // In FileSelection phase, use regular multi-select
+            self.state.is_selected(item_idx)
+        };
         let exists = item.metadata.exists;
 
         // Build prefix: cursor indicator + selection indicator
         let cursor_char = if is_cursor { ">" } else { " " };
-        let select_char = if is_selected { "✓" } else { " " };
 
         let mut spans = vec![
             Span::styled(cursor_char, self.theme.cursor_style()),
             Span::raw(" "),
-            Span::styled(select_char, self.theme.multi_select_style()),
-            Span::raw(" "),
         ];
+
+        // Green checkmark for selected items
+        if is_selected {
+            spans.push(Span::styled(
+                "✓",
+                ratatui::style::Style::default().fg(Color::Green),
+            ));
+            spans.push(Span::raw(" "));
+        } else {
+            spans.push(Span::raw("  "));
+        }
+
+        spans.push(Span::raw(" "));
 
         // Add the display text with appropriate styling
         // Use `searchable` (plain text) instead of `display` (ANSI-formatted)

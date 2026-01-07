@@ -4,8 +4,10 @@
 //! including items, selection, query, and UI mode.
 
 use crate::ui::output::MessageLevel;
-use crate::ui::ratatui_adapter::widgets::{ConfirmDialogState, RefineSearchState, TextInputState};
-use crate::ui::types::DisplayItem;
+use crate::ui::ratatui_adapter::widgets::{
+    ConfirmDialogState, RefineSearchState, TagTreeState, TextInputState,
+};
+use crate::ui::types::{BrowsePhase, DisplayItem};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -97,6 +99,10 @@ pub struct AppState {
     pub confirm_state: Option<ConfirmDialogState>,
     /// Available tags for autocomplete (set by finder from config)
     pub available_tags: Vec<String>,
+    /// Current browse phase (TagSelection or FileSelection)
+    pub phase: BrowsePhase,
+    /// Tag tree state (for TagSelection phase)
+    pub tag_tree_state: Option<TagTreeState>,
 }
 
 impl AppState {
@@ -129,6 +135,8 @@ impl AppState {
             text_input_state: None,
             confirm_state: None,
             available_tags: Vec::new(),
+            phase: BrowsePhase::FileSelection, // Default to file selection
+            tag_tree_state: None,
         }
     }
 
@@ -483,6 +491,81 @@ impl AppState {
     #[must_use]
     pub const fn confirm_state(&self) -> Option<&ConfirmDialogState> {
         self.confirm_state.as_ref()
+    }
+
+    // ============================================================================
+    // Tag Tree Navigation Methods (TagSelection phase)
+    // ============================================================================
+
+    /// Check if we're in TagSelection phase
+    #[must_use]
+    pub const fn is_tag_selection_phase(&self) -> bool {
+        matches!(self.phase, BrowsePhase::TagSelection)
+    }
+
+    /// Move up in tag tree
+    pub fn tag_tree_move_up(&mut self) {
+        if let Some(ref mut tree) = self.tag_tree_state {
+            tree.move_up();
+            self.sync_cursor_with_tag_tree();
+        }
+    }
+
+    /// Move down in tag tree
+    pub fn tag_tree_move_down(&mut self) {
+        if let Some(ref mut tree) = self.tag_tree_state {
+            tree.move_down();
+            self.sync_cursor_with_tag_tree();
+        }
+    }
+
+    /// Toggle selection of current tag in tree
+    pub fn tag_tree_toggle_selection(&mut self) {
+        if let Some(ref mut tree) = self.tag_tree_state {
+            tree.toggle_tag_selection();
+        }
+    }
+
+    /// Toggle expansion of current node in tree
+    pub fn tag_tree_toggle_expand(&mut self) {
+        if let Some(ref mut tree) = self.tag_tree_state {
+            tree.toggle_selected();
+        }
+    }
+
+    /// Get selected tags from tag tree
+    #[must_use]
+    pub fn tag_tree_selected_tags(&self) -> Vec<String> {
+        self.tag_tree_state
+            .as_ref()
+            .map_or_else(Vec::new, |tree| tree.selected_tag_paths())
+    }
+
+    /// Synchronize items list cursor with tag tree cursor
+    ///
+    /// Finds the item in the items list that matches the currently selected
+    /// tag in the tag tree and updates the cursor to highlight it.
+    pub fn sync_cursor_with_tag_tree(&mut self) {
+        if let Some(current_tag) = self
+            .tag_tree_state
+            .as_ref()
+            .and_then(|tree| tree.current_tag())
+        {
+            // Find the index of this tag in the items list
+            if let Some(item_idx) = self.items.iter().position(|item| item.key == current_tag) {
+                // Find the position in filtered_indices
+                #[allow(clippy::cast_possible_truncation)]
+                let item_idx_u32 = item_idx as u32;
+                if let Some(filtered_pos) = self
+                    .filtered_indices
+                    .iter()
+                    .position(|&idx| idx == item_idx_u32)
+                {
+                    self.cursor = filtered_pos;
+                    self.adjust_scroll();
+                }
+            }
+        }
     }
 }
 
