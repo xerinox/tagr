@@ -133,7 +133,7 @@ fn show_aliases(tag: &str) -> Result<(), SchemaError> {
     if synonyms.len() > 1 {
         println!();
         println!("{}", "All synonyms:".bold());
-        let mut sorted_synonyms = synonyms.clone();
+        let mut sorted_synonyms = synonyms;
         sorted_synonyms.sort();
         for synonym in sorted_synonyms {
             if synonym == canonical {

@@ -20,6 +20,9 @@ use std::time::Duration;
 ///
 /// Then applies file pattern filters and tag exclusions.
 ///
+/// If params contains tags and regex mode is disabled, tags will be expanded
+/// using the schema to include synonyms and (if `no_hierarchy` is false) parent levels.
+///
 /// # Arguments
 /// * `db` - Database to query
 /// * `params` - Search parameters containing query, tags, patterns, and exclusions
@@ -41,7 +44,26 @@ use std::time::Duration;
 /// let files = apply_search_params(&db, &params)?;
 /// ```
 pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<PathBuf>, DbError> {
-    let mut files = if let Some(query) = &params.query {
+    // Expand tags via schema if not in regex mode
+    let mut expanded_params = params.clone();
+    let original_tag_count = params.tags.len();
+
+    if !params.tags.is_empty() && !params.regex_tag {
+        // Load schema (gracefully handle missing schema)
+        if let Ok(schema) = crate::schema::load_default_schema() {
+            let include_hierarchy = !params.no_hierarchy;
+            let expanded = crate::search::expand_tags(&params.tags, &schema, include_hierarchy);
+            expanded_params.tags = expanded;
+
+            // If tags were expanded from synonyms/hierarchy and user specified only 1 tag originally,
+            // switch to ANY mode (OR logic) instead of ALL (AND logic) for intuitive behavior
+            if original_tag_count == 1 && expanded_params.tags.len() > 1 {
+                expanded_params.tag_mode = SearchMode::Any;
+            }
+        }
+    }
+
+    let mut files = if let Some(query) = &expanded_params.query {
         let files_by_tag = db.find_by_tag_regex(query)?;
 
         let all_files = db.list_all_files()?;
@@ -53,18 +75,18 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
         let mut files: Vec<_> = file_set.into_iter().collect();
         files.sort();
         files
-    } else if !params.tags.is_empty() {
-        if params.regex_tag {
+    } else if !expanded_params.tags.is_empty() {
+        if expanded_params.regex_tag {
             // Handle regex tag matching
-            match params.tag_mode {
+            match expanded_params.tag_mode {
                 SearchMode::All => {
                     // For ALL mode with regex, we need to find files that match all patterns
-                    if params.tags.is_empty() {
+                    if expanded_params.tags.is_empty() {
                         Vec::new()
                     } else {
                         // Get files matching each regex pattern
                         let mut file_sets: Vec<HashSet<PathBuf>> = Vec::new();
-                        for tag_pattern in &params.tags {
+                        for tag_pattern in &expanded_params.tags {
                             let matching_files = db.find_by_tag_regex(tag_pattern)?;
                             file_sets.push(matching_files.into_iter().collect());
                         }
@@ -81,7 +103,7 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
                 SearchMode::Any => {
                     // For ANY mode with regex, collect all files matching any pattern
                     let mut file_set = HashSet::new();
-                    for tag_pattern in &params.tags {
+                    for tag_pattern in &expanded_params.tags {
                         let matching_files = db.find_by_tag_regex(tag_pattern)?;
                         file_set.extend(matching_files);
                     }
@@ -92,30 +114,34 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
             }
         } else {
             // Handle exact tag matching
-            match params.tag_mode {
-                SearchMode::All => db.find_by_all_tags(&params.tags)?,
-                SearchMode::Any => db.find_by_any_tag(&params.tags)?,
+            match expanded_params.tag_mode {
+                SearchMode::All => db.find_by_all_tags(&expanded_params.tags)?,
+                SearchMode::Any => db.find_by_any_tag(&expanded_params.tags)?,
             }
         }
     } else {
         db.list_all_files()?
     };
 
-    if !params.file_patterns.is_empty() {
-        let match_all = params.file_mode == SearchMode::All;
+    if !expanded_params.file_patterns.is_empty() {
+        let match_all = expanded_params.file_mode == SearchMode::All;
         files = files.into_iter().filter_patterns(
-            &params.file_patterns,
-            params.regex_file,
+            &expanded_params.file_patterns,
+            expanded_params.regex_file,
             match_all,
         )?;
     }
 
-    if !params.exclude_tags.is_empty() {
-        files = files.exclude_tags(db, &params.exclude_tags)?;
+    if !expanded_params.exclude_tags.is_empty() {
+        files = files.exclude_tags(db, &expanded_params.exclude_tags)?;
     }
 
-    if !params.virtual_tags.is_empty() {
-        files = apply_virtual_tags(files, &params.virtual_tags, params.virtual_mode)?;
+    if !expanded_params.virtual_tags.is_empty() {
+        files = apply_virtual_tags(
+            files,
+            &expanded_params.virtual_tags,
+            expanded_params.virtual_mode,
+        )?;
     }
 
     Ok(files)
