@@ -762,6 +762,24 @@ pub enum AliasCommands {
         /// Tag name
         tag: String,
     },
+
+    /// Swap which tag is canonical (renames database tags and reverses alias)
+    #[command(name = "set-canonical")]
+    SetCanonical {
+        /// Current alias that will become the canonical tag
+        alias: String,
+
+        /// Current canonical tag that will become an alias
+        canonical: String,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
 }
 
 /// Filter management subcommands

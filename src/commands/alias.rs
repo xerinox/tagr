@@ -1,18 +1,41 @@
 use colored::Colorize;
+use std::io::Write;
 
 use crate::cli::AliasCommands;
+use crate::db::Database;
 use crate::schema::{SchemaError, load_default_schema};
 
 /// Execute alias management commands
 ///
 /// # Errors
 /// Returns error if schema operations fail (I/O, validation, circular references)
-pub fn execute_alias_command(command: &AliasCommands) -> Result<(), SchemaError> {
+pub fn execute_alias_command(
+    command: &AliasCommands,
+    db: Option<&Database>,
+) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        AliasCommands::Add { alias, canonical } => add_alias(alias, canonical),
-        AliasCommands::Remove { alias } => remove_alias(alias),
-        AliasCommands::List => list_aliases(),
-        AliasCommands::Show { tag } => show_aliases(tag),
+        AliasCommands::Add { alias, canonical } => {
+            add_alias(alias, canonical)?;
+            Ok(())
+        }
+        AliasCommands::Remove { alias } => {
+            remove_alias(alias)?;
+            Ok(())
+        }
+        AliasCommands::List => {
+            list_aliases()?;
+            Ok(())
+        }
+        AliasCommands::Show { tag } => {
+            show_aliases(tag)?;
+            Ok(())
+        }
+        AliasCommands::SetCanonical {
+            alias,
+            canonical,
+            dry_run,
+            yes,
+        } => set_canonical(alias, canonical, *dry_run, *yes, db),
     }
 }
 
@@ -143,6 +166,163 @@ fn show_aliases(tag: &str) -> Result<(), SchemaError> {
             }
         }
     }
+
+    Ok(())
+}
+
+/// Set canonical tag (swap alias and canonical, updating database)
+fn set_canonical(
+    alias: &str,
+    canonical: &str,
+    dry_run: bool,
+    yes: bool,
+    db: Option<&Database>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Load schema
+    let schema = load_default_schema()?;
+
+    // Validate: alias must exist and point to canonical
+    let current_canonical = schema.canonicalize(alias);
+    if current_canonical == alias {
+        return Err(format!(
+            "\"{}\" is not an alias. Use 'tagr alias add' to create an alias first.",
+            alias
+        )
+        .into());
+    }
+
+    if current_canonical != canonical {
+        return Err(format!(
+            "Alias \"{}\" points to \"{}\" not \"{}\". \
+             Current mapping: {} → {}",
+            alias,
+            current_canonical,
+            canonical,
+            alias.cyan(),
+            current_canonical.yellow()
+        )
+        .into());
+    }
+
+    // Get database
+    let db = db.ok_or("Database required for set-canonical operation")?;
+
+    // Check how many files would be affected
+    let affected_files = db.find_by_tag(canonical)?;
+    let file_count = affected_files.len();
+
+    // Show what will happen
+    println!("{}", "Swap canonical tag:".bold());
+    println!();
+    println!(
+        "  Current:  {} {} {} (alias)",
+        alias.cyan(),
+        "→".dimmed(),
+        canonical.yellow()
+    );
+    println!(
+        "  New:      {} {} {} (alias)",
+        canonical.cyan(),
+        "→".dimmed(),
+        alias.yellow()
+    );
+    println!();
+    println!("{}", "Changes:".bold());
+    println!(
+        "  1. Remove alias: {} → {}",
+        alias.cyan(),
+        canonical.yellow()
+    );
+    println!(
+        "  2. Rename all tags in database: {} → {}",
+        canonical.yellow(),
+        alias.cyan()
+    );
+    println!(
+        "  3. Add new alias: {} → {}",
+        canonical.cyan(),
+        alias.yellow()
+    );
+    println!();
+    println!(
+        "Files affected: {}",
+        if file_count == 0 {
+            "none".dimmed().to_string()
+        } else {
+            file_count.to_string().yellow().to_string()
+        }
+    );
+
+    if dry_run {
+        println!();
+        println!(
+            "{} {}",
+            "ℹ".blue().bold(),
+            "Dry run - no changes made".dimmed()
+        );
+        return Ok(());
+    }
+
+    // Confirm unless --yes
+    if !yes {
+        println!();
+        print!("{} ", "Proceed? [y/N]".bold());
+        std::io::stdout().flush()?;
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+
+        if input != "y" && input != "yes" {
+            println!("{}", "Cancelled".dimmed());
+            return Ok(());
+        }
+    }
+
+    println!();
+
+    // Step 1: Remove old alias
+    let mut schema = load_default_schema()?;
+    schema.remove_alias(alias)?;
+    schema.save()?;
+    println!(
+        "{} Removed alias: {} → {}",
+        "1/3".dimmed(),
+        alias.cyan(),
+        canonical.yellow()
+    );
+
+    // Step 2: Rename tags in database
+    for file in &affected_files {
+        if let Ok(Some(mut tags)) = db.get_tags(file.to_str().unwrap_or_default()) {
+            // Replace canonical with alias
+            if let Some(pos) = tags.iter().position(|t| t == canonical) {
+                tags[pos] = alias.to_string();
+                db.insert(file.to_str().unwrap_or_default(), tags)?;
+            }
+        }
+    }
+    println!(
+        "{} Renamed tags: {} → {} ({} files)",
+        "2/3".dimmed(),
+        canonical.yellow(),
+        alias.cyan(),
+        file_count
+    );
+
+    // Step 3: Add new alias
+    let mut schema = load_default_schema()?;
+    schema.add_alias(canonical, alias)?;
+    schema.save()?;
+    println!(
+        "{} Added alias: {} → {}",
+        "3/3".dimmed(),
+        canonical.cyan(),
+        alias.yellow()
+    );
+
+    println!();
+    println!("{} Canonical tag swapped successfully", "✓".green().bold());
 
     Ok(())
 }

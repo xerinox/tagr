@@ -52,7 +52,8 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
         // Load schema (gracefully handle missing schema)
         if let Ok(schema) = crate::schema::load_default_schema() {
             let include_hierarchy = !params.no_hierarchy;
-            let expanded = crate::search::expand_tags(&params.tags, &schema, include_hierarchy);
+            let expanded =
+                crate::search::expand_tags(&params.tags, &schema, db, include_hierarchy)?;
             expanded_params.tags = expanded;
 
             // If tags were expanded from synonyms/hierarchy and user specified only 1 tag originally,

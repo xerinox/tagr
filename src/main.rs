@@ -44,7 +44,7 @@
 
 use tagr::{
     TagrError,
-    cli::{Cli, Commands, ConfigCommands, DbCommands, SearchParams},
+    cli::{AliasCommands, Cli, Commands, ConfigCommands, DbCommands, SearchParams},
     commands, config,
     db::Database,
 };
@@ -616,8 +616,13 @@ fn main() -> Result<()> {
                 commands::filter(command, quiet)?;
             }
             Commands::Alias { command } => {
-                // Alias management doesn't need database access
-                commands::alias(command)?;
+                // Pass database to set-canonical command, None to others
+                let db_ref = match command {
+                    AliasCommands::SetCanonical { .. } => Some(&db),
+                    _ => None,
+                };
+                commands::alias(command, db_ref)
+                    .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }
