@@ -4,8 +4,10 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 
 ## Features
 
+- **Tag hierarchies and aliases** - Organize tags with parent:child relationships and create tag synonyms
 - **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
 - **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
+- **Hierarchical tag tree** - Visual tree widget in TUI with collapsible nodes and multi-select
 - **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)
 - **Real-time action keybinds** - Perform tag operations directly within the fuzzy finder
 - **Saved filters** - Save complex search criteria for quick recall
@@ -130,9 +132,103 @@ tagr browse -t config -x "cat {}"
 |-----|--------|
 | ↑↓ or Ctrl+J/K | Navigate |
 | TAB | Select/deselect (multi-select) |
+| Space | Expand/collapse tree nodes (tag phase) |
 | Enter | Confirm and proceed |
 | ESC | Cancel |
 | Type | Filter via fuzzy matching |
+
+## Tag Hierarchies and Aliases
+
+**New in v0.9.0** - Tagr now supports hierarchical tag organization and tag aliases (synonyms).
+
+### Tag Hierarchies
+
+Organize tags using parent:child relationships with the `:` delimiter:
+
+```bash
+# Tag files with hierarchical tags
+tagr tag src/main.rs lang:rust
+tagr tag docs/tutorial.md lang:rust:beginner
+tagr tag app.py lang:python
+
+# Search automatically expands to parent tags
+tagr search -t lang:rust     # finds both lang:rust and lang:rust:beginner
+tagr search -t lang           # finds all lang:* tags
+
+# Disable hierarchy expansion
+tagr search -t lang:rust --no-hierarchy
+
+# Browse with hierarchical tag tree
+tagr browse  # See visual tree: lang → rust → beginner
+
+# List tags in tree format
+tagr tags list --tree
+```
+
+**How it works:**
+- Tags with `:` create parent-child relationships (e.g., `lang:rust:async`)
+- Searching for a child tag automatically includes parent tags
+- TUI displays tags in a collapsible tree structure
+- Use `--no-hierarchy` flag to disable expansion
+
+### Tag Aliases
+
+Create synonyms for tags to consolidate similar tags and simplify tagging:
+
+```bash
+# Create aliases
+tagr alias add js javascript
+tagr alias add py python
+tagr alias add ts typescript
+
+# Tag files using aliases (automatically canonicalized)
+tagr tag app.js js                    # stores as "javascript"
+tagr tag script.py py                  # stores as "python"
+
+# Search using any alias
+tagr search -t js                      # finds files tagged "javascript"
+tagr search -t javascript              # same result
+
+# Aliases work with hierarchical tags
+tagr alias add rust lang:rust
+tagr tag main.rs rust                  # stores as "lang:rust"
+
+# List all aliases
+tagr alias list
+
+# Show aliases for a specific tag
+tagr alias show javascript             # displays: js, es6, ecmascript
+
+# Remove an alias
+tagr alias remove js
+
+# Opt out of canonicalization when tagging
+tagr tag file.txt js --no-canonicalize
+```
+
+**How it works:**
+- Aliases automatically canonicalize to the target tag
+- Database stores only canonical tags (saves space)
+- Search and browse expand to all synonyms
+- TUI shows aliases inline: "javascript (js, es6) (42 files)"
+- Circular references are prevented
+
+### Tag Schema Storage
+
+Tag aliases and hierarchies are stored in `~/.config/tagr/tag_schema.toml`:
+
+```toml
+# Tag aliases (synonyms)
+[aliases]
+js = "javascript"
+py = "python"
+ts = "lang:typescript"
+
+# Schema automatically enforces:
+# - Circular reference prevention
+# - Reserved delimiter validation (:)
+# - Case-insensitive matching
+```
 
 ### Examples
 

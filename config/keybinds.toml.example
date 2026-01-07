@@ -23,6 +23,7 @@ filter_extension = "ctrl-f"    # Filter by extension
 # Navigation
 select_all = "ctrl-a"       # Select all files
 clear_selection = "ctrl-x"  # Clear selection
+# Note: Space key expands/collapses tag tree nodes (built-in, not configurable)
 
 # Search & Filter
 quick_search = "ctrl-s"     # Quick tag search

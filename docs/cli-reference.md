@@ -54,6 +54,9 @@ tagr db
 # Saved filters
 tagr filter
 
+# Tag aliases
+tagr alias
+
 # Global tag management
 tagr tags
 
@@ -101,7 +104,7 @@ tagr browse -t images -x "cp {} /backup/"
 Key options (shared with `search`):
 
 ```bash
--t, --tag <TAG>           Tags to filter by (multiple allowed)
+-t, --tag <TAG>           Tags to filter by (multiple allowed, supports aliases)
 -f, --file <PATTERN>      File patterns (glob or regex)
 -e, --exclude <TAG>       Exclude files with these tags
 -v, --virtual-tag <VTAG>  Virtual tags (e.g. size:>1MB, modified:today)
@@ -114,6 +117,7 @@ Key options (shared with `search`):
     --regex-tag           Treat tags as regex (alias: --regex-tags)
     --regex-file          Treat file patterns as regex (alias: --regex-files)
     --glob-files          Treat file patterns as globs (alias: --glob-file)
+    --no-hierarchy        Skip hierarchy expansion (don't search parent tags)
 ```
 
 Browse-specific options:
@@ -280,11 +284,15 @@ Cleans up:
 Global tag management:
 
 ```bash
-# List all tags (equivalent to `tagr list tags` in effect)
+# List all tags
 tagr tags list
+
+# List tags in tree format (shows hierarchies)
+tagr tags list --tree
 
 # Remove a tag from all files
 tagr tags remove <tag>
+tagr tags rm <tag>
 ```
 
 ---
@@ -333,6 +341,161 @@ tagr filter export --output team-filters.toml
 # Import filters
 tagr filter import team-filters.toml --overwrite
 ```
+
+---
+
+## Tag Aliases (`tagr alias`)
+
+Manage tag aliases (synonyms) for consolidating similar tags.
+
+### Create Alias
+
+```bash
+# Map alias to canonical tag
+tagr alias add js javascript
+tagr alias add py python
+tagr alias add ts lang:typescript  # aliases can point to hierarchical tags
+```
+
+### List Aliases
+
+```bash
+# Show all aliases
+tagr alias list
+tagr alias ls
+```
+
+Output:
+```
+js → javascript
+py → python
+ts → lang:typescript
+```
+
+### Show Tag Synonyms
+
+```bash
+# Display all aliases for a tag
+tagr alias show javascript
+```
+
+Output:
+```
+Tag: javascript
+Aliases: js, es6, ecmascript
+```
+
+### Remove Alias
+
+```bash
+# Delete an alias
+tagr alias remove js
+tagr alias rm js
+```
+
+### Usage in Tagging
+
+```bash
+# Aliases automatically canonicalize
+tagr tag app.js js              # stores as "javascript"
+tagr tag script.py py           # stores as "python"
+
+# Opt out of canonicalization
+tagr tag file.txt js --no-canonicalize  # stores as "js"
+```
+
+### Usage in Search
+
+```bash
+# Search using any alias (automatically expands)
+tagr search -t js               # finds files tagged "javascript"
+tagr search -t javascript       # same result
+
+# Works with browse mode
+tagr browse -t py               # finds files tagged "python"
+```
+
+### Hierarchical Aliases
+
+Aliases can point to hierarchical tags:
+
+```bash
+# Create alias to hierarchical tag
+tagr alias add rust lang:rust
+
+# Tagging with alias
+tagr tag main.rs rust           # stores as "lang:rust"
+
+# Searching expands both alias AND hierarchy
+tagr search -t rust             # finds lang:rust and all lang:rust:* children
+```
+
+### Validation
+
+- Alias names cannot contain `:` (reserved for hierarchies)
+- Circular references are prevented (e.g., A→B→A)
+- Case-insensitive matching
+- Self-references are allowed (harmless)
+
+---
+
+## Tag Hierarchies
+
+Organize tags with parent:child relationships using `:` delimiter.
+
+### Tagging with Hierarchies
+
+```bash
+# Create hierarchical tags
+tagr tag src/main.rs lang:rust
+tagr tag docs/tutorial.md lang:rust:beginner
+tagr tag app.py lang:python
+```
+
+### Searching with Hierarchies
+
+```bash
+# Search automatically includes parent tags
+tagr search -t lang:rust        # finds lang:rust AND lang:rust:beginner
+tagr search -t lang             # finds ALL lang:* tags
+
+# Disable hierarchy expansion
+tagr search -t lang:rust --no-hierarchy
+```
+
+### Tree Visualization
+
+```bash
+# Display tags in tree format
+tagr tags list --tree
+```
+
+Output:
+```
+lang (parent)
+├── python (12 files)
+└── rust (42 files)
+    ├── async (8 files)
+    └── beginner (15 files)
+```
+
+### TUI Tag Tree
+
+Browse mode displays hierarchical tags in an interactive tree:
+
+```bash
+tagr browse
+```
+
+**Left pane** (Tag Tree):
+- Collapsible hierarchy with Space key
+- Multi-select with TAB
+- Shows aliases: "javascript (js, es) (42 files)"
+- Short names in tree (python not lang:python)
+
+**Right pane** (Items List):
+- Synchronized with tag tree selections
+- Live filtering matches tree
 
 ---
 
