@@ -16,13 +16,26 @@ pub struct StatusBar<'a> {
     messages: &'a [&'a StatusMessage],
     /// Theme for styling
     theme: &'a Theme,
+    /// Optional CLI preview command (educational feature)
+    cli_preview: Option<&'a str>,
 }
 
 impl<'a> StatusBar<'a> {
     /// Create a new status bar widget
     #[must_use]
     pub const fn new(messages: &'a [&'a StatusMessage], theme: &'a Theme) -> Self {
-        Self { messages, theme }
+        Self {
+            messages,
+            theme,
+            cli_preview: None,
+        }
+    }
+
+    /// Set CLI preview command
+    #[must_use]
+    pub const fn with_cli_preview(mut self, preview: Option<&'a str>) -> Self {
+        self.cli_preview = preview;
+        self
     }
 
     /// Get style for a message level
@@ -46,6 +59,47 @@ impl<'a> StatusBar<'a> {
             MessageLevel::Normal => "",
         }
     }
+
+    /// Build a syntax-highlighted line for CLI preview
+    fn build_cli_preview_line(&self, cmd: &str) -> Line<'static> {
+        use ratatui::style::{Color, Modifier, Style};
+
+        let mut spans = Vec::new();
+
+        // Prefix
+        spans.push(Span::styled(
+            "CLI: ".to_string(),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
+        ));
+
+        // Parse and color-code the command
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        for (i, part) in parts.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(" ".to_string()));
+            }
+
+            let style = if i == 0 {
+                // Command name (tagr)
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD)
+            } else if i == 1 {
+                // Subcommand (search/browse)
+                Style::default().fg(Color::Magenta)
+            } else if part.starts_with('-') {
+                // Flags (-t, --any-tag, etc.)
+                Style::default().fg(Color::Yellow)
+            } else {
+                // Tag values
+                Style::default().fg(Color::Green)
+            };
+
+            spans.push(Span::styled(part.to_string(), style));
+        }
+
+        Line::from(spans)
+    }
 }
 
 impl Widget for StatusBar<'_> {
@@ -58,6 +112,14 @@ impl Widget for StatusBar<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
+        // Priority 1: Show CLI preview if available (educational feature)
+        if let Some(cmd) = self.cli_preview {
+            let line = self.build_cli_preview_line(cmd);
+            Paragraph::new(line).render(inner, buf);
+            return;
+        }
+
+        // Priority 2: Show messages if any
         if self.messages.is_empty() {
             return;
         }

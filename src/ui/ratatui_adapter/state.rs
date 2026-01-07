@@ -541,6 +541,40 @@ impl AppState {
             .map_or_else(Vec::new, |tree| tree.selected_tag_paths())
     }
 
+    /// Build CLI preview command from current tag selection (for educational display)
+    #[must_use]
+    pub fn build_cli_preview(&self) -> Option<String> {
+        // Only show CLI preview during TagSelection phase
+        if self.phase != BrowsePhase::TagSelection {
+            return None;
+        }
+
+        let selected_tags = self.tag_tree_selected_tags();
+        if selected_tags.is_empty() {
+            return Some("tagr browse".to_string());
+        }
+
+        let mut cmd = String::from("tagr search");
+        for tag in &selected_tags {
+            cmd.push_str(" -t ");
+            // Quote tags with spaces or special chars
+            if tag.contains(' ') || tag.contains('$') || tag.contains('"') {
+                cmd.push('"');
+                cmd.push_str(tag);
+                cmd.push('"');
+            } else {
+                cmd.push_str(tag);
+            }
+        }
+
+        // Add mode flag if multiple tags selected (defaults to ALL mode)
+        if selected_tags.len() > 1 {
+            cmd.push_str(" --any-tag");
+        }
+
+        Some(cmd)
+    }
+
     /// Synchronize items list cursor with tag tree cursor
     ///
     /// Finds the item in the items list that matches the currently selected

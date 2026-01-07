@@ -277,9 +277,10 @@ impl RatatuiFinder {
             preview_content,
         );
 
-        // Render status bar
+        // Render status bar with optional CLI preview
         let messages: Vec<_> = state.active_messages();
-        let status_bar = StatusBar::new(&messages, theme);
+        let cli_preview = state.build_cli_preview();
+        let status_bar = StatusBar::new(&messages, theme).with_cli_preview(cli_preview.as_deref());
         frame.render_widget(status_bar, main_layout[2]);
 
         // Render help bar
