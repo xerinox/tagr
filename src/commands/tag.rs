@@ -1,5 +1,6 @@
 //! Tag and untag commands
 
+use crate::schema::load_default_schema;
 use crate::{TagrError, db::Database};
 use std::path::PathBuf;
 
@@ -9,11 +10,18 @@ type Result<T> = std::result::Result<T, TagrError>;
 ///
 /// # Errors
 /// Returns an error if the file cannot be accessed or database operations fail
-pub fn execute(db: &Database, file: Option<PathBuf>, tags: &[String], quiet: bool) -> Result<()> {
+pub fn execute(
+    db: &Database,
+    file: Option<PathBuf>,
+    tags: &[String],
+    no_canonicalize: bool,
+    quiet: bool,
+) -> Result<()> {
     if let Some(file_path) = file {
         if tags.is_empty() {
             return Err(TagrError::InvalidInput("No tags provided".into()));
         }
+
         let fullpath = file_path.canonicalize().map_err(|e| {
             TagrError::InvalidInput(format!(
                 "Cannot access path '{}': {}",
@@ -21,9 +29,31 @@ pub fn execute(db: &Database, file: Option<PathBuf>, tags: &[String], quiet: boo
                 e
             ))
         })?;
-        db.add_tags(&fullpath, tags.to_vec())?;
+
+        // Canonicalize tags unless disabled
+        let final_tags = if no_canonicalize {
+            tags.to_vec()
+        } else {
+            // Load schema and canonicalize each tag
+            match load_default_schema() {
+                Ok(schema) => tags.iter().map(|t| schema.canonicalize(t)).collect(),
+                Err(e) => {
+                    // If schema can't be loaded, warn but continue with original tags
+                    if !quiet {
+                        eprintln!("Warning: Could not load schema ({}), using tags as-is", e);
+                    }
+                    tags.to_vec()
+                }
+            }
+        };
+
+        db.add_tags(&fullpath, final_tags.clone())?;
         if !quiet {
-            println!("Tagged {} with: {}", file_path.display(), tags.join(", "));
+            println!(
+                "Tagged {} with: {}",
+                file_path.display(),
+                final_tags.join(", ")
+            );
         }
     } else {
         return Err(TagrError::InvalidInput("No file provided".into()));

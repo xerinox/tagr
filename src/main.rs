@@ -356,7 +356,7 @@ fn main() -> Result<()> {
             }
             Commands::Tag { .. } => {
                 let ctx = command.get_tag_context().unwrap();
-                commands::tag(&db, ctx.file, &ctx.tags, quiet)?;
+                commands::tag(&db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet)?;
             }
             Commands::Search { filter_args, .. } => {
                 let params = command.get_search_params().ok_or_else(|| {
@@ -602,6 +602,10 @@ fn main() -> Result<()> {
             Commands::Filter { command } => {
                 // Filter management doesn't need database access
                 commands::filter(command, quiet)?;
+            }
+            Commands::Alias { command } => {
+                // Alias management doesn't need database access
+                commands::alias(command)?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }

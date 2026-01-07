@@ -92,6 +92,7 @@ fn test_bulk_tag_basic() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     bulk_tag(
         db,
@@ -132,6 +133,7 @@ fn test_bulk_untag_specific_tags() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     bulk_untag(
         db,
@@ -218,6 +220,7 @@ fn test_copy_tags_all() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     copy_tags(db, source.path(), &params, None, &[], false, true, true).unwrap();
     let tags1 = db.get_tags(t1.path()).unwrap().unwrap();
@@ -293,6 +296,7 @@ fn test_bulk_tag_if_not_exists() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     let conditions = ConditionalArgs {
         if_not_exists: true,
@@ -351,6 +355,7 @@ fn test_bulk_tag_if_has_tag() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     let conditions = ConditionalArgs {
         if_not_exists: false,
@@ -415,6 +420,7 @@ fn test_bulk_tag_if_missing_tag() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     let conditions = ConditionalArgs {
         if_not_exists: false,

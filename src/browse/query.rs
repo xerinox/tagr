@@ -120,6 +120,7 @@ pub fn get_files_by_tags(
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: crate::cli::SearchMode::All,
+        no_hierarchy: false,
     };
 
     get_matching_files(db, &params)
@@ -246,6 +247,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         let files = get_matching_files(db, &params).unwrap();
@@ -358,6 +360,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         let files = get_matching_files(db, &params).unwrap();

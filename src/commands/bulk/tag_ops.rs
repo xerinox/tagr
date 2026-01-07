@@ -367,6 +367,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         normalize_bulk_params(&mut params).expect("normalize should succeed");
@@ -390,6 +391,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         normalize_bulk_params(&mut params).expect("normalize should succeed");
@@ -414,6 +416,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         let err = normalize_bulk_params(&mut params)

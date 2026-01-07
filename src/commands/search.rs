@@ -220,6 +220,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
         let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
             .err()
@@ -248,6 +249,7 @@ mod tests {
             glob_files: true,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
         let res = execute(db, params, None, None, config::PathFormat::Absolute, true);
         assert!(res.is_ok());
@@ -269,6 +271,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
         let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
             .err()

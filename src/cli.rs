@@ -95,6 +95,8 @@ pub struct SearchParams {
     pub virtual_tags: Vec<String>,
     /// How to combine multiple virtual tags (AND/OR)
     pub virtual_mode: SearchMode,
+    /// Skip hierarchy expansion (don't search parent tags)
+    pub no_hierarchy: bool,
 }
 
 /// Preview configuration overrides from CLI
@@ -121,6 +123,8 @@ pub struct TagContext {
     pub file: Option<PathBuf>,
     /// Tags to add
     pub tags: Vec<String>,
+    /// Skip tag canonicalization
+    pub no_canonicalize: bool,
 }
 
 /// Context for untag command execution
@@ -229,6 +233,7 @@ impl From<&crate::filters::FilterCriteria> for SearchParams {
             glob_files: criteria.glob_files,
             virtual_tags: criteria.virtual_tags.clone(),
             virtual_mode: criteria.virtual_mode.into(),
+            no_hierarchy: false, // Filters don't store hierarchy preference
         }
     }
 }
@@ -259,6 +264,7 @@ impl From<&SearchCriteriaArgs> for SearchParams {
             } else {
                 SearchMode::All
             },
+            no_hierarchy: false, // Default to false, set explicitly from command
         }
     }
 }
@@ -702,6 +708,37 @@ pub enum BatchFormatArg {
     /// JSON format: `[{"file":"...","tags":["t1","t2"]}]`
     Json,
 }
+
+/// Alias management subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum AliasCommands {
+    /// Add a new alias
+    Add {
+        /// Alias name (e.g., "js")
+        alias: String,
+
+        /// Canonical tag (e.g., "javascript")
+        canonical: String,
+    },
+
+    /// Remove an alias
+    #[command(visible_alias = "rm")]
+    Remove {
+        /// Alias to remove
+        alias: String,
+    },
+
+    /// List all aliases
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Show aliases for a specific tag
+    Show {
+        /// Tag name
+        tag: String,
+    },
+}
+
 /// Filter management subcommands
 #[derive(Subcommand, Debug, Clone)]
 pub enum FilterCommands {
@@ -892,6 +929,10 @@ pub enum Commands {
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
 
+        /// Skip hierarchy expansion (don't search parent tags)
+        #[arg(long = "no-hierarchy")]
+        no_hierarchy: bool,
+
         /// Execute command for each selected file (use {} as placeholder for file path)
         #[arg(short = 'x', long = "exec", value_name = "COMMAND")]
         execute: Option<String>,
@@ -945,6 +986,12 @@ pub enum Commands {
         command: FilterCommands,
     },
 
+    /// Manage tag aliases
+    Alias {
+        #[command(subcommand)]
+        command: AliasCommands,
+    },
+
     /// Tag a file with one or more tags
     #[command(visible_alias = "t")]
     Tag {
@@ -964,6 +1011,10 @@ pub enum Commands {
         #[arg(value_name = "TAGS", conflicts_with = "tags_flag")]
         tags_pos: Vec<String>,
 
+        /// Skip tag canonicalization (use tags as-is, don't resolve aliases)
+        #[arg(long = "no-canonicalize")]
+        no_canonicalize: bool,
+
         #[command(flatten)]
         db_args: DbArgs,
     },
@@ -977,6 +1028,10 @@ pub enum Commands {
 
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
+
+        /// Skip hierarchy expansion (don't search parent tags)
+        #[arg(long = "no-hierarchy")]
+        no_hierarchy: bool,
 
         /// Display absolute paths (overrides config)
         #[arg(long = "absolute", conflicts_with = "relative")]
@@ -1078,6 +1133,7 @@ impl Commands {
                 file_pos,
                 tags_flag,
                 tags_pos,
+                no_canonicalize,
                 ..
             } => {
                 let file = file_flag.clone().or_else(|| file_pos.clone());
@@ -1086,7 +1142,11 @@ impl Commands {
                 } else {
                     tags_flag.clone()
                 };
-                Some(TagContext { file, tags })
+                Some(TagContext {
+                    file,
+                    tags,
+                    no_canonicalize: *no_canonicalize,
+                })
             }
             _ => None,
         }
@@ -1097,7 +1157,10 @@ impl Commands {
     pub fn get_search_params(&self) -> Option<SearchParams> {
         match self {
             Self::Search {
-                query, criteria, ..
+                query,
+                criteria,
+                no_hierarchy,
+                ..
             } => Some(SearchParams {
                 query: query.clone(),
                 tags: criteria.tags.clone(),
@@ -1122,6 +1185,7 @@ impl Commands {
                 } else {
                     SearchMode::All
                 },
+                no_hierarchy: *no_hierarchy,
             }),
             _ => None,
         }
@@ -1134,6 +1198,7 @@ impl Commands {
             Self::Browse {
                 query,
                 criteria,
+                no_hierarchy,
                 execute,
                 no_preview,
                 preview_lines,
@@ -1159,6 +1224,7 @@ impl Commands {
                         glob_files: false,
                         virtual_tags: criteria.virtual_tags.clone(),
                         virtual_mode: SearchMode::Any,
+                        no_hierarchy: *no_hierarchy,
                     })
                 } else {
                     None
@@ -1274,6 +1340,7 @@ impl Cli {
                 any_virtual: false,
                 all_virtual: false,
             },
+            no_hierarchy: false,
             execute: None,
             no_preview: false,
             preview_lines: None,

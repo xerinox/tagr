@@ -568,6 +568,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         });
 
         let session = BrowseSession::new(db.db(), config).unwrap();
@@ -644,6 +645,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         });
 
         let mut session = BrowseSession::new(db.db(), config).unwrap();
@@ -662,6 +664,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         session.update_search_params(new_params).unwrap();
@@ -695,6 +698,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         });
 
         let session = BrowseSession::new(db.db(), config).unwrap();

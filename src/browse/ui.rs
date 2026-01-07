@@ -171,6 +171,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                                         glob_files: false,
                                         virtual_tags: vec![],
                                         virtual_mode: crate::cli::SearchMode::All,
+                                        no_hierarchy: false,
                                     }
                                 } else {
                                     SearchParams {
@@ -185,6 +186,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                                         glob_files: false,
                                         virtual_tags: vec![],
                                         virtual_mode: crate::cli::SearchMode::All,
+                                        no_hierarchy: false,
                                     }
                                 }
                             });
@@ -201,6 +203,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         glob_files: current.glob_files,
                         virtual_tags,
                         virtual_mode: current.virtual_mode,
+                        no_hierarchy: current.no_hierarchy,
                     };
 
                     self.session.update_search_params(new_params)?;

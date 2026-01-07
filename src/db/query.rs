@@ -199,6 +199,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -234,6 +235,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -265,6 +267,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -299,6 +302,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -334,6 +338,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -363,6 +368,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
 
         let results = apply_search_params(db, &params).unwrap();
@@ -396,6 +402,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
 
         let results = apply_search_params(db, &params).unwrap();

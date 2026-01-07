@@ -19,6 +19,7 @@ pub mod keybinds;
 pub mod output;
 pub mod patterns;
 pub mod preview;
+pub mod schema;
 pub mod search;
 pub mod ui;
 pub mod vtags;
@@ -56,6 +57,9 @@ pub enum TagrError {
     /// Pattern system error
     #[error("Pattern error: {0}")]
     PatternError(#[from] patterns::PatternError),
+    /// Schema error
+    #[error("Schema error: {0}")]
+    SchemaError(#[from] schema::SchemaError),
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),

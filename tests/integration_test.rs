@@ -102,6 +102,7 @@ fn test_e2e_bulk_tag_with_glob_file_patterns() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
 
     // Execute bulk tag (normalize should enable glob and match only .rs files)
@@ -158,6 +159,7 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
 
     bulk_untag(
@@ -203,6 +205,7 @@ fn test_e2e_search_execute_with_glob_flag() {
         glob_files: true,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
 
     let res = search_cmd::execute(
