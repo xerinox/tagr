@@ -189,9 +189,25 @@ fn handle_normal_mode(
 
     // Handle standard keybinds
     match (key.code, key.modifiers) {
-        // Exit
-        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => EventResult::Abort,
-        (KeyCode::Enter, _) => EventResult::Confirm(Some("enter".to_string())),
+        // Exit (or exit search mode)
+        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            // If actively typing in search, exit search mode but keep filter
+            if state.search_active {
+                state.search_active = false;
+                state.search_initiated_from = None;
+                return EventResult::Continue;
+            }
+            EventResult::Abort
+        }
+        (KeyCode::Enter, _) => {
+            // If actively typing in search, exit search mode but keep filter
+            if state.search_active {
+                state.search_active = false;
+                state.search_initiated_from = None;
+                return EventResult::Continue;
+            }
+            EventResult::Confirm(Some("enter".to_string()))
+        }
 
         // Preview scroll (Shift+Up/Down) - must be before general navigation
         (KeyCode::Up, KeyModifiers::SHIFT) => {
@@ -213,8 +229,24 @@ fn handle_normal_mode(
             }
             EventResult::Continue
         }
+        (KeyCode::Char('k'), KeyModifiers::NONE) if !state.search_active => {
+            if state.is_tag_selection_phase() {
+                state.tag_tree_move_up();
+            } else {
+                state.cursor_up();
+            }
+            EventResult::Continue
+        }
         (KeyCode::Down, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
+            if state.is_tag_selection_phase() {
+                state.tag_tree_move_down();
+            } else {
+                state.cursor_down();
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Char('j'), KeyModifiers::NONE) if !state.search_active => {
             if state.is_tag_selection_phase() {
                 state.tag_tree_move_down();
             } else {
@@ -273,12 +305,20 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Query editing
-        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+        // Query editing - / activates search mode
+        (KeyCode::Char('/'), KeyModifiers::NONE) => {
+            state.search_active = true;
+            if state.query.is_empty() && state.is_tag_selection_phase() {
+                state.search_initiated_from = Some(state.focused_pane);
+            }
+            EventResult::Continue
+        }
+        // Regular character input only when search is active
+        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) if state.search_active => {
             state.query_push(c);
             EventResult::QueryChanged
         }
-        (KeyCode::Backspace, _) => {
+        (KeyCode::Backspace, _) if state.search_active => {
             if state.query.is_empty() {
                 EventResult::Ignored
             } else {
@@ -286,7 +326,7 @@ fn handle_normal_mode(
                 EventResult::QueryChanged
             }
         }
-        (KeyCode::Delete, _) => {
+        (KeyCode::Delete, _) if state.search_active => {
             if state.query_cursor >= state.query.len() {
                 EventResult::Ignored
             } else {
@@ -302,11 +342,11 @@ fn handle_normal_mode(
             state.query_cursor_right();
             EventResult::Continue
         }
-        (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) if state.search_active => {
             state.query_clear();
             EventResult::QueryChanged
         }
-        (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
+        (KeyCode::Char('w'), KeyModifiers::CONTROL) if state.search_active => {
             // Delete word backwards
             let trimmed = state.query[..state.query_cursor].trim_end();
             if let Some(last_space) = trimmed.rfind(' ') {
@@ -575,7 +615,7 @@ mod tests {
         let items: Vec<DisplayItem> = (0..10)
             .map(|i| DisplayItem::new(format!("item{i}"), format!("Item {i}"), format!("item{i}")))
             .collect();
-        AppState::new(items, true)
+        AppState::new(items, true, None, None)
     }
 
     #[test]
@@ -665,6 +705,15 @@ mod tests {
     fn test_query_input() {
         let mut state = make_state();
         let binds = KeybindMap::new();
+
+        // Enter search mode first with /
+        let result = handle_normal_mode(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+            &binds,
+        );
+        assert_eq!(result, EventResult::Continue);
+        assert!(state.search_active);
 
         let result = handle_normal_mode(
             &mut state,

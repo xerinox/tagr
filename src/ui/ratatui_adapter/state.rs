@@ -27,6 +27,16 @@ pub enum Mode {
     RefineSearch,
 }
 
+/// Which pane has focus during TagSelection phase
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusPane {
+    /// Tag tree pane (left)
+    #[default]
+    TagTree,
+    /// File preview pane (right)
+    FilePreview,
+}
+
 /// A status message with timestamp for TTL-based expiry
 #[derive(Debug, Clone)]
 pub struct StatusMessage {
@@ -103,12 +113,37 @@ pub struct AppState {
     pub phase: BrowsePhase,
     /// Tag tree state (for TagSelection phase)
     pub tag_tree_state: Option<TagTreeState>,
+    /// Tag schema for canonicalization (used in CLI preview)
+    pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
+    /// Database reference for live file count queries
+    pub database: Option<std::sync::Arc<crate::db::Database>>,
+    /// Which pane has focus (during TagSelection phase)
+    pub focused_pane: FocusPane,
+    /// File preview items (live query results)
+    pub file_preview_items: Vec<DisplayItem>,
+    /// Original unfiltered file preview items (before search filtering)
+    pub file_preview_items_unfiltered: Vec<DisplayItem>,
+    /// Cursor position in file preview pane
+    pub file_preview_cursor: usize,
+    /// Scroll offset for file preview pane
+    pub file_preview_scroll: usize,
+    /// Selected file indices in preview pane (for multi-select)
+    pub file_preview_selected: HashSet<usize>,
+    /// Which pane initiated the search (for context-aware filtering)
+    pub search_initiated_from: Option<FocusPane>,
+    /// Whether user is actively typing in search field (vs browsing filtered results)
+    pub search_active: bool,
 }
 
 impl AppState {
     /// Create new application state with given items
     #[must_use]
-    pub fn new(items: Vec<DisplayItem>, multi_select: bool) -> Self {
+    pub fn new(
+        items: Vec<DisplayItem>,
+        multi_select: bool,
+        tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
+        database: Option<std::sync::Arc<crate::db::Database>>,
+    ) -> Self {
         let item_count = items.len();
         // Initially all items are visible (no filter applied)
         #[allow(clippy::cast_possible_truncation)]
@@ -137,6 +172,16 @@ impl AppState {
             available_tags: Vec::new(),
             phase: BrowsePhase::FileSelection, // Default to file selection
             tag_tree_state: None,
+            tag_schema,
+            database,
+            focused_pane: FocusPane::TagTree,
+            file_preview_items: Vec::new(),
+            file_preview_items_unfiltered: Vec::new(),
+            file_preview_cursor: 0,
+            file_preview_scroll: 0,
+            file_preview_selected: HashSet::new(),
+            search_initiated_from: None,
+            search_active: false,
         }
     }
 
@@ -224,20 +269,30 @@ impl AppState {
     /// If multi-select is enabled, returns selected items.
     /// Otherwise, returns the current item.
     ///
-    /// In TagSelection phase, returns tags from the tag tree's multi-select state.
+    /// In TagSelection phase with FilePreview focus, returns selected files from right pane.
     #[must_use]
     pub fn selected_keys(&self) -> Vec<String> {
-        // In tag selection phase, use tag tree selections
+        // In tag selection phase, behavior depends on focused pane
         if self.is_tag_selection_phase() {
-            let tree_selections = self.tag_tree_selected_tags();
-            if !tree_selections.is_empty() {
-                return tree_selections;
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            match self.focused_pane {
+                FocusPane::FilePreview => {
+                    // Return selected files from preview pane
+                    return self.get_selected_files_from_preview();
+                }
+                FocusPane::TagTree => {
+                    // Return selected tags (for other operations)
+                    let tree_selections = self.tag_tree_selected_tags();
+                    if !tree_selections.is_empty() {
+                        return tree_selections;
+                    }
+                    // Fall back to current item
+                    return self
+                        .current_item()
+                        .map(|item| vec![item.key.clone()])
+                        .unwrap_or_default();
+                }
             }
-            // Fall back to current item if no tree selections
-            return self
-                .current_item()
-                .map(|item| vec![item.key.clone()])
-                .unwrap_or_default();
         }
 
         // In file selection phase, use standard multi-select logic
@@ -542,9 +597,165 @@ impl AppState {
     }
 
     /// Toggle selection of current tag in tree
+    ///
+    /// Note: CLI preview (with file count) will be rebuilt on next render
     pub fn tag_tree_toggle_selection(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.toggle_tag_selection();
+        }
+        // Update file preview after selection changes
+        self.update_file_preview();
+        // CLI preview will be rebuilt automatically on next render via build_cli_preview()
+    }
+
+    /// Update file preview based on currently selected tags
+    ///
+    /// Queries database for files matching selected tags (with alias expansion)
+    /// and updates the file_preview_items list.
+    pub fn update_file_preview(&mut self) {
+        let selected_tags = self.tag_tree_selected_tags();
+
+        if selected_tags.is_empty() {
+            self.file_preview_items.clear();
+            self.file_preview_cursor = 0;
+            self.file_preview_scroll = 0;
+            self.file_preview_selected.clear();
+            return;
+        }
+
+        // Get database and schema
+        let db = match &self.database {
+            Some(db) => db,
+            None => {
+                self.file_preview_items.clear();
+                self.file_preview_selected.clear();
+                return;
+            }
+        };
+
+        // Canonicalize and expand tags (same as calculate_matching_files)
+        let canonical_tags: Vec<String> = selected_tags
+            .iter()
+            .map(|tag| {
+                if let Some(ref schema) = self.tag_schema {
+                    schema.canonicalize(tag)
+                } else {
+                    tag.clone()
+                }
+            })
+            .collect();
+
+        let expanded_tags: Vec<String> = if let Some(ref schema) = self.tag_schema {
+            canonical_tags
+                .iter()
+                .flat_map(|tag| schema.expand_synonyms(tag))
+                .collect()
+        } else {
+            canonical_tags
+        };
+
+        // Query files (ANY mode - union)
+        let mut file_set = std::collections::HashSet::new();
+        for tag in &expanded_tags {
+            if let Ok(files) = db.find_by_tag(tag) {
+                for file in files {
+                    if let Some(file_str) = file.to_str() {
+                        file_set.insert(file_str.to_string());
+                    }
+                }
+            }
+        }
+
+        // Convert to DisplayItems
+        let mut files: Vec<String> = file_set.into_iter().collect();
+        files.sort();
+
+        self.file_preview_items = files
+            .iter()
+            .map(|path| DisplayItem::new(path.clone(), path.clone(), path.clone()))
+            .collect();
+
+        // Save unfiltered list for search filtering
+        self.file_preview_items_unfiltered = self.file_preview_items.clone();
+
+        // Clear selections when file list changes
+        self.file_preview_selected.clear();
+
+        // Reset cursor if out of bounds
+        if self.file_preview_cursor >= self.file_preview_items.len() {
+            self.file_preview_cursor = self.file_preview_items.len().saturating_sub(1);
+        }
+        self.file_preview_scroll = 0;
+    }
+
+    /// Switch focus between tag tree and file preview panes
+    pub fn toggle_focus_pane(&mut self) {
+        self.focused_pane = match self.focused_pane {
+            FocusPane::TagTree => FocusPane::FilePreview,
+            FocusPane::FilePreview => FocusPane::TagTree,
+        };
+    }
+
+    /// Move cursor up in file preview pane
+    pub fn file_preview_cursor_up(&mut self) {
+        if self.file_preview_cursor > 0 {
+            self.file_preview_cursor -= 1;
+            self.adjust_file_preview_scroll();
+        }
+    }
+
+    /// Move cursor down in file preview pane
+    pub fn file_preview_cursor_down(&mut self) {
+        if self.file_preview_cursor + 1 < self.file_preview_items.len() {
+            self.file_preview_cursor += 1;
+            self.adjust_file_preview_scroll();
+        }
+    }
+
+    /// Adjust file preview scroll to keep cursor visible
+    fn adjust_file_preview_scroll(&mut self) {
+        if self.file_preview_cursor < self.file_preview_scroll {
+            self.file_preview_scroll = self.file_preview_cursor;
+        } else if self.file_preview_cursor >= self.file_preview_scroll + self.visible_height {
+            self.file_preview_scroll = self
+                .file_preview_cursor
+                .saturating_sub(self.visible_height - 1);
+        }
+    }
+
+    /// Toggle selection of current file in preview pane
+    pub fn file_preview_toggle_selection(&mut self) {
+        if self.file_preview_items.is_empty() {
+            return;
+        }
+
+        let idx = self.file_preview_cursor;
+        if self.file_preview_selected.contains(&idx) {
+            self.file_preview_selected.remove(&idx);
+        } else {
+            self.file_preview_selected.insert(idx);
+        }
+    }
+
+    /// Get selected files from preview pane, or current file if none selected
+    #[must_use]
+    pub fn get_selected_files_from_preview(&self) -> Vec<String> {
+        if self.file_preview_selected.is_empty() {
+            // No multi-select, return current item
+            self.file_preview_items
+                .get(self.file_preview_cursor)
+                .map(|item| vec![item.key.clone()])
+                .unwrap_or_default()
+        } else {
+            // Return all selected items
+            self.file_preview_selected
+                .iter()
+                .filter_map(|&idx| {
+                    self.file_preview_items
+                        .get(idx)
+                        .map(|item| item.key.clone())
+                })
+                .collect()
         }
     }
 
@@ -564,6 +775,9 @@ impl AppState {
     }
 
     /// Build CLI preview command from current tag selection (for educational display)
+    ///
+    /// Shows canonical tag names to educate users on what actually gets stored.
+    /// Also includes live file count based on current selection.
     #[must_use]
     pub fn build_cli_preview(&self) -> Option<String> {
         // Only show CLI preview during TagSelection phase
@@ -577,15 +791,25 @@ impl AppState {
         }
 
         let mut cmd = String::from("tagr search");
+        let mut canonical_tags = Vec::new();
+
         for tag in &selected_tags {
+            // Canonicalize tag if schema is available
+            let canonical = if let Some(ref schema) = self.tag_schema {
+                schema.canonicalize(&tag)
+            } else {
+                tag.clone()
+            };
+            canonical_tags.push(canonical.clone());
+
             cmd.push_str(" -t ");
             // Quote tags with spaces or special chars
-            if tag.contains(' ') || tag.contains('$') || tag.contains('"') {
+            if canonical.contains(' ') || canonical.contains('$') || canonical.contains('"') {
                 cmd.push('"');
-                cmd.push_str(tag);
+                cmd.push_str(&canonical);
                 cmd.push('"');
             } else {
-                cmd.push_str(tag);
+                cmd.push_str(&canonical);
             }
         }
 
@@ -594,7 +818,49 @@ impl AppState {
             cmd.push_str(" --any-tag");
         }
 
+        // Add live file count if database is available
+        if let Some(file_count) = self.calculate_matching_files(&canonical_tags) {
+            let plural = if file_count == 1 { "file" } else { "files" };
+            cmd.push_str(&format!(" → {} {}", file_count, plural));
+        }
+
         Some(cmd)
+    }
+
+    /// Calculate number of files matching the given tags
+    ///
+    /// Uses ANY mode (union) when multiple tags are selected.
+    /// Expands tags to include all aliases (same as actual search).
+    fn calculate_matching_files(&self, tags: &[String]) -> Option<usize> {
+        let db = self.database.as_ref()?;
+
+        if tags.is_empty() {
+            return Some(0);
+        }
+
+        // Expand tags to include all aliases (same as actual search does)
+        let expanded_tags: Vec<String> = if let Some(ref schema) = self.tag_schema {
+            tags.iter()
+                .flat_map(|tag| schema.expand_synonyms(tag))
+                .collect()
+        } else {
+            tags.to_vec()
+        };
+
+        // Use ANY mode (union) - count unique files across all expanded tags
+        let mut file_set = std::collections::HashSet::new();
+
+        for tag in &expanded_tags {
+            if let Ok(files) = db.find_by_tag(tag) {
+                for file in files {
+                    if let Some(file_str) = file.to_str() {
+                        file_set.insert(file_str.to_string());
+                    }
+                }
+            }
+        }
+
+        Some(file_set.len())
     }
 
     /// Synchronize items list cursor with tag tree cursor
@@ -669,7 +935,7 @@ mod tests {
 
     #[test]
     fn test_cursor_navigation() {
-        let mut state = AppState::new(make_items(5), false);
+        let mut state = AppState::new(make_items(5), false, None, None);
 
         assert_eq!(state.cursor, 0);
 
@@ -697,7 +963,7 @@ mod tests {
 
     #[test]
     fn test_multi_select() {
-        let mut state = AppState::new(make_items(5), true);
+        let mut state = AppState::new(make_items(5), true, None, None);
 
         assert!(state.selected.is_empty());
 
@@ -718,7 +984,7 @@ mod tests {
 
     #[test]
     fn test_query_editing() {
-        let mut state = AppState::new(vec![], false);
+        let mut state = AppState::new(vec![], false, None, None);
 
         state.query_push('h');
         state.query_push('e');
@@ -746,7 +1012,7 @@ mod tests {
 
     #[test]
     fn test_selected_keys() {
-        let mut state = AppState::new(make_items(5), true);
+        let mut state = AppState::new(make_items(5), true, None, None);
 
         // No selection, returns current item
         let keys = state.selected_keys();

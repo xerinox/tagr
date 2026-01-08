@@ -279,6 +279,13 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         let search_criteria = self.session.search_criteria();
         let available_tags = self.session.available_tags().unwrap_or_default();
 
+        // Wrap schema and database in Arc for sharing
+        let tag_schema = self
+            .session
+            .schema()
+            .map(|s| std::sync::Arc::new(s.clone()));
+        let database = Some(std::sync::Arc::new(self.session.db().clone()));
+
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
             .with_ansi(true)
@@ -290,7 +297,9 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 search_criteria.exclude_tags,
                 search_criteria.file_patterns,
                 search_criteria.virtual_tags,
-            ));
+            ))
+            .with_schema(tag_schema)
+            .with_database(database);
 
         let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
             config.with_preview(preview_cfg.into())

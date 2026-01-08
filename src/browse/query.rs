@@ -10,7 +10,7 @@
 use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
 use crate::db::{Database, DbError};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Query all available tags from the database with file counts
 ///
@@ -42,19 +42,26 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
     let schema = crate::schema::load_default_schema().ok();
 
     if let Some(schema) = schema {
-        // Group tags by canonical form and sum file counts
-        let mut canonical_map: HashMap<String, usize> = HashMap::new();
+        // Group tags by canonical form and count UNIQUE files
+        let mut canonical_map: HashMap<String, HashSet<String>> = HashMap::new();
 
         for tag_name in tag_names {
             let canonical = schema.canonicalize(&tag_name);
-            let file_count = db.find_by_tag(&tag_name)?.len();
-            *canonical_map.entry(canonical).or_insert(0) += file_count;
+            let files = db.find_by_tag(&tag_name)?;
+
+            // Add unique file paths to the canonical tag's set
+            let file_set = canonical_map.entry(canonical).or_insert_with(HashSet::new);
+            for file_path in files {
+                if let Some(path_str) = file_path.to_str() {
+                    file_set.insert(path_str.to_string());
+                }
+            }
         }
 
-        // Convert to TagrItem instances
+        // Convert to TagrItem instances with unique file counts
         let mut tags: Vec<TagrItem> = canonical_map
             .into_iter()
-            .map(|(canonical, file_count)| TagrItem::tag(canonical, file_count))
+            .map(|(canonical, file_set)| TagrItem::tag(canonical, file_set.len()))
             .collect();
 
         tags.sort_by(|a, b| a.name.cmp(&b.name));

@@ -240,6 +240,7 @@ impl RatatuiFinder {
 
     /// Render the UI
     fn render(
+        &self,
         frame: &mut Frame,
         state: &mut AppState,
         theme: &Theme,
@@ -268,7 +269,7 @@ impl RatatuiFinder {
 
         // Content area: items list and optional preview
         let content_area = main_layout[1];
-        Self::render_content(
+        self.render_content(
             frame,
             state,
             theme,
@@ -325,6 +326,7 @@ impl RatatuiFinder {
 
     /// Render the content area (items + preview OR tag tree + live results)
     fn render_content(
+        &self,
         frame: &mut Frame,
         state: &mut AppState,
         theme: &Theme,
@@ -332,31 +334,96 @@ impl RatatuiFinder {
         preview_config: Option<&crate::ui::PreviewConfig>,
         preview_content: Option<&StyledPreview>,
     ) {
-        use super::widgets::tag_tree_with_border;
         use crate::ui::types::BrowsePhase;
 
-        // Special rendering for TagSelection phase - show tag tree + live results
+        // Special rendering for TagSelection phase - show tag tree + files + preview
         if state.phase == BrowsePhase::TagSelection {
-            // Split horizontally: tag tree (left) | result preview (right)
+            // Split horizontally: tag tree (left 30%) | files (middle 35%) | preview (right 35%)
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(50), // Tag tree
-                    Constraint::Percentage(50), // Live results
+                    Constraint::Percentage(30), // Tag tree
+                    Constraint::Percentage(35), // File list
+                    Constraint::Percentage(35), // Preview
                 ])
                 .split(area);
 
-            // Render tag tree on the left
+            // Render tag tree on the left with focus indicator
             if let Some(tag_tree_state) = &mut state.tag_tree_state {
-                let tag_tree = tag_tree_with_border("Tag Hierarchy");
+                let is_focused = state.focused_pane == super::state::FocusPane::TagTree;
+                let border_style = if is_focused {
+                    theme.cursor_style() // Bright border for focused pane
+                } else {
+                    theme.border_style() // Dim border for unfocused
+                };
+
+                let tag_tree = super::widgets::TagTree::new().block(
+                    ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .border_style(border_style)
+                        .title(" Tags "),
+                );
                 frame.render_stateful_widget(tag_tree, chunks[0], tag_tree_state);
             }
 
-            // Render live results on the right (filtered file list based on selected tags)
-            // For now, just show "Results will appear here" placeholder
-            // TODO: Implement live result updates
-            let item_list = ItemList::new(state, theme);
-            frame.render_widget(item_list, chunks[1]);
+            // Render file list in the middle with focus indicator
+            let is_focused = state.focused_pane == super::state::FocusPane::FilePreview;
+            let border_style = if is_focused {
+                theme.cursor_style() // Bright border for focused pane
+            } else {
+                theme.border_style() // Dim border for unfocused
+            };
+
+            // Create a temporary state for the file list with selections
+            let mut preview_state = AppState::new(
+                state.file_preview_items.clone(),
+                true, // Enable multi-select
+                None,
+                None,
+            );
+            preview_state.cursor = state.file_preview_cursor;
+            preview_state.scroll_offset = state.file_preview_scroll;
+            preview_state.visible_height = state.visible_height;
+            preview_state.selected = state.file_preview_selected.clone();
+
+            // Create a block for the file list
+            let file_block = ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(border_style)
+                .title(" Files ");
+
+            let inner = file_block.inner(chunks[1]);
+            frame.render_widget(file_block, chunks[1]);
+
+            let file_list = ItemList::new(&preview_state, theme);
+            frame.render_widget(file_list, inner);
+
+            // Render preview pane on the right
+            let preview_block = ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(theme.border_style())
+                .title(" Preview ");
+
+            let preview_inner = preview_block.inner(chunks[2]);
+            frame.render_widget(preview_block, chunks[2]);
+
+            // Only show file content when FilePreview pane is focused
+            if is_focused && !state.file_preview_items.is_empty() {
+                // Get current file path from file preview
+                if let Some(current_file) = state.file_preview_items.get(state.file_preview_cursor)
+                {
+                    // Generate preview using styled_generator
+                    if let Some(generator) = &self.styled_generator {
+                        if let Ok(file_preview) =
+                            generator.generate(std::path::Path::new(&current_file.key))
+                        {
+                            let preview_pane = PreviewPane::new(Some(&file_preview), theme)
+                                .scroll(state.preview_scroll);
+                            frame.render_widget(preview_pane, preview_inner);
+                        }
+                    }
+                }
+            }
             return;
         }
 
@@ -425,7 +492,12 @@ impl RatatuiFinder {
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,
         config: &FinderConfig,
     ) -> Result<FinderResult> {
-        let mut state = AppState::new(config.items.clone(), config.multi_select);
+        let mut state = AppState::new(
+            config.items.clone(),
+            config.multi_select,
+            config.tag_schema.clone(),
+            config.database.clone(),
+        );
         // Set available tags for autocomplete in text input modals
         state.available_tags.clone_from(&config.available_tags);
 
@@ -457,6 +529,20 @@ impl RatatuiFinder {
 
             // Synchronize the initial cursor position
             state.sync_cursor_with_tag_tree();
+
+            // Initialize file preview (empty at start)
+            state.update_file_preview();
+
+            // If search criteria with actual tag filters were provided, start in file pane
+            let has_tag_filters = config
+                .search_criteria
+                .as_ref()
+                .is_some_and(|c| !c.include_tags.is_empty() || !c.exclude_tags.is_empty());
+
+            if has_tag_filters {
+                use super::state::FocusPane;
+                state.focused_pane = FocusPane::FilePreview;
+            }
         }
 
         let mut nucleo = Self::create_matcher(&config.items);
@@ -464,6 +550,7 @@ impl RatatuiFinder {
         let hints = Self::build_hints();
         let overlay_binds = Self::build_overlay_binds(&custom_binds);
         let mut prev_query = String::new();
+        let mut prev_file_query = String::new();
 
         // Initial filter (show all)
         state.update_filtered(Self::update_filter(&mut nucleo, "", ""));
@@ -488,7 +575,7 @@ impl RatatuiFinder {
 
             // Render
             terminal.draw(|frame| {
-                Self::render(
+                self.render(
                     frame,
                     &mut state,
                     &self.theme,
@@ -534,9 +621,72 @@ impl RatatuiFinder {
                     state.abort();
                 }
                 EventResult::QueryChanged => {
-                    let indices = Self::update_filter(&mut nucleo, &state.query, &prev_query);
-                    prev_query.clone_from(&state.query);
-                    state.update_filtered(indices);
+                    // In TagSelection phase, filter based on which pane initiated the search
+                    if state.is_tag_selection_phase() {
+                        use crate::ui::ratatui_adapter::state::FocusPane;
+                        match state.search_initiated_from {
+                            Some(FocusPane::TagTree) => {
+                                // Filter tag tree items (main items list)
+                                let indices =
+                                    Self::update_filter(&mut nucleo, &state.query, &prev_query);
+                                prev_query.clone_from(&state.query);
+                                state.update_filtered(indices);
+                            }
+                            Some(FocusPane::FilePreview) => {
+                                // Filter file preview items from the original unfiltered list
+                                // Create a fresh nucleo matcher for files
+                                let mut temp_file_nucleo: Nucleo<u32> = Nucleo::new(
+                                    Config::DEFAULT.match_paths(),
+                                    Arc::new(|| {}),
+                                    None,
+                                    1,
+                                );
+
+                                // Inject original unfiltered items
+                                let file_injector = temp_file_nucleo.injector();
+                                for (idx, item) in
+                                    state.file_preview_items_unfiltered.iter().enumerate()
+                                {
+                                    #[allow(clippy::cast_possible_truncation)]
+                                    let _ = file_injector.push(idx as u32, |_, cols| {
+                                        cols[0] = item.searchable.clone().into();
+                                    });
+                                }
+
+                                let file_indices = Self::update_filter(
+                                    &mut temp_file_nucleo,
+                                    &state.query,
+                                    &prev_file_query,
+                                );
+                                prev_file_query.clone_from(&state.query);
+
+                                // Create filtered file list from original unfiltered list
+                                state.file_preview_items = file_indices
+                                    .iter()
+                                    .filter_map(|&idx| {
+                                        state
+                                            .file_preview_items_unfiltered
+                                            .get(idx as usize)
+                                            .cloned()
+                                    })
+                                    .collect();
+                                state.file_preview_cursor = 0;
+                                state.file_preview_scroll = 0;
+                            }
+                            None => {
+                                // No active search context, filter regular items (FileSelection phase fallback)
+                                let indices =
+                                    Self::update_filter(&mut nucleo, &state.query, &prev_query);
+                                prev_query.clone_from(&state.query);
+                                state.update_filtered(indices);
+                            }
+                        }
+                    } else {
+                        // FileSelection phase: filter regular items
+                        let indices = Self::update_filter(&mut nucleo, &state.query, &prev_query);
+                        prev_query.clone_from(&state.query);
+                        state.update_filtered(indices);
+                    }
                     // Reset preview cache when query changes
                     cached_preview_key = None;
                 }

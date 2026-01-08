@@ -55,6 +55,10 @@ pub struct FinderConfig {
     pub available_tags: Vec<String>,
     /// Current search criteria for refine search
     pub search_criteria: Option<RefineSearchCriteria>,
+    /// Tag schema for canonicalization (used for CLI preview)
+    pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
+    /// Database reference for live file count queries (used in tag selection phase)
+    pub database: Option<std::sync::Arc<crate::db::Database>>,
 }
 
 impl FinderConfig {
@@ -71,6 +75,8 @@ impl FinderConfig {
             phase: BrowsePhase::FileSelection, // Default to file phase for most use cases
             available_tags: Vec::new(),
             search_criteria: None,
+            tag_schema: None,
+            database: None,
         }
     }
 
@@ -120,6 +126,20 @@ impl FinderConfig {
     #[must_use]
     pub fn with_binds(mut self, bind: Vec<String>) -> Self {
         self.bind = bind;
+        self
+    }
+
+    /// Set tag schema for canonicalization
+    #[must_use]
+    pub fn with_schema(mut self, schema: Option<std::sync::Arc<crate::schema::TagSchema>>) -> Self {
+        self.tag_schema = schema;
+        self
+    }
+
+    /// Set database for live file count queries
+    #[must_use]
+    pub fn with_database(mut self, db: Option<std::sync::Arc<crate::db::Database>>) -> Self {
+        self.database = db;
         self
     }
 }
