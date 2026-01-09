@@ -384,7 +384,7 @@ impl RatatuiFinder {
             frame.render_widget(file_block, chunks[1]);
 
             // Render file list directly using file_preview data from state
-            self.render_file_preview_list(frame, state, theme, inner);
+            Self::render_file_preview_list(frame, state, theme, inner);
 
             // Render preview pane on the right
             let preview_block = ratatui::widgets::Block::default()
@@ -401,14 +401,13 @@ impl RatatuiFinder {
                 if let Some(current_file) = state.file_preview_items.get(state.file_preview_cursor)
                 {
                     // Generate preview using styled_generator
-                    if let Some(generator) = &self.styled_generator {
-                        if let Ok(file_preview) =
+                    if let Some(generator) = &self.styled_generator
+                        && let Ok(file_preview) =
                             generator.generate(std::path::Path::new(&current_file.key))
-                        {
-                            let preview_pane = PreviewPane::new(Some(&file_preview), theme)
-                                .scroll(state.preview_scroll);
-                            frame.render_widget(preview_pane, preview_inner);
-                        }
+                    {
+                        let preview_pane = PreviewPane::new(Some(&file_preview), theme)
+                            .scroll(state.preview_scroll);
+                        frame.render_widget(preview_pane, preview_inner);
                     }
                 }
             }
@@ -474,16 +473,10 @@ impl RatatuiFinder {
         frame.render_widget(preview_pane, preview_area);
     }
 
-    /// Render file preview list (for TagSelection phase)
+    /// Render file preview list (for `TagSelection` phase)
     ///
     /// This renders the file list in the middle pane with proper key-based selection.
-    fn render_file_preview_list(
-        &self,
-        frame: &mut Frame,
-        state: &AppState,
-        theme: &Theme,
-        area: Rect,
-    ) {
+    fn render_file_preview_list(frame: &mut Frame, state: &AppState, theme: &Theme, area: Rect) {
         use ratatui::style::Color;
         use ratatui::text::{Line, Span};
         use ratatui::widgets::{List, ListItem};
@@ -590,7 +583,7 @@ impl RatatuiFinder {
                 .map(|item| (item.key.clone(), item.display.clone()))
                 .collect();
 
-            tag_tree_state.build_from_tags_with_display(tags, display_map);
+            tag_tree_state.build_from_tags_with_display(tags, &display_map);
             state.tag_tree_state = Some(tag_tree_state);
 
             // Synchronize the initial cursor position

@@ -27,7 +27,7 @@ pub enum Mode {
     RefineSearch,
 }
 
-/// Which pane has focus during TagSelection phase
+/// Which pane has focus during `TagSelection` phase
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FocusPane {
     /// Tag tree pane (left)
@@ -109,15 +109,15 @@ pub struct AppState {
     pub confirm_state: Option<ConfirmDialogState>,
     /// Available tags for autocomplete (set by finder from config)
     pub available_tags: Vec<String>,
-    /// Current browse phase (TagSelection or FileSelection)
+    /// Current browse phase (`TagSelection` or `FileSelection`)
     pub phase: BrowsePhase,
-    /// Tag tree state (for TagSelection phase)
+    /// Tag tree state (for `TagSelection` phase)
     pub tag_tree_state: Option<TagTreeState>,
     /// Tag schema for canonicalization (used in CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries
     pub database: Option<std::sync::Arc<crate::db::Database>>,
-    /// Which pane has focus (during TagSelection phase)
+    /// Which pane has focus (during `TagSelection` phase)
     pub focused_pane: FocusPane,
     /// File preview items (live query results)
     pub file_preview_items: Vec<DisplayItem>,
@@ -269,7 +269,7 @@ impl AppState {
     /// If multi-select is enabled, returns selected items.
     /// Otherwise, returns the current item.
     ///
-    /// In TagSelection phase with FilePreview focus, returns selected files from right pane.
+    /// In `TagSelection` phase with `FilePreview` focus, returns selected files from right pane.
     #[must_use]
     pub fn selected_keys(&self) -> Vec<String> {
         // In tag selection phase, behavior depends on focused pane
@@ -580,7 +580,7 @@ impl AppState {
     // Tag Tree Navigation Methods (TagSelection phase)
     // ============================================================================
 
-    /// Check if we're in TagSelection phase
+    /// Check if we're in `TagSelection` phase
     #[must_use]
     pub const fn is_tag_selection_phase(&self) -> bool {
         matches!(self.phase, BrowsePhase::TagSelection)
@@ -588,7 +588,7 @@ impl AppState {
 
     /// Check if direct file selection is active
     ///
-    /// Returns true when in TagSelection phase with FilePreview pane focused,
+    /// Returns true when in `TagSelection` phase with `FilePreview` pane focused,
     /// indicating that file paths (not tags) will be returned on confirm.
     #[must_use]
     pub const fn is_direct_file_selection(&self) -> bool {
@@ -636,7 +636,7 @@ impl AppState {
     /// Update file preview based on currently selected tags
     ///
     /// Queries database for files matching selected tags (with alias expansion)
-    /// and updates the file_preview_items list.
+    /// and updates the `file_preview_items` list.
     pub fn update_file_preview(&mut self) {
         let selected_tags = self.tag_tree_selected_tags();
 
@@ -649,13 +649,10 @@ impl AppState {
         }
 
         // Get database and schema
-        let db = match &self.database {
-            Some(db) => db,
-            None => {
-                self.file_preview_items.clear();
-                self.file_preview_selected.clear();
-                return;
-            }
+        let Some(db) = &self.database else {
+            self.file_preview_items.clear();
+            self.file_preview_selected.clear();
+            return;
         };
 
         // Canonicalize and expand tags (same as calculate_matching_files)
@@ -719,7 +716,7 @@ impl AppState {
     }
 
     /// Switch focus between tag tree and file preview panes
-    pub fn toggle_focus_pane(&mut self) {
+    pub const fn toggle_focus_pane(&mut self) {
         self.focused_pane = match self.focused_pane {
             FocusPane::TagTree => FocusPane::FilePreview,
             FocusPane::FilePreview => FocusPane::TagTree,
@@ -797,7 +794,7 @@ impl AppState {
     pub fn tag_tree_selected_tags(&self) -> Vec<String> {
         self.tag_tree_state
             .as_ref()
-            .map_or_else(Vec::new, |tree| tree.selected_tag_paths())
+            .map_or_else(Vec::new, TagTreeState::selected_tag_paths)
     }
 
     /// Build CLI preview command from current tag selection (for educational display)
@@ -822,7 +819,7 @@ impl AppState {
         for tag in &selected_tags {
             // Canonicalize tag if schema is available
             let canonical = if let Some(ref schema) = self.tag_schema {
-                schema.canonicalize(&tag)
+                schema.canonicalize(tag)
             } else {
                 tag.clone()
             };
@@ -847,7 +844,8 @@ impl AppState {
         // Add live file count if database is available
         if let Some(file_count) = self.calculate_matching_files(&canonical_tags) {
             let plural = if file_count == 1 { "file" } else { "files" };
-            cmd.push_str(&format!(" → {} {}", file_count, plural));
+            use std::fmt::Write;
+            let _ = write!(cmd, " → {file_count} {plural}");
         }
 
         Some(cmd)
@@ -897,7 +895,7 @@ impl AppState {
         if let Some(current_tag) = self
             .tag_tree_state
             .as_ref()
-            .and_then(|tree| tree.current_tag())
+            .and_then(TagTreeState::current_tag)
         {
             // Find the index of this tag in the items list
             if let Some(item_idx) = self.items.iter().position(|item| item.key == current_tag) {

@@ -185,8 +185,7 @@ fn set_canonical(
     let current_canonical = schema.canonicalize(alias);
     if current_canonical == alias {
         return Err(format!(
-            "\"{}\" is not an alias. Use 'tagr alias add' to create an alias first.",
-            alias
+            "\"{alias}\" is not an alias. Use 'tagr alias add' to create an alias first."
         )
         .into());
     }
@@ -295,15 +294,12 @@ fn set_canonical(
     // Step 2: Rename tags in database
     for file in &affected_files {
         // Convert PathBuf to str safely
-        let file_path = match file.to_str() {
-            Some(p) => p,
-            None => {
-                eprintln!(
-                    "Warning: Skipping file with invalid UTF-8 path: {}",
-                    file.display()
-                );
-                continue;
-            }
+        let Some(file_path) = file.to_str() else {
+            eprintln!(
+                "Warning: Skipping file with invalid UTF-8 path: {}",
+                file.display()
+            );
+            continue;
         };
 
         if let Ok(Some(mut tags)) = db.get_tags(file_path) {

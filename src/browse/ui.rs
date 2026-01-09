@@ -629,7 +629,7 @@ enum BrowserResult {
     /// User accepted file selection directly from unified view
     ///
     /// In the three-pane unified view, users can press Enter while focused
-    /// on the FilePreview pane to directly select files, bypassing the normal
+    /// on the `FilePreview` pane to directly select files, bypassing the normal
     /// tag-to-file phase transition.
     DirectFileAccept {
         /// Selected file paths

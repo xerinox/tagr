@@ -50,7 +50,7 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
             let files = db.find_by_tag(&tag_name)?;
 
             // Add unique file paths to the canonical tag's set
-            let file_set = canonical_map.entry(canonical).or_insert_with(HashSet::new);
+            let file_set = canonical_map.entry(canonical).or_default();
             for file_path in files {
                 if let Some(path_str) = file_path.to_str() {
                     file_set.insert(path_str.to_string());

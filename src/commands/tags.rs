@@ -116,9 +116,9 @@ fn print_children(
             let indent = "    ".repeat(depth.saturating_sub(1));
 
             if quiet {
-                println!("{}{}{}", indent, prefix_str, child);
+                println!("{indent}{prefix_str}{child}");
             } else {
-                println!("  {}{}{}  ({} file(s))", indent, prefix_str, child, count);
+                println!("  {indent}{prefix_str}{child}  ({count} file(s))");
             }
 
             // Recursively print children of this child

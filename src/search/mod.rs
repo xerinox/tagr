@@ -83,7 +83,7 @@ pub fn expand_tags(
             } else {
                 // Tag doesn't exist - check for hierarchical children (prefix match)
                 let canonical = schema.canonicalize(tag);
-                let prefix = format!("{}{}", canonical, HIERARCHY_DELIMITER);
+                let prefix = format!("{canonical}{HIERARCHY_DELIMITER}");
 
                 // Find all tags starting with "tag:"
                 let children: Vec<_> = all_tags
@@ -92,11 +92,11 @@ pub fn expand_tags(
                     .cloned()
                     .collect();
 
-                if !children.is_empty() {
-                    expanded.extend(children);
-                } else {
+                if children.is_empty() {
                     // No children found - keep original tag (will result in no matches)
                     expanded.insert(tag.clone());
+                } else {
+                    expanded.extend(children);
                 }
             }
         } else {

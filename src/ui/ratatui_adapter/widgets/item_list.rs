@@ -66,7 +66,7 @@ impl<'a> ItemList<'a> {
                     self.state
                         .tag_tree_state
                         .as_ref()
-                        .map_or(false, |tree| tree.selected_tags.contains(&item.key))
+                        .is_some_and(|tree| tree.selected_tags.contains(&item.key))
                 } else {
                     // This is a file - check file preview selection by key
                     self.state.is_file_preview_selected_key(&item.key)

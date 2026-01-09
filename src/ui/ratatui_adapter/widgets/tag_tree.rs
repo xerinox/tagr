@@ -19,7 +19,7 @@ pub struct TagTreeNode {
     /// Number of files with this exact tag
     pub file_count: usize,
     /// Children nodes (sorted alphabetically)
-    pub children: Vec<TagTreeNode>,
+    pub children: Vec<Self>,
     /// Whether this is an actual tag or inferred parent node
     pub is_actual_tag: bool,
     /// Whether this node is currently expanded
@@ -63,7 +63,7 @@ struct TagTreeNodeRef {
 impl TagTreeNode {
     /// Create a new tag tree node
     #[must_use]
-    pub fn new(
+    pub const fn new(
         name: String,
         full_path: String,
         file_count: usize,
@@ -82,7 +82,7 @@ impl TagTreeNode {
     }
 
     /// Add a child node
-    pub fn add_child(&mut self, child: TagTreeNode) {
+    pub fn add_child(&mut self, child: Self) {
         self.children.push(child);
         // Keep children sorted
         self.children
@@ -90,7 +90,7 @@ impl TagTreeNode {
     }
 
     /// Toggle expansion state
-    pub fn toggle_expand(&mut self) {
+    pub const fn toggle_expand(&mut self) {
         self.is_expanded = !self.is_expanded;
     }
 
@@ -130,10 +130,10 @@ impl TagTreeState {
     pub fn build_from_tags_with_display(
         &mut self,
         tags: Vec<(String, usize)>,
-        display_map: std::collections::HashMap<String, String>,
+        display_map: &std::collections::HashMap<String, String>,
     ) {
         // First build the tree structure
-        self.build_from_tags(tags);
+        self.build_from_tags(&tags);
 
         // Then update display_text for actual tags, extracting alias info
         for node in &mut self.visible_nodes {
@@ -162,7 +162,7 @@ impl TagTreeState {
             // Second part should be "alias1, alias2)"
             let alias_part = parts[1].trim_end_matches(')');
             if !alias_part.is_empty() && !alias_part.contains("files") {
-                return Some(format!("({})", alias_part));
+                return Some(format!("({alias_part})"));
             }
         }
         None
@@ -176,17 +176,17 @@ impl TagTreeState {
 
     /// Build tree from flat tag list with file counts
     ///
-    /// Takes tags like ["rust", "lang:rust", "lang:python"] and builds a tree:
+    /// Takes tags like `["rust", "lang:rust", "lang:python"]` and builds a tree:
     /// - lang (inferred parent)
     ///   ├── rust
     ///   └── python
     /// - rust (standalone tag)
-    pub fn build_from_tags(&mut self, tags: Vec<(String, usize)>) {
+    pub fn build_from_tags(&mut self, tags: &[(String, usize)]) {
         let mut hierarchy_map: HashMap<String, Vec<(String, usize, bool)>> = HashMap::new();
         let mut actual_tags: HashSet<String> = HashSet::new();
 
         // First pass: identify all actual tags and their hierarchy
-        for (tag, count) in &tags {
+        for (tag, count) in tags {
             actual_tags.insert(tag.clone());
 
             if tag.contains(':') {
@@ -244,7 +244,7 @@ impl TagTreeState {
         for full_tag in actual_tags.iter() {
             if parent_path.is_empty() {
                 // Root level - get first component
-                let first_part = full_tag.split(':').next().unwrap_or(full_tag);
+                let first_part: &str = full_tag.split(':').next().unwrap_or(full_tag);
                 if seen.insert(first_part.to_string()) {
                     let full_path = first_part.to_string();
                     let is_actual = actual_tags.contains(&full_path);
@@ -409,7 +409,7 @@ impl TagTreeState {
 
     /// Get all descendant tags (actual tags only, not inferred parents) under a parent path
     fn get_all_descendant_tags(&self, parent_path: &str) -> Vec<String> {
-        let prefix = format!("{}:", parent_path);
+        let prefix = format!("{parent_path}:");
 
         self.roots
             .iter()
@@ -573,7 +573,7 @@ impl<'a> TagTree<'a> {
     }
 }
 
-impl<'a> Default for TagTree<'a> {
+impl Default for TagTree<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -673,7 +673,7 @@ impl StatefulWidget for TagTree<'_> {
 
 /// Widget factory for creating a tag tree with a border
 #[must_use]
-pub fn tag_tree_with_border<'a>(title: &'a str) -> TagTree<'a> {
+pub fn tag_tree_with_border(title: &str) -> TagTree<'_> {
     TagTree::new().block(Block::default().borders(Borders::ALL).title(title))
 }
 
@@ -703,7 +703,7 @@ mod tests {
             ("javascript".to_string(), 15),
         ];
 
-        state.build_from_tags(tags);
+        state.build_from_tags(&tags);
 
         assert_eq!(state.roots.len(), 3);
         assert_eq!(state.visible_count(), 3);
@@ -719,7 +719,7 @@ mod tests {
             ("lang:rust:async".to_string(), 5),
         ];
 
-        state.build_from_tags(tags);
+        state.build_from_tags(&tags);
 
         // Should have one root: "lang" (inferred parent)
         assert_eq!(state.roots.len(), 1);
@@ -749,7 +749,7 @@ mod tests {
             ("tag3".to_string(), 30),
         ];
 
-        state.build_from_tags(tags);
+        state.build_from_tags(&tags);
 
         assert_eq!(state.selected, 0);
 
@@ -772,7 +772,7 @@ mod tests {
 
         let tags = vec![("tag1".to_string(), 10), ("tag2".to_string(), 20)];
 
-        state.build_from_tags(tags);
+        state.build_from_tags(&tags);
 
         assert!(state.selected_tags.is_empty());
 

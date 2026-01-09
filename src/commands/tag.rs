@@ -40,7 +40,7 @@ pub fn execute(
                 Err(e) => {
                     // If schema can't be loaded, warn but continue with original tags
                     if !quiet {
-                        eprintln!("Warning: Could not load schema ({}), using tags as-is", e);
+                        eprintln!("Warning: Could not load schema ({e}), using tags as-is");
                     }
                     tags.to_vec()
                 }

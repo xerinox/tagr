@@ -61,7 +61,7 @@ impl<'a> StatusBar<'a> {
     }
 
     /// Build a syntax-highlighted line for CLI preview
-    fn build_cli_preview_line(&self, cmd: &str) -> Line<'static> {
+    fn build_cli_preview_line(cmd: &str) -> Line<'static> {
         use ratatui::style::{Color, Modifier, Style};
 
         let mut spans = Vec::new();
@@ -114,7 +114,7 @@ impl Widget for StatusBar<'_> {
 
         // Priority 1: Show CLI preview if available (educational feature)
         if let Some(cmd) = self.cli_preview {
-            let line = self.build_cli_preview_line(cmd);
+            let line = Self::build_cli_preview_line(cmd);
             Paragraph::new(line).render(inner, buf);
             return;
         }

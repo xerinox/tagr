@@ -82,8 +82,7 @@ impl TagSchema {
         // (canonical CAN be hierarchical, e.g., js → lang:javascript)
         if alias.contains(HIERARCHY_DELIMITER) {
             return Err(SchemaError::InvalidTag(format!(
-                "Alias '{}' contains reserved delimiter '{}'",
-                alias, HIERARCHY_DELIMITER
+                "Alias '{alias}' contains reserved delimiter '{HIERARCHY_DELIMITER}'"
             )));
         }
 
@@ -102,8 +101,7 @@ impl TagSchema {
         // Check for circular reference: canonical cannot be an alias to alias
         if self.would_create_cycle(alias, canonical) {
             return Err(SchemaError::CircularAlias(format!(
-                "Adding alias '{}' → '{}' would create circular reference",
-                alias, canonical
+                "Adding alias '{alias}' → '{canonical}' would create circular reference"
             )));
         }
 
@@ -185,7 +183,7 @@ impl TagSchema {
         synonyms
     }
 
-    /// Expand a tag with hierarchy (e.g., "lang:rust" → ["lang", "lang:rust"])
+    /// Expand a tag with hierarchy (e.g., `lang:rust` → `["lang", "lang:rust"]`)
     ///
     /// Also includes all synonyms for each level
     #[must_use]
@@ -229,7 +227,7 @@ impl TagSchema {
     #[must_use]
     pub fn get_hierarchy_prefix(&self, tag: &str) -> String {
         let canonical = self.canonicalize(tag);
-        format!("{}{}", canonical, HIERARCHY_DELIMITER)
+        format!("{canonical}{HIERARCHY_DELIMITER}")
     }
 
     /// List all aliases in the schema

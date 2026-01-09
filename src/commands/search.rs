@@ -47,22 +47,22 @@ pub fn execute(
         filter_params.merge(&params);
 
         // If user didn't explicitly provide mode flags, keep filter's modes
-        if !has_explicit_tag_mode {
-            filter_params.tag_mode = filter.criteria.tag_mode.into();
-        } else {
+        if has_explicit_tag_mode {
             filter_params.tag_mode = cli_tag_mode;
+        } else {
+            filter_params.tag_mode = filter.criteria.tag_mode.into();
         }
 
-        if !has_explicit_file_mode {
-            filter_params.file_mode = filter.criteria.file_mode.into();
-        } else {
+        if has_explicit_file_mode {
             filter_params.file_mode = cli_file_mode;
+        } else {
+            filter_params.file_mode = filter.criteria.file_mode.into();
         }
 
-        if !has_explicit_virtual_mode {
-            filter_params.virtual_mode = filter.criteria.virtual_mode.into();
-        } else {
+        if has_explicit_virtual_mode {
             filter_params.virtual_mode = cli_virtual_mode;
+        } else {
+            filter_params.virtual_mode = filter.criteria.virtual_mode.into();
         }
 
         params = filter_params;
