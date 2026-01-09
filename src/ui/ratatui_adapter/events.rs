@@ -206,6 +206,21 @@ fn handle_normal_mode(
                 state.search_initiated_from = None;
                 return EventResult::Continue;
             }
+            // In TagSelection phase, Enter behavior depends on focused pane
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => {
+                        // Move focus to file list
+                        state.focused_pane = FocusPane::FilePreview;
+                        return EventResult::Continue;
+                    }
+                    FocusPane::FilePreview => {
+                        // Confirm selection - use multi-select if any, otherwise current file
+                        return EventResult::Confirm(Some("enter".to_string()));
+                    }
+                }
+            }
             EventResult::Confirm(Some("enter".to_string()))
         }
 
@@ -219,11 +234,15 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Navigation - route to tag tree if in TagSelection phase
+        // Navigation - route based on focused pane in TagSelection phase
         (KeyCode::Up, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
             if state.is_tag_selection_phase() {
-                state.tag_tree_move_up();
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_up(),
+                    FocusPane::FilePreview => state.file_preview_cursor_up(),
+                }
             } else {
                 state.cursor_up();
             }
@@ -231,7 +250,11 @@ fn handle_normal_mode(
         }
         (KeyCode::Char('k'), KeyModifiers::NONE) if !state.search_active => {
             if state.is_tag_selection_phase() {
-                state.tag_tree_move_up();
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_up(),
+                    FocusPane::FilePreview => state.file_preview_cursor_up(),
+                }
             } else {
                 state.cursor_up();
             }
@@ -240,7 +263,11 @@ fn handle_normal_mode(
         (KeyCode::Down, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
             if state.is_tag_selection_phase() {
-                state.tag_tree_move_down();
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_down(),
+                    FocusPane::FilePreview => state.file_preview_cursor_down(),
+                }
             } else {
                 state.cursor_down();
             }
@@ -248,7 +275,11 @@ fn handle_normal_mode(
         }
         (KeyCode::Char('j'), KeyModifiers::NONE) if !state.search_active => {
             if state.is_tag_selection_phase() {
-                state.tag_tree_move_down();
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_down(),
+                    FocusPane::FilePreview => state.file_preview_cursor_down(),
+                }
             } else {
                 state.cursor_down();
             }
@@ -271,11 +302,20 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Multi-select / Tag tree toggle
+        // Multi-select / Tag tree toggle - route based on focused pane
         (KeyCode::Tab, _) => {
             if state.is_tag_selection_phase() {
-                state.tag_tree_toggle_selection();
-                state.tag_tree_move_down();
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => {
+                        state.tag_tree_toggle_selection();
+                        state.tag_tree_move_down();
+                    }
+                    FocusPane::FilePreview => {
+                        state.file_preview_toggle_selection();
+                        state.file_preview_cursor_down();
+                    }
+                }
             } else {
                 state.toggle_selection();
                 state.cursor_down();
@@ -284,8 +324,17 @@ fn handle_normal_mode(
         }
         (KeyCode::BackTab, _) => {
             if state.is_tag_selection_phase() {
-                state.tag_tree_toggle_selection();
-                state.tag_tree_move_up();
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => {
+                        state.tag_tree_toggle_selection();
+                        state.tag_tree_move_up();
+                    }
+                    FocusPane::FilePreview => {
+                        state.file_preview_toggle_selection();
+                        state.file_preview_cursor_up();
+                    }
+                }
             } else {
                 state.toggle_selection();
                 state.cursor_up();
@@ -299,6 +348,44 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
+        // Pane navigation: h/Left moves to previous pane, l/Right moves to next pane
+        (KeyCode::Char('h'), KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::FilePreview {
+                state.focused_pane = FocusPane::TagTree;
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Left, KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::FilePreview {
+                state.focused_pane = FocusPane::TagTree;
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Char('l'), KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::TagTree {
+                state.focused_pane = FocusPane::FilePreview;
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Right, KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::TagTree {
+                state.focused_pane = FocusPane::FilePreview;
+            }
+            EventResult::Continue
+        }
+
         // Help overlay
         (KeyCode::F(1) | KeyCode::Char('?'), _) => {
             state.mode = Mode::Help;
@@ -308,9 +395,6 @@ fn handle_normal_mode(
         // Query editing - / activates search mode
         (KeyCode::Char('/'), KeyModifiers::NONE) => {
             state.search_active = true;
-            if state.query.is_empty() && state.is_tag_selection_phase() {
-                state.search_initiated_from = Some(state.focused_pane);
-            }
             EventResult::Continue
         }
         // Regular character input only when search is active

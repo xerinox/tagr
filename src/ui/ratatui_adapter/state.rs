@@ -127,8 +127,8 @@ pub struct AppState {
     pub file_preview_cursor: usize,
     /// Scroll offset for file preview pane
     pub file_preview_scroll: usize,
-    /// Selected file indices in preview pane (for multi-select)
-    pub file_preview_selected: HashSet<usize>,
+    /// Selected file keys in preview pane (for multi-select) - stores paths, not indices
+    pub file_preview_selected: HashSet<String>,
     /// Which pane initiated the search (for context-aware filtering)
     pub search_initiated_from: Option<FocusPane>,
     /// Whether user is actively typing in search field (vs browsing filtered results)
@@ -439,6 +439,12 @@ impl AppState {
         self.selected.contains(&item_idx)
     }
 
+    /// Check if a file key is selected in the file preview pane
+    #[must_use]
+    pub fn is_file_preview_selected_key(&self, key: &str) -> bool {
+        self.file_preview_selected.contains(key)
+    }
+
     /// Enter refine search mode with initial state
     pub fn enter_refine_search(
         &mut self,
@@ -580,6 +586,25 @@ impl AppState {
         matches!(self.phase, BrowsePhase::TagSelection)
     }
 
+    /// Check if direct file selection is active
+    ///
+    /// Returns true when in TagSelection phase with FilePreview pane focused,
+    /// indicating that file paths (not tags) will be returned on confirm.
+    #[must_use]
+    pub const fn is_direct_file_selection(&self) -> bool {
+        matches!(self.phase, BrowsePhase::TagSelection)
+            && matches!(self.focused_pane, FocusPane::FilePreview)
+    }
+
+    /// Get the tags that are filtering the current file preview
+    ///
+    /// In direct file selection mode, these are the tags selected in the tag tree
+    /// that were used to filter the files shown in the file preview pane.
+    #[must_use]
+    pub fn get_filtering_tags(&self) -> Vec<String> {
+        self.tag_tree_selected_tags()
+    }
+
     /// Move up in tag tree
     pub fn tag_tree_move_up(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
@@ -670,6 +695,14 @@ impl AppState {
         let mut files: Vec<String> = file_set.into_iter().collect();
         files.sort();
 
+        // Build new file set for checking which selections to keep
+        let new_file_set: std::collections::HashSet<&str> =
+            files.iter().map(String::as_str).collect();
+
+        // Preserve selections that still exist in the new file list
+        self.file_preview_selected
+            .retain(|key| new_file_set.contains(key.as_str()));
+
         self.file_preview_items = files
             .iter()
             .map(|path| DisplayItem::new(path.clone(), path.clone(), path.clone()))
@@ -677,9 +710,6 @@ impl AppState {
 
         // Save unfiltered list for search filtering
         self.file_preview_items_unfiltered = self.file_preview_items.clone();
-
-        // Clear selections when file list changes
-        self.file_preview_selected.clear();
 
         // Reset cursor if out of bounds
         if self.file_preview_cursor >= self.file_preview_items.len() {
@@ -729,11 +759,14 @@ impl AppState {
             return;
         }
 
-        let idx = self.file_preview_cursor;
-        if self.file_preview_selected.contains(&idx) {
-            self.file_preview_selected.remove(&idx);
-        } else {
-            self.file_preview_selected.insert(idx);
+        // Get the key of the current file
+        if let Some(item) = self.file_preview_items.get(self.file_preview_cursor) {
+            let key = item.key.clone();
+            if self.file_preview_selected.contains(&key) {
+                self.file_preview_selected.remove(&key);
+            } else {
+                self.file_preview_selected.insert(key);
+            }
         }
     }
 
@@ -747,15 +780,8 @@ impl AppState {
                 .map(|item| vec![item.key.clone()])
                 .unwrap_or_default()
         } else {
-            // Return all selected items
-            self.file_preview_selected
-                .iter()
-                .filter_map(|&idx| {
-                    self.file_preview_items
-                        .get(idx)
-                        .map(|item| item.key.clone())
-                })
-                .collect()
+            // Return all selected items (keys are already stored as strings)
+            self.file_preview_selected.iter().cloned().collect()
         }
     }
 

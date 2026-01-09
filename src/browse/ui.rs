@@ -107,6 +107,23 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         }
                     }
                 }
+                BrowserResult::DirectFileAccept {
+                    file_paths,
+                    selected_tags,
+                } => {
+                    // User selected files directly from unified view
+                    // Skip the normal phase transition and return directly
+                    if file_paths.is_empty() {
+                        return Ok(None);
+                    }
+
+                    let selected_files = file_paths.into_iter().map(PathBuf::from).collect();
+
+                    return Ok(Some(BrowseResult {
+                        selected_tags,
+                        selected_files,
+                    }));
+                }
                 BrowserResult::Action {
                     action,
                     selected_ids,
@@ -343,6 +360,14 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     selected_ids: result.selected,
                 });
             }
+        }
+
+        // Check if files were selected directly from unified view
+        if result.direct_file_selection {
+            return Ok(BrowserResult::DirectFileAccept {
+                file_paths: result.selected,
+                selected_tags: result.selected_tags,
+            });
         }
 
         Ok(BrowserResult::Accept(result.selected))
@@ -601,6 +626,18 @@ enum BrowserResult {
     /// User accepted selection (Enter)
     Accept(Vec<String>),
 
+    /// User accepted file selection directly from unified view
+    ///
+    /// In the three-pane unified view, users can press Enter while focused
+    /// on the FilePreview pane to directly select files, bypassing the normal
+    /// tag-to-file phase transition.
+    DirectFileAccept {
+        /// Selected file paths
+        file_paths: Vec<String>,
+        /// Selected tags that filtered these files
+        selected_tags: Vec<String>,
+    },
+
     /// User triggered action (ctrl+t, etc.) with current selection
     Action {
         action: BrowseAction,
@@ -685,6 +722,8 @@ mod tests {
                 final_key: result.final_key.clone(),
                 refine_search: result.refine_search.clone(),
                 input_action: result.input_action.clone(),
+                direct_file_selection: result.direct_file_selection,
+                selected_tags: result.selected_tags.clone(),
             })
         }
     }
@@ -701,6 +740,8 @@ mod tests {
             final_key: None,
             refine_search: None,
             input_action: None,
+            direct_file_selection: false,
+            selected_tags: vec![],
         }]);
 
         let controller = BrowseController::new(session, mock_finder);

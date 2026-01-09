@@ -156,4 +156,26 @@ impl Theme {
             .fg(self.missing_file)
             .add_modifier(Modifier::CROSSED_OUT)
     }
+
+    /// Style for focused pane border
+    #[must_use]
+    pub fn focused_border_style(&self) -> Style {
+        Style::default()
+            .fg(self.cursor)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    /// Style for focused pane title
+    #[must_use]
+    pub fn focused_title_style(&self) -> Style {
+        Style::default()
+            .fg(self.cursor)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    /// Style for unfocused pane title
+    #[must_use]
+    pub fn unfocused_title_style(&self) -> Style {
+        Style::default().fg(self.dimmed)
+    }
 }
