@@ -294,11 +294,23 @@ fn set_canonical(
 
     // Step 2: Rename tags in database
     for file in &affected_files {
-        if let Ok(Some(mut tags)) = db.get_tags(file.to_str().unwrap_or_default()) {
+        // Convert PathBuf to str safely
+        let file_path = match file.to_str() {
+            Some(p) => p,
+            None => {
+                eprintln!(
+                    "Warning: Skipping file with invalid UTF-8 path: {}",
+                    file.display()
+                );
+                continue;
+            }
+        };
+
+        if let Ok(Some(mut tags)) = db.get_tags(file_path) {
             // Replace canonical with alias
             if let Some(pos) = tags.iter().position(|t| t == canonical) {
                 tags[pos] = alias.to_string();
-                db.insert(file.to_str().unwrap_or_default(), tags)?;
+                db.insert(file_path, tags)?;
             }
         }
     }

@@ -82,7 +82,7 @@ fn display_tree_view(db: &Database, tags: &[String], quiet: bool) -> Result<()> 
     for root in sorted_roots {
         let count = db.find_by_tag(&root)?.len();
         println!("{}", output::tag_with_count(&root, count, quiet));
-        print_children(db, &root, &hierarchy, tags, 1, quiet)?;
+        print_children(db, &root, &hierarchy, quiet)?;
     }
 
     Ok(())
@@ -91,44 +91,39 @@ fn display_tree_view(db: &Database, tags: &[String], quiet: bool) -> Result<()> 
 fn print_children(
     db: &Database,
     parent: &str,
-    _hierarchy: &HashMap<String, Vec<String>>,
-    all_tags: &[String],
-    depth: usize,
+    hierarchy: &HashMap<String, Vec<String>>,
     quiet: bool,
 ) -> Result<()> {
     use crate::schema::HIERARCHY_DELIMITER;
 
-    // Find all direct children of this parent
-    let prefix = format!("{}{}", parent, HIERARCHY_DELIMITER);
-    let mut children: Vec<String> = all_tags
-        .iter()
-        .filter(|tag| tag.starts_with(&prefix))
-        .filter(|tag| {
-            // Only direct children (no additional delimiters after prefix)
-            let remainder = &tag[prefix.len()..];
-            !remainder.contains(HIERARCHY_DELIMITER)
-        })
-        .cloned()
-        .collect();
+    // Find all direct children of this parent using the pre-computed hierarchy map
+    // This is O(1) lookup effectively, avoiding O(N) scan of all tags
+    if let Some(children) = hierarchy.get(parent) {
+        let mut sorted_children = children.clone();
+        sorted_children.sort();
 
-    children.sort();
+        for (idx, child) in sorted_children.iter().enumerate() {
+            let is_last = idx == sorted_children.len() - 1;
+            let count = db.find_by_tag(child)?.len();
 
-    for (idx, child) in children.iter().enumerate() {
-        let is_last = idx == children.len() - 1;
-        let count = db.find_by_tag(child)?.len();
+            // Calculate depth by counting delimiters
+            // root (0 delimiters) -> depth 0 (but printed at top level)
+            // root:child (1 delimiter) -> depth 1
+            let depth = child.matches(HIERARCHY_DELIMITER).count();
 
-        // Box drawing characters for tree visualization
-        let prefix_str = if is_last { "└── " } else { "├── " };
-        let indent = "    ".repeat(depth.saturating_sub(1));
+            // Box drawing characters for tree visualization
+            let prefix_str = if is_last { "└── " } else { "├── " };
+            let indent = "    ".repeat(depth.saturating_sub(1));
 
-        if quiet {
-            println!("{}{}{}", indent, prefix_str, child);
-        } else {
-            println!("  {}{}{}  ({} file(s))", indent, prefix_str, child, count);
+            if quiet {
+                println!("{}{}{}", indent, prefix_str, child);
+            } else {
+                println!("  {}{}{}  ({} file(s))", indent, prefix_str, child, count);
+            }
+
+            // Recursively print children of this child
+            print_children(db, child, hierarchy, quiet)?;
         }
-
-        // Recursively print children of this child
-        print_children(db, child, _hierarchy, all_tags, depth + 1, quiet)?;
     }
 
     Ok(())
@@ -138,7 +133,7 @@ fn extract_root(tag: &str) -> String {
     use crate::schema::HIERARCHY_DELIMITER;
     tag.split(HIERARCHY_DELIMITER)
         .next()
-        .unwrap_or(tag)
+        .expect("split always returns at least one element")
         .to_string()
 }
 
