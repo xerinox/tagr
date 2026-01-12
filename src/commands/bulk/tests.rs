@@ -5,8 +5,8 @@ use crate::testing::{TempFile, TestDb};
 
 use super::batch::{parse_csv, parse_json, parse_plaintext};
 use super::{
-    BatchFormat, bulk_delete_files, bulk_map_tags, bulk_tag, bulk_untag, copy_tags, merge_tags,
-    rename_tag,
+    BatchFormat, CopyTagsConfig, bulk_delete_files, bulk_map_tags, bulk_tag, bulk_untag, copy_tags,
+    merge_tags, rename_tag,
 };
 
 #[test]
@@ -222,7 +222,19 @@ fn test_copy_tags_all() {
         virtual_mode: SearchMode::All,
         no_hierarchy: false,
     };
-    copy_tags(db, source.path(), &params, None, &[], false, true, true).unwrap();
+    copy_tags(
+        db,
+        source.path(),
+        &params,
+        CopyTagsConfig {
+            specific_tags: None,
+            exclude_tags: &[],
+            dry_run: false,
+            yes: true,
+            quiet: true,
+        },
+    )
+    .unwrap();
     let tags1 = db.get_tags(t1.path()).unwrap().unwrap();
     assert!(tags1.contains(&"tag1".into()));
 }

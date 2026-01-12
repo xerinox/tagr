@@ -377,16 +377,24 @@ fn main() -> Result<()> {
                 let has_explicit_file_mode = criteria.any_file || criteria.all_files;
                 let has_explicit_virtual_mode = criteria.any_virtual || criteria.all_virtual;
 
+                use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+
                 commands::search(
                     &db,
                     params,
-                    filter_args.filter.as_deref(),
-                    save_filter,
-                    has_explicit_tag_mode,
-                    has_explicit_file_mode,
-                    has_explicit_virtual_mode,
-                    path_format,
-                    quiet,
+                    FilterConfig {
+                        apply: filter_args.filter.as_deref(),
+                        save: save_filter,
+                    },
+                    ExplicitFlags {
+                        tag_mode: has_explicit_tag_mode,
+                        file_mode: has_explicit_file_mode,
+                        virtual_mode: has_explicit_virtual_mode,
+                    },
+                    OutputConfig {
+                        format: path_format,
+                        quiet,
+                    },
                 )?;
             }
             Commands::Untag { .. } => {
@@ -470,8 +478,19 @@ fn main() -> Result<()> {
                             Some(specific_tags.as_slice())
                         };
 
+                        use tagr::commands::bulk::CopyTagsConfig;
+
                         commands::bulk::copy_tags(
-                            &db, source, &params, specific, exclude, *dry_run, *yes, quiet,
+                            &db,
+                            source,
+                            &params,
+                            CopyTagsConfig {
+                                specific_tags: specific,
+                                exclude_tags: exclude,
+                                dry_run: *dry_run,
+                                yes: *yes,
+                                quiet,
+                            },
                         )?;
                     }
                     BulkCommands::FromFile {

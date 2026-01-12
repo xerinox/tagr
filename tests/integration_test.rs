@@ -208,16 +208,21 @@ fn test_e2e_search_execute_with_glob_flag() {
         no_hierarchy: false,
     };
 
+    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+
     let res = search_cmd::execute(
         db,
         params,
-        None,
-        None,
-        false, // has_explicit_tag_mode
-        false, // has_explicit_file_mode
-        false, // has_explicit_virtual_mode
-        config::PathFormat::Absolute,
-        /*quiet*/ true,
+        FilterConfig { apply: None, save: None },
+        ExplicitFlags {
+            tag_mode: false,
+            file_mode: false,
+            virtual_mode: false,
+        },
+        OutputConfig {
+            format: config::PathFormat::Absolute,
+            quiet: true,
+        },
     );
     assert!(res.is_ok());
 }

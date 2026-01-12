@@ -429,6 +429,14 @@ mod tests {
     }
 }
 
+pub struct CopyTagsConfig<'a> {
+    pub specific_tags: Option<&'a [String]>,
+    pub exclude_tags: &'a [String],
+    pub dry_run: bool,
+    pub yes: bool,
+    pub quiet: bool,
+}
+
 /// Copy tags from a source file to a set of target files.
 ///
 /// # Errors
@@ -438,11 +446,7 @@ pub fn copy_tags(
     db: &Database,
     source_file: &Path,
     params: &SearchParams,
-    specific_tags: Option<&[String]>,
-    exclude_tags: &[String],
-    dry_run: bool,
-    yes: bool,
-    quiet: bool,
+    config: CopyTagsConfig,
 ) -> Result<()> {
     let source_tags = db.get_tags(source_file)?.ok_or_else(|| {
         TagrError::InvalidInput(format!(
@@ -453,16 +457,16 @@ pub fn copy_tags(
     let tags_to_copy: Vec<String> = source_tags
         .into_iter()
         .filter(|tag| {
-            if let Some(specific) = specific_tags
+            if let Some(specific) = config.specific_tags
                 && !specific.contains(tag)
             {
                 return false;
             }
-            !exclude_tags.contains(tag)
+            !config.exclude_tags.contains(tag)
         })
         .collect();
     if tags_to_copy.is_empty() {
-        if !quiet {
+        if !config.quiet {
             println!("No tags to copy after filtering.");
         }
         return Ok(());
@@ -471,7 +475,7 @@ pub fn copy_tags(
     normalize_bulk_params(&mut params)?;
     let target_files = crate::db::query::apply_search_params(db, &params)?;
     if target_files.is_empty() {
-        if !quiet {
+        if !config.quiet {
             println!("No target files match the specified criteria.");
         }
         return Ok(());
@@ -481,12 +485,12 @@ pub fn copy_tags(
         .filter(|f| f != source_file)
         .collect();
     if target_files.is_empty() {
-        if !quiet {
+        if !config.quiet {
             println!("No target files to copy tags to (excluding source file).");
         }
         return Ok(());
     }
-    if dry_run {
+    if config.dry_run {
         println!("{}", "=== Dry Run Mode ===".yellow().bold());
         println!(
             "Would copy tags [{}] from '{}' to {} file(s)",
@@ -504,7 +508,7 @@ pub fn copy_tags(
         println!("\n{}", "Run without --dry-run to apply changes.".yellow());
         return Ok(());
     }
-    if !yes {
+    if !config.yes {
         let prompt = format!(
             "Copy tags [{}] from '{}' to {} file(s)?",
             tags_to_copy.join(", ").cyan(),
@@ -525,19 +529,19 @@ pub fn copy_tags(
         match db.add_tags(file, tags_to_copy.clone()) {
             Ok(()) => {
                 summary.add_success();
-                if !quiet {
+                if !config.quiet {
                     println!("✓ Copied tags to: {}", file.display());
                 }
             }
             Err(e) => {
                 summary.add_error(format!("{}: {}", file.display(), e));
-                if !quiet {
+                if !config.quiet {
                     eprintln!("✗ Failed to copy tags to {}: {}", file.display(), e);
                 }
             }
         }
     }
-    if !quiet {
+    if !config.quiet {
         summary.print("Copy Tags");
     }
     Ok(())
