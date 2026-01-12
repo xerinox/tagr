@@ -308,7 +308,30 @@ fn handle_normal_mode(
                 use crate::ui::ratatui_adapter::state::FocusPane;
                 match state.focused_pane {
                     FocusPane::TagTree => {
-                        state.tag_tree_toggle_selection();
+                        // Toggle tag inclusion: parent nodes affect all children (Option A)
+                        if let Some(tree) = state.tag_tree_state.as_ref() {
+                            if let Some(current_tag) = tree.current_tag() {
+                                let children = tree.get_all_descendant_tags(&current_tag);
+
+                                if children.is_empty() {
+                                    // Leaf node - toggle just this tag
+                                    state.active_filter.toggle_include_tag(current_tag);
+                                } else {
+                                    // Parent node - toggle all children + parent if it's actual tag
+                                    if tree.current_is_actual_tag() {
+                                        state.active_filter.toggle_include_tag(current_tag.clone());
+                                    }
+                                    for child in children {
+                                        state.active_filter.toggle_include_tag(child);
+                                    }
+                                }
+
+                                // Sync tag tree visual state from active_filter
+                                state.sync_tag_tree_from_filter();
+                                // Update file preview with new filter
+                                state.update_file_preview();
+                            }
+                        }
                         state.tag_tree_move_down();
                     }
                     FocusPane::FilePreview => {
@@ -327,17 +350,40 @@ fn handle_normal_mode(
                 use crate::ui::ratatui_adapter::state::FocusPane;
                 match state.focused_pane {
                     FocusPane::TagTree => {
-                        state.tag_tree_toggle_selection();
-                        state.tag_tree_move_up();
+                        // Toggle tag exclusion: parent nodes affect all children (Option A)
+                        if let Some(tree) = state.tag_tree_state.as_ref() {
+                            if let Some(current_tag) = tree.current_tag() {
+                                let children = tree.get_all_descendant_tags(&current_tag);
+
+                                if children.is_empty() {
+                                    // Leaf node - toggle just this tag
+                                    state.active_filter.toggle_exclude_tag(current_tag);
+                                } else {
+                                    // Parent node - toggle all children + parent if it's actual tag
+                                    if tree.current_is_actual_tag() {
+                                        state.active_filter.toggle_exclude_tag(current_tag.clone());
+                                    }
+                                    for child in children {
+                                        state.active_filter.toggle_exclude_tag(child);
+                                    }
+                                }
+
+                                // Sync exclusion state
+                                state.sync_tag_tree_exclusions();
+                                // Update file preview with new filter
+                                state.update_file_preview();
+                            }
+                        }
+                        state.tag_tree_move_down();
                     }
                     FocusPane::FilePreview => {
                         state.file_preview_toggle_selection();
-                        state.file_preview_cursor_up();
+                        state.file_preview_cursor_down();
                     }
                 }
             } else {
                 state.toggle_selection();
-                state.cursor_up();
+                state.cursor_down();
             }
             EventResult::Continue
         }

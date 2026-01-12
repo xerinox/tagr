@@ -3,6 +3,7 @@
 //! Manages all mutable state for the fuzzy finder interface,
 //! including items, selection, query, and UI mode.
 
+use crate::browse::ActiveFilter;
 use crate::ui::output::MessageLevel;
 use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, RefineSearchState, TagTreeState, TextInputState,
@@ -133,6 +134,8 @@ pub struct AppState {
     pub search_initiated_from: Option<FocusPane>,
     /// Whether user is actively typing in search field (vs browsing filtered results)
     pub search_active: bool,
+    /// Unified filter state (single source of truth for all filter criteria)
+    pub active_filter: ActiveFilter,
 }
 
 impl AppState {
@@ -182,6 +185,7 @@ impl AppState {
             file_preview_selected: HashSet::new(),
             search_initiated_from: None,
             search_active: false,
+            active_filter: ActiveFilter::new(),
         }
     }
 
@@ -688,6 +692,23 @@ impl AppState {
             }
         }
 
+        // Apply exclusion filter if any tags are excluded
+        if !self.active_filter.criteria.excludes.is_empty() {
+            file_set.retain(|file_path| {
+                // Get tags for this file
+                if let Ok(Some(file_tags)) = db.get_tags(std::path::Path::new(file_path)) {
+                    // Check if file has any excluded tags
+                    let has_excluded = file_tags
+                        .iter()
+                        .any(|tag| self.active_filter.criteria.excludes.contains(tag));
+                    !has_excluded
+                } else {
+                    // Files without tags pass through
+                    true
+                }
+            });
+        }
+
         // Convert to DisplayItems
         let mut files: Vec<String> = file_set.into_iter().collect();
         files.sort();
@@ -797,10 +818,42 @@ impl AppState {
             .map_or_else(Vec::new, TagTreeState::selected_tag_paths)
     }
 
-    /// Build CLI preview command from current tag selection (for educational display)
+    /// Sync tag tree excluded_tags from active_filter
+    ///
+    /// Should be called whenever active_filter changes to keep UI in sync.
+    pub fn sync_tag_tree_exclusions(&mut self) {
+        if let Some(ref mut tree) = self.tag_tree_state {
+            tree.excluded_tags = self
+                .active_filter
+                .criteria
+                .excludes
+                .iter()
+                .cloned()
+                .collect();
+        }
+    }
+
+    /// Sync tag tree state from active_filter (both selected and excluded tags)
+    ///
+    /// This makes active_filter the single source of truth for tag filtering state.
+    /// Should be called whenever active_filter changes.
+    pub fn sync_tag_tree_from_filter(&mut self) {
+        if let Some(ref mut tree) = self.tag_tree_state {
+            tree.selected_tags = self.active_filter.criteria.tags.iter().cloned().collect();
+            tree.excluded_tags = self
+                .active_filter
+                .criteria
+                .excludes
+                .iter()
+                .cloned()
+                .collect();
+        }
+    }
+
+    /// Build CLI preview command from current active filter (for educational display)
     ///
     /// Shows canonical tag names to educate users on what actually gets stored.
-    /// Also includes live file count based on current selection.
+    /// Also includes live file count based on current filter state.
     #[must_use]
     pub fn build_cli_preview(&self) -> Option<String> {
         // Only show CLI preview during TagSelection phase
@@ -808,41 +861,31 @@ impl AppState {
             return None;
         }
 
-        let selected_tags = self.tag_tree_selected_tags();
-        if selected_tags.is_empty() {
+        // If no filters are active, show default browse command
+        if self.active_filter.is_empty() {
             return Some("tagr browse".to_string());
         }
 
-        let mut cmd = String::from("tagr search");
-        let mut canonical_tags = Vec::new();
+        // Use active_filter's Display impl to generate the base command
+        let mut cmd = format!("{}", self.active_filter);
 
-        for tag in &selected_tags {
-            // Canonicalize tag if schema is available
-            let canonical = if let Some(ref schema) = self.tag_schema {
-                schema.canonicalize(tag)
-            } else {
-                tag.clone()
-            };
-            canonical_tags.push(canonical.clone());
+        // Canonicalize tags for file count calculation
+        let canonical_tags: Vec<String> = self
+            .active_filter
+            .criteria
+            .tags
+            .iter()
+            .map(|tag| {
+                if let Some(ref schema) = self.tag_schema {
+                    schema.canonicalize(tag)
+                } else {
+                    tag.clone()
+                }
+            })
+            .collect();
 
-            cmd.push_str(" -t ");
-            // Quote tags with spaces or special chars
-            if canonical.contains(' ') || canonical.contains('$') || canonical.contains('"') {
-                cmd.push('"');
-                cmd.push_str(&canonical);
-                cmd.push('"');
-            } else {
-                cmd.push_str(&canonical);
-            }
-        }
-
-        // Add mode flag if multiple tags selected (defaults to ALL mode)
-        if selected_tags.len() > 1 {
-            cmd.push_str(" --any-tag");
-        }
-
-        // Add live file count if database is available
-        if let Some(file_count) = self.calculate_matching_files(&canonical_tags) {
+        // Calculate file count with exclusions applied
+        if let Some(file_count) = self.calculate_matching_files_with_exclusions(&canonical_tags) {
             let plural = if file_count == 1 { "file" } else { "files" };
             use std::fmt::Write;
             let _ = write!(cmd, " → {file_count} {plural}");
@@ -851,11 +894,11 @@ impl AppState {
         Some(cmd)
     }
 
-    /// Calculate number of files matching the given tags
+    /// Calculate number of files matching the given tags with exclusions applied
     ///
     /// Uses ANY mode (union) when multiple tags are selected.
-    /// Expands tags to include all aliases (same as actual search).
-    fn calculate_matching_files(&self, tags: &[String]) -> Option<usize> {
+    /// Expands tags to include all aliases and applies exclusion filter.
+    fn calculate_matching_files_with_exclusions(&self, tags: &[String]) -> Option<usize> {
         let db = self.database.as_ref()?;
 
         if tags.is_empty() {
@@ -882,6 +925,20 @@ impl AppState {
                     }
                 }
             }
+        }
+
+        // Apply exclusion filter if any tags are excluded
+        if !self.active_filter.criteria.excludes.is_empty() {
+            file_set.retain(|file_path| {
+                if let Ok(Some(file_tags)) = db.get_tags(std::path::Path::new(file_path)) {
+                    let has_excluded = file_tags
+                        .iter()
+                        .any(|tag| self.active_filter.criteria.excludes.contains(tag));
+                    !has_excluded
+                } else {
+                    true
+                }
+            });
         }
 
         Some(file_set.len())

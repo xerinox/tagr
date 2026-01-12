@@ -39,8 +39,10 @@ pub struct TagTreeState {
     pub scroll_offset: usize,
     /// Cache of flattened visible nodes for navigation
     visible_nodes: Vec<TagTreeNodeRef>,
-    /// Set of selected tag paths (for multi-select)
+    /// Set of selected tag paths (for multi-select / inclusion)
     pub selected_tags: HashSet<String>,
+    /// Set of excluded tag paths (synced from ActiveFilter)
+    pub excluded_tags: HashSet<String>,
 }
 
 /// Reference to a node in the tree (for flattened view)
@@ -123,6 +125,7 @@ impl TagTreeState {
             scroll_offset: 0,
             visible_nodes: Vec::new(),
             selected_tags: HashSet::new(),
+            excluded_tags: HashSet::new(),
         }
     }
 
@@ -408,7 +411,7 @@ impl TagTreeState {
     }
 
     /// Get all descendant tags (actual tags only, not inferred parents) under a parent path
-    fn get_all_descendant_tags(&self, parent_path: &str) -> Vec<String> {
+    pub fn get_all_descendant_tags(&self, parent_path: &str) -> Vec<String> {
         let prefix = format!("{parent_path}:");
 
         self.roots
@@ -438,6 +441,14 @@ impl TagTreeState {
         self.visible_nodes
             .get(self.selected)
             .map(|n| n.full_path.clone())
+    }
+
+    /// Check if currently selected node is an actual tag (vs parent-only)
+    #[must_use]
+    pub fn current_is_actual_tag(&self) -> bool {
+        self.visible_nodes
+            .get(self.selected)
+            .map_or(false, |n| n.is_actual_tag)
     }
 
     /// Get all selected tag paths
@@ -623,6 +634,7 @@ impl StatefulWidget for TagTree<'_> {
 
             let is_selected = start + i == state.selected;
             let is_tag_selected = state.selected_tags.contains(&node_ref.full_path);
+            let is_tag_excluded = state.excluded_tags.contains(&node_ref.full_path);
 
             // Build the line with tree characters
             let mut spans = Vec::new();
@@ -631,16 +643,58 @@ impl StatefulWidget for TagTree<'_> {
             let indent = "  ".repeat(node_ref.depth);
             spans.push(Span::raw(indent));
 
-            // Selection checkmark for actual tags (green ✓)
+            // Selection/exclusion indicator for both actual tags and parent nodes
             if node_ref.is_actual_tag {
-                if is_tag_selected {
+                if is_tag_excluded {
+                    // Red ✗ for excluded tags
+                    spans.push(Span::styled("✗ ", Style::default().fg(Color::Red)));
+                } else if is_tag_selected {
+                    // Green ✓ for included tags
                     spans.push(Span::styled("✓ ", Style::default().fg(Color::Green)));
                 } else {
+                    // No indicator for neutral tags
                     spans.push(Span::raw("  "));
                 }
             } else {
-                // Parent nodes get same spacing as checkmark to align properly
-                spans.push(Span::raw("  "));
+                // Parent nodes - check children state
+                let children = state.get_all_descendant_tags(&node_ref.full_path);
+                if !children.is_empty() {
+                    let all_selected = children.iter().all(|c| state.selected_tags.contains(c));
+                    let all_excluded = children.iter().all(|c| state.excluded_tags.contains(c));
+                    let some_selected = children.iter().any(|c| state.selected_tags.contains(c));
+                    let some_excluded = children.iter().any(|c| state.excluded_tags.contains(c));
+
+                    if all_excluded {
+                        // All children excluded - show red ✗
+                        spans.push(Span::styled("✗ ", Style::default().fg(Color::Red)));
+                    } else if all_selected {
+                        // All children included - show green ✓
+                        spans.push(Span::styled("✓ ", Style::default().fg(Color::Green)));
+                    } else if some_excluded && !some_selected {
+                        // Some excluded, none included - show dim red ◐
+                        spans.push(Span::styled(
+                            "◐ ",
+                            Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+                        ));
+                    } else if some_selected && !some_excluded {
+                        // Some included, none excluded - show dim green ◐
+                        spans.push(Span::styled(
+                            "◐ ",
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::DIM),
+                        ));
+                    } else if some_selected || some_excluded {
+                        // Mixed state - show yellow ◐
+                        spans.push(Span::styled("◐ ", Style::default().fg(Color::Yellow)));
+                    } else {
+                        // No children selected or excluded
+                        spans.push(Span::raw("  "));
+                    }
+                } else {
+                    // Parent with no children
+                    spans.push(Span::raw("  "));
+                }
             }
 
             // Tag name
