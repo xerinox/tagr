@@ -94,6 +94,8 @@ fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
 /// Returns database errors during file queries and updates, and `TagrError::InvalidInput`
 /// for invalid mapping formats.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn propagate_by_directory(
     db: &Database,
     root: Option<&Path>,
@@ -250,6 +252,7 @@ pub fn propagate_by_directory(
 /// # Errors
 /// Returns database errors during file queries and updates, and `TagrError::InvalidInput`
 /// for invalid mapping formats.
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn propagate_by_extension(
     db: &Database,
     custom_mappings: &[String],

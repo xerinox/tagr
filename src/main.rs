@@ -44,7 +44,7 @@
 
 use tagr::{
     TagrError,
-    cli::{Cli, Commands, ConfigCommands, DbCommands, SearchParams},
+    cli::{AliasCommands, Cli, Commands, ConfigCommands, DbCommands, SearchParams},
     commands, config,
     db::Database,
 };
@@ -298,6 +298,7 @@ fn handle_config_command(
 ///
 /// Returns `TagrError` if configuration loading fails, database initialization fails,
 /// or any command handler returns an error.
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     let config = config::TagrConfig::load_or_setup()?;
 
@@ -356,9 +357,15 @@ fn main() -> Result<()> {
             }
             Commands::Tag { .. } => {
                 let ctx = command.get_tag_context().unwrap();
-                commands::tag(&db, ctx.file, &ctx.tags, quiet)?;
+                commands::tag(&db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet)?;
             }
-            Commands::Search { filter_args, .. } => {
+            Commands::Search {
+                filter_args,
+                criteria,
+                ..
+            } => {
+                use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+
                 let params = command.get_search_params().ok_or_else(|| {
                     TagrError::InvalidInput("Failed to parse search parameters".into())
                 })?;
@@ -368,13 +375,27 @@ fn main() -> Result<()> {
                     .as_ref()
                     .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
 
+                // Determine if user explicitly provided mode flags
+                let has_explicit_tag_mode = criteria.any_tag || criteria.all_tags;
+                let has_explicit_file_mode = criteria.any_file || criteria.all_files;
+                let has_explicit_virtual_mode = criteria.any_virtual || criteria.all_virtual;
+
                 commands::search(
                     &db,
                     params,
-                    filter_args.filter.as_deref(),
-                    save_filter,
-                    path_format,
-                    quiet,
+                    FilterConfig {
+                        apply: filter_args.filter.as_deref(),
+                        save: save_filter,
+                    },
+                    ExplicitFlags {
+                        tag_mode: has_explicit_tag_mode,
+                        file_mode: has_explicit_file_mode,
+                        virtual_mode: has_explicit_virtual_mode,
+                    },
+                    OutputConfig {
+                        format: path_format,
+                        quiet,
+                    },
                 )?;
             }
             Commands::Untag { .. } => {
@@ -397,7 +418,7 @@ fn main() -> Result<()> {
                     } => {
                         let params = SearchParams::from(criteria);
                         commands::bulk::bulk_tag(
-                            &db, &params, add_tags, conditions, *dry_run, *yes, quiet,
+                            &db, params, add_tags, conditions, *dry_run, *yes, quiet,
                         )?;
                     }
                     BulkCommands::Untag {
@@ -411,7 +432,7 @@ fn main() -> Result<()> {
                         let params = SearchParams::from(criteria);
                         commands::bulk::bulk_untag(
                             &db,
-                            &params,
+                            params,
                             remove_tags,
                             *all,
                             conditions,
@@ -451,6 +472,8 @@ fn main() -> Result<()> {
                         dry_run,
                         yes,
                     } => {
+                        use tagr::commands::bulk::CopyTagsConfig;
+
                         let params = SearchParams::from(criteria);
                         let specific = if specific_tags.is_empty() {
                             None
@@ -459,7 +482,16 @@ fn main() -> Result<()> {
                         };
 
                         commands::bulk::copy_tags(
-                            &db, source, &params, specific, exclude, *dry_run, *yes, quiet,
+                            &db,
+                            source,
+                            params,
+                            CopyTagsConfig {
+                                specific_tags: specific,
+                                exclude_tags: exclude,
+                                dry_run: *dry_run,
+                                yes: *yes,
+                                quiet,
+                            },
                         )?;
                     }
                     BulkCommands::FromFile {
@@ -602,6 +634,15 @@ fn main() -> Result<()> {
             Commands::Filter { command } => {
                 // Filter management doesn't need database access
                 commands::filter(command, quiet)?;
+            }
+            Commands::Alias { command } => {
+                // Pass database to set-canonical command, None to others
+                let db_ref = match command {
+                    AliasCommands::SetCanonical { .. } => Some(&db),
+                    _ => None,
+                };
+                commands::alias(command, db_ref)
+                    .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
             }
             Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
         }

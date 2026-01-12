@@ -6,6 +6,7 @@ use crate::ui::types::DisplayItem;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
+    style::Color,
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Widget},
 };
@@ -54,19 +55,51 @@ impl<'a> ItemList<'a> {
 
     /// Render a single item
     fn render_item(&self, item: &DisplayItem, item_idx: usize, is_cursor: bool) -> ListItem<'a> {
-        let is_selected = self.state.is_selected(item_idx);
+        let is_selected = if self.state.is_tag_selection_phase() {
+            // In TagSelection phase, check tag tree selection OR file preview selection
+            // (depending on which items we're rendering)
+            if self.state.tag_tree_state.is_some() {
+                // Check if this is a tag (in tag tree) or a file (in file preview)
+                // Tags are in items list, files are in file_preview_items
+                let is_tag = self.state.items.iter().any(|i| i.key == item.key);
+                if is_tag {
+                    self.state
+                        .tag_tree_state
+                        .as_ref()
+                        .is_some_and(|tree| tree.selected_tags.contains(&item.key))
+                } else {
+                    // This is a file - check file preview selection by key
+                    self.state.is_file_preview_selected_key(&item.key)
+                }
+            } else {
+                self.state.is_selected(item_idx)
+            }
+        } else {
+            // In FileSelection phase, use regular multi-select
+            self.state.is_selected(item_idx)
+        };
         let exists = item.metadata.exists;
 
         // Build prefix: cursor indicator + selection indicator
         let cursor_char = if is_cursor { ">" } else { " " };
-        let select_char = if is_selected { "✓" } else { " " };
 
         let mut spans = vec![
             Span::styled(cursor_char, self.theme.cursor_style()),
             Span::raw(" "),
-            Span::styled(select_char, self.theme.multi_select_style()),
-            Span::raw(" "),
         ];
+
+        // Green checkmark for selected items
+        if is_selected {
+            spans.push(Span::styled(
+                "✓",
+                ratatui::style::Style::default().fg(Color::Green),
+            ));
+            spans.push(Span::raw(" "));
+        } else {
+            spans.push(Span::raw("  "));
+        }
+
+        spans.push(Span::raw(" "));
 
         // Add the display text with appropriate styling
         // Use `searchable` (plain text) instead of `display` (ANSI-formatted)

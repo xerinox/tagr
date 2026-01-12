@@ -82,7 +82,7 @@ fn check_conditions(
 #[allow(clippy::too_many_arguments)]
 pub fn bulk_tag(
     db: &Database,
-    params: &SearchParams,
+    mut params: SearchParams,
     tags: &[String],
     conditions: &ConditionalArgs,
     dry_run: bool,
@@ -92,7 +92,6 @@ pub fn bulk_tag(
     if tags.is_empty() {
         return Err(TagrError::InvalidInput("No tags provided".into()));
     }
-    let mut params = params.clone();
     normalize_bulk_params(&mut params)?;
     let files = crate::db::query::apply_search_params(db, &params)?;
     if files.is_empty() {
@@ -156,7 +155,7 @@ pub fn bulk_tag(
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn bulk_untag(
     db: &Database,
-    params: &SearchParams,
+    mut params: SearchParams,
     tags: &[String],
     remove_all: bool,
     conditions: &ConditionalArgs,
@@ -169,7 +168,6 @@ pub fn bulk_untag(
             "No tags provided. Use --all to remove all tags".into(),
         ));
     }
-    let mut params = params.clone();
     normalize_bulk_params(&mut params)?;
     let files = crate::db::query::apply_search_params(db, &params)?;
     if files.is_empty() {
@@ -367,6 +365,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         normalize_bulk_params(&mut params).expect("normalize should succeed");
@@ -390,6 +389,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         normalize_bulk_params(&mut params).expect("normalize should succeed");
@@ -414,6 +414,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         let err = normalize_bulk_params(&mut params)
@@ -426,6 +427,15 @@ mod tests {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct CopyTagsConfig<'a> {
+    pub specific_tags: Option<&'a [String]>,
+    pub exclude_tags: &'a [String],
+    pub dry_run: bool,
+    pub yes: bool,
+    pub quiet: bool,
+}
+
 /// Copy tags from a source file to a set of target files.
 ///
 /// # Errors
@@ -434,12 +444,8 @@ mod tests {
 pub fn copy_tags(
     db: &Database,
     source_file: &Path,
-    params: &SearchParams,
-    specific_tags: Option<&[String]>,
-    exclude_tags: &[String],
-    dry_run: bool,
-    yes: bool,
-    quiet: bool,
+    mut params: SearchParams,
+    config: CopyTagsConfig,
 ) -> Result<()> {
     let source_tags = db.get_tags(source_file)?.ok_or_else(|| {
         TagrError::InvalidInput(format!(
@@ -450,25 +456,24 @@ pub fn copy_tags(
     let tags_to_copy: Vec<String> = source_tags
         .into_iter()
         .filter(|tag| {
-            if let Some(specific) = specific_tags
+            if let Some(specific) = config.specific_tags
                 && !specific.contains(tag)
             {
                 return false;
             }
-            !exclude_tags.contains(tag)
+            !config.exclude_tags.contains(tag)
         })
         .collect();
     if tags_to_copy.is_empty() {
-        if !quiet {
+        if !config.quiet {
             println!("No tags to copy after filtering.");
         }
         return Ok(());
     }
-    let mut params = params.clone();
     normalize_bulk_params(&mut params)?;
     let target_files = crate::db::query::apply_search_params(db, &params)?;
     if target_files.is_empty() {
-        if !quiet {
+        if !config.quiet {
             println!("No target files match the specified criteria.");
         }
         return Ok(());
@@ -478,12 +483,12 @@ pub fn copy_tags(
         .filter(|f| f != source_file)
         .collect();
     if target_files.is_empty() {
-        if !quiet {
+        if !config.quiet {
             println!("No target files to copy tags to (excluding source file).");
         }
         return Ok(());
     }
-    if dry_run {
+    if config.dry_run {
         println!("{}", "=== Dry Run Mode ===".yellow().bold());
         println!(
             "Would copy tags [{}] from '{}' to {} file(s)",
@@ -501,7 +506,7 @@ pub fn copy_tags(
         println!("\n{}", "Run without --dry-run to apply changes.".yellow());
         return Ok(());
     }
-    if !yes {
+    if !config.yes {
         let prompt = format!(
             "Copy tags [{}] from '{}' to {} file(s)?",
             tags_to_copy.join(", ").cyan(),
@@ -522,19 +527,19 @@ pub fn copy_tags(
         match db.add_tags(file, tags_to_copy.clone()) {
             Ok(()) => {
                 summary.add_success();
-                if !quiet {
+                if !config.quiet {
                     println!("✓ Copied tags to: {}", file.display());
                 }
             }
             Err(e) => {
                 summary.add_error(format!("{}: {}", file.display(), e));
-                if !quiet {
+                if !config.quiet {
                     eprintln!("✗ Failed to copy tags to {}: {}", file.display(), e);
                 }
             }
         }
     }
-    if !quiet {
+    if !config.quiet {
         summary.print("Copy Tags");
     }
     Ok(())
@@ -545,6 +550,7 @@ pub fn copy_tags(
 /// # Errors
 /// Returns database errors during lookups and updates, and `TagrError::InvalidInput`
 /// for invalid inputs (e.g., empty source tags, target among sources).
+#[allow(clippy::too_many_lines)]
 pub fn merge_tags(
     db: &Database,
     source_tags: &[String],

@@ -114,6 +114,15 @@ pub struct FinderResult {
     pub refine_search: Option<RefinedSearchCriteria>,
     /// Input action that was submitted (`action_id`, values)
     pub input_action: Option<InputAction>,
+    /// Whether files were selected directly from unified view (bypassing tag phase)
+    ///
+    /// When true, `selected` contains file paths directly selected from the file
+    /// preview pane in the unified three-pane view, rather than tag names.
+    pub direct_file_selection: bool,
+    /// Tags that were selected/used to filter files in direct file selection mode
+    ///
+    /// Only populated when `direct_file_selection` is true.
+    pub selected_tags: Vec<String>,
 }
 
 /// Input action submitted from modal text input
@@ -148,6 +157,8 @@ impl FinderResult {
             final_key: None,
             refine_search: None,
             input_action: None,
+            direct_file_selection: false,
+            selected_tags: Vec::new(),
         }
     }
 
@@ -160,6 +171,8 @@ impl FinderResult {
             final_key: None,
             refine_search: None,
             input_action: None,
+            direct_file_selection: false,
+            selected_tags: Vec::new(),
         }
     }
 
@@ -172,6 +185,27 @@ impl FinderResult {
             final_key: key,
             refine_search: None,
             input_action: None,
+            direct_file_selection: false,
+            selected_tags: Vec::new(),
+        }
+    }
+
+    /// Create result with final key and direct file selection info
+    #[must_use]
+    pub const fn with_key_and_direct_selection(
+        items: Vec<String>,
+        key: Option<String>,
+        direct_file_selection: bool,
+        selected_tags: Vec<String>,
+    ) -> Self {
+        Self {
+            selected: items,
+            aborted: false,
+            final_key: key,
+            refine_search: None,
+            input_action: None,
+            direct_file_selection,
+            selected_tags,
         }
     }
 
@@ -194,6 +228,8 @@ impl FinderResult {
                 virtual_tags,
             }),
             input_action: None,
+            direct_file_selection: false,
+            selected_tags: Vec::new(),
         }
     }
 
@@ -206,6 +242,8 @@ impl FinderResult {
             final_key: Some(action_id.clone()),
             refine_search: None,
             input_action: Some(InputAction { action_id, values }),
+            direct_file_selection: false,
+            selected_tags: Vec::new(),
         }
     }
 

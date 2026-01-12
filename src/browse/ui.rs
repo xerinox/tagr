@@ -107,6 +107,23 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         }
                     }
                 }
+                BrowserResult::DirectFileAccept {
+                    file_paths,
+                    selected_tags,
+                } => {
+                    // User selected files directly from unified view
+                    // Skip the normal phase transition and return directly
+                    if file_paths.is_empty() {
+                        return Ok(None);
+                    }
+
+                    let selected_files = file_paths.into_iter().map(PathBuf::from).collect();
+
+                    return Ok(Some(BrowseResult {
+                        selected_tags,
+                        selected_files,
+                    }));
+                }
                 BrowserResult::Action {
                     action,
                     selected_ids,
@@ -171,6 +188,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                                         glob_files: false,
                                         virtual_tags: vec![],
                                         virtual_mode: crate::cli::SearchMode::All,
+                                        no_hierarchy: false,
                                     }
                                 } else {
                                     SearchParams {
@@ -185,6 +203,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                                         glob_files: false,
                                         virtual_tags: vec![],
                                         virtual_mode: crate::cli::SearchMode::All,
+                                        no_hierarchy: false,
                                     }
                                 }
                             });
@@ -201,6 +220,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         glob_files: current.glob_files,
                         virtual_tags,
                         virtual_mode: current.virtual_mode,
+                        no_hierarchy: current.no_hierarchy,
                     };
 
                     self.session.update_search_params(new_params)?;
@@ -276,6 +296,13 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         let search_criteria = self.session.search_criteria();
         let available_tags = self.session.available_tags().unwrap_or_default();
 
+        // Wrap schema and database in Arc for sharing
+        let tag_schema = self
+            .session
+            .schema()
+            .map(|s| std::sync::Arc::new(s.clone()));
+        let database = Some(std::sync::Arc::new(self.session.db().clone()));
+
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
             .with_ansi(true)
@@ -287,7 +314,9 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 search_criteria.exclude_tags,
                 search_criteria.file_patterns,
                 search_criteria.virtual_tags,
-            ));
+            ))
+            .with_schema(tag_schema)
+            .with_database(database);
 
         let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
             config.with_preview(preview_cfg.into())
@@ -333,6 +362,14 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         }
 
+        // Check if files were selected directly from unified view
+        if result.direct_file_selection {
+            return Ok(BrowserResult::DirectFileAccept {
+                file_paths: result.selected,
+                selected_tags: result.selected_tags,
+            });
+        }
+
         Ok(BrowserResult::Accept(result.selected))
     }
 
@@ -350,14 +387,38 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     ) -> DisplayItem {
         match &item.metadata {
             ItemMetadata::Tag(tag_meta) => {
+                // Build alias display if schema is available
+                let (display_name, alias_info) = self.session.schema().map_or_else(
+                    || (item.name.clone(), String::new()),
+                    |schema| {
+                        // Canonicalize the tag first
+                        let canonical = schema.canonicalize(&item.name);
+
+                        // Get all synonyms (including this tag if it's an alias)
+                        let mut synonyms = schema.expand_synonyms(&item.name);
+
+                        // Remove the canonical form from synonyms to show as aliases
+                        synonyms.retain(|s| s != &canonical);
+
+                        let alias_text = if synonyms.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", synonyms.join(", ")).dimmed().to_string()
+                        };
+
+                        (canonical, alias_text)
+                    },
+                );
+
                 let display = format!(
-                    "{} {}",
-                    item.name.blue().bold(),
-                    format!("({} files)", tag_meta.file_count).dimmed()
+                    "{}{}{}",
+                    display_name.blue().bold(),
+                    alias_info,
+                    format!(" ({} files)", tag_meta.file_count).dimmed()
                 );
 
                 let metadata = crate::ui::ItemMetadata {
-                    index: Some(index),
+                    index: Some(tag_meta.file_count), // Store file_count for tag tree
                     tags: vec![],
                     exists: true,
                 };
@@ -566,6 +627,18 @@ enum BrowserResult {
     /// User accepted selection (Enter)
     Accept(Vec<String>),
 
+    /// User accepted file selection directly from unified view
+    ///
+    /// In the three-pane unified view, users can press Enter while focused
+    /// on the `FilePreview` pane to directly select files, bypassing the normal
+    /// tag-to-file phase transition.
+    DirectFileAccept {
+        /// Selected file paths
+        file_paths: Vec<String>,
+        /// Selected tags that filtered these files
+        selected_tags: Vec<String>,
+    },
+
     /// User triggered action (ctrl+t, etc.) with current selection
     Action {
         action: BrowseAction,
@@ -650,6 +723,8 @@ mod tests {
                 final_key: result.final_key.clone(),
                 refine_search: result.refine_search.clone(),
                 input_action: result.input_action.clone(),
+                direct_file_selection: result.direct_file_selection,
+                selected_tags: result.selected_tags.clone(),
             })
         }
     }
@@ -666,6 +741,8 @@ mod tests {
             final_key: None,
             refine_search: None,
             input_action: None,
+            direct_file_selection: false,
+            selected_tags: vec![],
         }]);
 
         let controller = BrowseController::new(session, mock_finder);

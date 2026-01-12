@@ -19,6 +19,7 @@ pub mod keybinds;
 pub mod output;
 pub mod patterns;
 pub mod preview;
+pub mod schema;
 pub mod search;
 pub mod ui;
 pub mod vtags;
@@ -56,6 +57,9 @@ pub enum TagrError {
     /// Pattern system error
     #[error("Pattern error: {0}")]
     PatternError(#[from] patterns::PatternError),
+    /// Schema error
+    #[error("Schema error: {0}")]
+    SchemaError(#[from] schema::SchemaError),
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),
@@ -73,5 +77,13 @@ impl Pair {
     #[must_use]
     pub const fn new(file: PathBuf, tags: Vec<String>) -> Self {
         Self { file, tags }
+    }
+}
+
+impl search::AsFileTagPair for Pair {
+    fn as_pair(&self) -> search::FileTagPair<'_> {
+        // Convert PathBuf to &str - if invalid UTF-8, use empty string
+        let file_str = self.file.to_str().unwrap_or("");
+        search::FileTagPair::new(file_str, &self.tags)
     }
 }

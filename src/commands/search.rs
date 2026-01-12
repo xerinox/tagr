@@ -13,29 +13,78 @@ use std::path::PathBuf;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
+#[derive(Clone, Copy)]
+pub struct ExplicitFlags {
+    pub tag_mode: bool,
+    pub file_mode: bool,
+    pub virtual_mode: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct OutputConfig {
+    pub format: config::PathFormat,
+    pub quiet: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct FilterConfig<'a> {
+    pub apply: Option<&'a str>,
+    pub save: Option<(&'a str, Option<&'a str>)>,
+}
+
 /// Execute the search command
+///
+/// # Arguments
+/// * `filter_config` - Configuration for applying/saving filters
+/// * `explicit_flags` - Flags indicating if user explicitly provided tag/file/virtual modes
+/// * `output_config` - Configuration for output formatting and verbosity
 ///
 /// # Errors
 /// Returns an error if database operations fail or search parameters are invalid
 pub fn execute(
     db: &Database,
     mut params: SearchParams,
-    filter_name: Option<&str>,
-    save_filter: Option<(&str, Option<&str>)>,
-    path_format: config::PathFormat,
-    quiet: bool,
+    filter_config: FilterConfig,
+    explicit_flags: ExplicitFlags,
+    output_config: OutputConfig,
 ) -> Result<()> {
-    if let Some(name) = filter_name {
+    if let Some(name) = filter_config.apply {
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
 
-        let filter_params = SearchParams::from(&filter.criteria);
-        params.merge(&filter_params);
+        // Start with filter params as base, then merge CLI overrides
+        let mut filter_params = SearchParams::from(&filter.criteria);
+        let cli_tag_mode = params.tag_mode;
+        let cli_file_mode = params.file_mode;
+        let cli_virtual_mode = params.virtual_mode;
+
+        filter_params.merge(&params);
+
+        // If user didn't explicitly provide mode flags, keep filter's modes
+        if explicit_flags.tag_mode {
+            filter_params.tag_mode = cli_tag_mode;
+        } else {
+            filter_params.tag_mode = filter.criteria.tag_mode.into();
+        }
+
+        if explicit_flags.file_mode {
+            filter_params.file_mode = cli_file_mode;
+        } else {
+            filter_params.file_mode = filter.criteria.file_mode.into();
+        }
+
+        if explicit_flags.virtual_mode {
+            filter_params.virtual_mode = cli_virtual_mode;
+        } else {
+            filter_params.virtual_mode = filter.criteria.virtual_mode.into();
+        }
+
+        params = filter_params;
 
         manager.record_use(name)?;
 
-        if !quiet {
+        if !output_config.quiet {
             println!("Using filter '{name}'");
         }
     }
@@ -85,24 +134,24 @@ pub fn execute(
     let files = query::apply_search_params(db, &params)?;
 
     if let Some(query) = &params.query {
-        print_results(db, &files, query, path_format, quiet);
+        print_results(db, &files, query, output_config.format, output_config.quiet);
     } else if files.is_empty() {
-        if !quiet {
+        if !output_config.quiet {
             let criteria = build_criteria_description(&params);
             println!("No files found matching {criteria}");
         }
     } else {
-        if !quiet {
+        if !output_config.quiet {
             let description = build_search_description(&params);
             println!("Found {} file(s) matching {}:", files.len(), description);
         }
 
         for file in files {
-            print_file_with_tags(db, &file, path_format, quiet);
+            print_file_with_tags(db, &file, output_config.format, output_config.quiet);
         }
     }
 
-    if let Some((name, desc)) = save_filter {
+    if let Some((name, desc)) = filter_config.save {
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
         let criteria = FilterCriteria::from(params);
@@ -110,7 +159,7 @@ pub fn execute(
 
         manager.create(name, description.to_string(), criteria)?;
 
-        if !quiet {
+        if !output_config.quiet {
             println!("\nSaved filter '{name}'");
         }
     }
@@ -220,10 +269,27 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
-        let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
-            .err()
-            .expect("should error");
+        let err = execute(
+            db,
+            params,
+            FilterConfig {
+                apply: None,
+                save: None,
+            },
+            ExplicitFlags {
+                tag_mode: false,
+                file_mode: false,
+                virtual_mode: false,
+            },
+            OutputConfig {
+                format: config::PathFormat::Absolute,
+                quiet: true,
+            },
+        )
+        .err()
+        .expect("should error");
         match err {
             TagrError::InvalidInput(msg) => {
                 assert!(msg.contains("Glob-like file pattern"));
@@ -248,8 +314,25 @@ mod tests {
             glob_files: true,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
-        let res = execute(db, params, None, None, config::PathFormat::Absolute, true);
+        let res = execute(
+            db,
+            params,
+            FilterConfig {
+                apply: None,
+                save: None,
+            },
+            ExplicitFlags {
+                tag_mode: false,
+                file_mode: false,
+                virtual_mode: false,
+            },
+            OutputConfig {
+                format: config::PathFormat::Absolute,
+                quiet: true,
+            },
+        );
         assert!(res.is_ok());
     }
 
@@ -269,10 +352,27 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: SearchMode::All,
+            no_hierarchy: false,
         };
-        let err = execute(db, params, None, None, config::PathFormat::Absolute, true)
-            .err()
-            .expect("should error");
+        let err = execute(
+            db,
+            params,
+            FilterConfig {
+                apply: None,
+                save: None,
+            },
+            ExplicitFlags {
+                tag_mode: false,
+                file_mode: false,
+                virtual_mode: false,
+            },
+            OutputConfig {
+                format: config::PathFormat::Absolute,
+                quiet: true,
+            },
+        )
+        .err()
+        .expect("should error");
         match err {
             TagrError::PatternError(_) => {}
             _ => panic!("Expected PatternError for glob-like tag token"),

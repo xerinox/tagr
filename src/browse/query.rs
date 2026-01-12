@@ -10,11 +10,15 @@
 use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
 use crate::db::{Database, DbError};
+use crate::search::FilterExt; // Import trait for in-memory filtering
+use std::collections::{HashMap, HashSet};
 
 /// Query all available tags from the database with file counts
 ///
 /// Returns tags as `TagrItem` instances with metadata including the number
-/// of files associated with each tag.
+/// of files associated with each tag. When a schema is available, this
+/// function consolidates aliases into their canonical forms (e.g., `js` and
+/// `javascript` are merged into a single `javascript` tag with combined file count).
 ///
 /// # Arguments
 /// * `db` - Database to query
@@ -35,12 +39,43 @@ use crate::db::{Database, DbError};
 pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
     let tag_names = db.list_all_tags()?;
 
-    let tags: Result<Vec<TagrItem>, DbError> = tag_names
-        .into_iter()
-        .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
-        .collect();
+    // Load schema to consolidate aliases
+    let schema = crate::schema::load_default_schema().ok();
 
-    tags
+    if let Some(schema) = schema {
+        // Group tags by canonical form and count UNIQUE files
+        let mut canonical_map: HashMap<String, HashSet<String>> = HashMap::new();
+
+        for tag_name in tag_names {
+            let canonical = schema.canonicalize(&tag_name);
+            let files = db.find_by_tag(&tag_name)?;
+
+            // Add unique file paths to the canonical tag's set
+            let file_set = canonical_map.entry(canonical).or_default();
+            for file_path in files {
+                if let Some(path_str) = file_path.to_str() {
+                    file_set.insert(path_str.to_string());
+                }
+            }
+        }
+
+        // Convert to TagrItem instances with unique file counts
+        let mut tags: Vec<TagrItem> = canonical_map
+            .into_iter()
+            .map(|(canonical, file_set)| TagrItem::tag(canonical, file_set.len()))
+            .collect();
+
+        tags.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(tags)
+    } else {
+        // No schema - use original behavior
+        let tags: Result<Vec<TagrItem>, DbError> = tag_names
+            .into_iter()
+            .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
+            .collect();
+
+        tags
+    }
 }
 
 /// Query files matching the given search parameters
@@ -120,9 +155,34 @@ pub fn get_files_by_tags(
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: crate::cli::SearchMode::All,
+        no_hierarchy: false,
     };
 
     get_matching_files(db, &params)
+}
+
+/// Filter an existing collection of items in-memory using search parameters
+///
+/// This function provides fast in-memory filtering without requiring database queries.
+/// Useful for live filtering in the TUI as users type or adjust search criteria.
+///
+/// # Arguments
+/// * `items` - Collection of `TagrItem` to filter
+/// * `params` - Search parameters containing tag filters
+///
+/// # Returns
+/// Vector of references to items that match the search criteria
+///
+/// # Examples
+/// ```ignore
+/// let filtered: Vec<_> = filter_items_in_memory(&all_items, &params);
+/// ```
+#[must_use]
+pub fn filter_items_in_memory<'a>(
+    items: &'a [TagrItem],
+    params: &'a SearchParams,
+) -> Vec<&'a TagrItem> {
+    items.apply_filter(params).collect()
 }
 
 impl From<crate::browse::models::SearchMode> for crate::cli::SearchMode {
@@ -246,6 +306,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         let files = get_matching_files(db, &params).unwrap();
@@ -358,6 +419,7 @@ mod tests {
             glob_files: false,
             virtual_tags: vec![],
             virtual_mode: crate::cli::SearchMode::All,
+            no_hierarchy: false,
         };
 
         let files = get_matching_files(db, &params).unwrap();

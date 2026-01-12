@@ -61,6 +61,8 @@ impl FuzzyFinder for SimpleFinder {
                 final_key: Some("esc".to_string()),
                 refine_search: None,
                 input_action: None,
+                direct_file_selection: false,
+                selected_tags: vec![],
             });
         }
 
@@ -78,6 +80,8 @@ impl FuzzyFinder for SimpleFinder {
             final_key: Some("enter".to_string()),
             refine_search: None,
             input_action: None,
+            direct_file_selection: false,
+            selected_tags: vec![],
         })
     }
 }
@@ -158,6 +162,8 @@ impl FuzzyFinder for FilteringFinder {
                     final_key: Some("esc".to_string()),
                     refine_search: None,
                     input_action: None,
+                    direct_file_selection: false,
+                    selected_tags: vec![],
                 });
             } else if input.is_empty() {
                 // Enter pressed - finalize selection
@@ -180,6 +186,8 @@ impl FuzzyFinder for FilteringFinder {
                     final_key: Some("enter".to_string()),
                     refine_search: None,
                     input_action: None,
+                    direct_file_selection: false,
+                    selected_tags: vec![],
                 });
             } else if let Ok(num) = input.parse::<usize>() {
                 // Number entered - toggle selection
@@ -198,6 +206,8 @@ impl FuzzyFinder for FilteringFinder {
                             final_key: Some("enter".to_string()),
                             refine_search: None,
                             input_action: None,
+                            direct_file_selection: false,
+                            selected_tags: vec![],
                         });
                     }
                 }

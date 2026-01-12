@@ -5,8 +5,8 @@ use crate::testing::{TempFile, TestDb};
 
 use super::batch::{parse_csv, parse_json, parse_plaintext};
 use super::{
-    BatchFormat, bulk_delete_files, bulk_map_tags, bulk_tag, bulk_untag, copy_tags, merge_tags,
-    rename_tag,
+    BatchFormat, CopyTagsConfig, bulk_delete_files, bulk_map_tags, bulk_tag, bulk_untag, copy_tags,
+    merge_tags, rename_tag,
 };
 
 #[test]
@@ -92,10 +92,11 @@ fn test_bulk_tag_basic() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["bulk".into(), "added".into()],
         &ConditionalArgs::default(),
         false,
@@ -132,10 +133,11 @@ fn test_bulk_untag_specific_tags() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     bulk_untag(
         db,
-        &params,
+        params,
         &["tag1".into(), "tag2".into()],
         false,
         &ConditionalArgs::default(),
@@ -218,8 +220,21 @@ fn test_copy_tags_all() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
-    copy_tags(db, source.path(), &params, None, &[], false, true, true).unwrap();
+    copy_tags(
+        db,
+        source.path(),
+        params,
+        CopyTagsConfig {
+            specific_tags: None,
+            exclude_tags: &[],
+            dry_run: false,
+            yes: true,
+            quiet: true,
+        },
+    )
+    .unwrap();
     let tags1 = db.get_tags(t1.path()).unwrap().unwrap();
     assert!(tags1.contains(&"tag1".into()));
 }
@@ -293,6 +308,7 @@ fn test_bulk_tag_if_not_exists() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     let conditions = ConditionalArgs {
         if_not_exists: true,
@@ -301,7 +317,7 @@ fn test_bulk_tag_if_not_exists() {
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["existing".into(), "new".into()],
         &conditions,
         false,
@@ -351,6 +367,7 @@ fn test_bulk_tag_if_has_tag() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     let conditions = ConditionalArgs {
         if_not_exists: false,
@@ -359,7 +376,7 @@ fn test_bulk_tag_if_has_tag() {
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["conditional".into()],
         &conditions,
         false,
@@ -415,6 +432,7 @@ fn test_bulk_tag_if_missing_tag() {
         glob_files: false,
         virtual_tags: vec![],
         virtual_mode: SearchMode::All,
+        no_hierarchy: false,
     };
     let conditions = ConditionalArgs {
         if_not_exists: false,
@@ -423,7 +441,7 @@ fn test_bulk_tag_if_missing_tag() {
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["needs-review".into()],
         &conditions,
         false,

@@ -62,16 +62,18 @@ pub enum ListVariant {
 }
 
 /// Search mode for combining multiple criteria
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchMode {
     /// Match ANY of the criteria (OR logic)
+    #[default]
     Any,
     /// Match ALL of the criteria (AND logic)
     All,
 }
 
 /// Parameters for search command
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SearchParams {
     /// General query (for combined filename and tag search)
     pub query: Option<String>,
@@ -95,6 +97,8 @@ pub struct SearchParams {
     pub virtual_tags: Vec<String>,
     /// How to combine multiple virtual tags (AND/OR)
     pub virtual_mode: SearchMode,
+    /// Skip hierarchy expansion (don't search parent tags)
+    pub no_hierarchy: bool,
 }
 
 /// Preview configuration overrides from CLI
@@ -121,6 +125,8 @@ pub struct TagContext {
     pub file: Option<PathBuf>,
     /// Tags to add
     pub tags: Vec<String>,
+    /// Skip tag canonicalization
+    pub no_canonicalize: bool,
 }
 
 /// Context for untag command execution
@@ -146,34 +152,55 @@ pub struct BrowseContext {
 }
 
 impl SearchParams {
-    /// Merge with another `SearchParams` (typically from a loaded filter)
+    /// Merge with another `SearchParams` to create combined criteria
     ///
-    /// This extends the current params with additional criteria:
-    /// - Tags and file patterns are combined
+    /// This adds criteria from `other` on top of self:
+    /// - Tags and file patterns are combined (deduplicated)
     /// - Exclusions are merged
-    /// - Regex flags are OR'd
-    /// - Modes are preserved from self (CLI takes precedence)
+    /// - Regex and glob flags are OR'd (if either is true, result is true)
+    /// - Modes from `other` always override self's modes
+    ///
+    /// Typical usage when loading filters: `filter_params.merge(&cli_params)`
+    /// The caller is responsible for preserving modes when appropriate.
     pub fn merge(&mut self, other: &Self) {
+        // Merge tags
         for tag in &other.tags {
             if !self.tags.contains(tag) {
                 self.tags.push(tag.clone());
             }
         }
 
+        // Merge file patterns
         for pattern in &other.file_patterns {
             if !self.file_patterns.contains(pattern) {
                 self.file_patterns.push(pattern.clone());
             }
         }
 
+        // Merge exclusions
         for exclude in &other.exclude_tags {
             if !self.exclude_tags.contains(exclude) {
                 self.exclude_tags.push(exclude.clone());
             }
         }
 
+        // Merge virtual tags
+        for vtag in &other.virtual_tags {
+            if !self.virtual_tags.contains(vtag) {
+                self.virtual_tags.push(vtag.clone());
+            }
+        }
+
+        // OR the boolean flags
         self.regex_tag = self.regex_tag || other.regex_tag;
         self.regex_file = self.regex_file || other.regex_file;
+        self.glob_files = self.glob_files || other.glob_files;
+        self.no_hierarchy = self.no_hierarchy || other.no_hierarchy;
+
+        // Modes from other always override (caller handles preservation if needed)
+        self.tag_mode = other.tag_mode;
+        self.file_mode = other.file_mode;
+        self.virtual_mode = other.virtual_mode;
     }
 }
 
@@ -229,6 +256,7 @@ impl From<&crate::filters::FilterCriteria> for SearchParams {
             glob_files: criteria.glob_files,
             virtual_tags: criteria.virtual_tags.clone(),
             virtual_mode: criteria.virtual_mode.into(),
+            no_hierarchy: false, // Filters don't store hierarchy preference
         }
     }
 }
@@ -259,6 +287,7 @@ impl From<&SearchCriteriaArgs> for SearchParams {
             } else {
                 SearchMode::All
             },
+            no_hierarchy: false, // Default to false, set explicitly from command
         }
     }
 }
@@ -364,7 +393,11 @@ pub enum ConfigCommands {
 #[derive(Subcommand, Debug, Clone)]
 pub enum TagsCommands {
     /// List all tags in the database
-    List,
+    List {
+        /// Display tags in tree format showing hierarchical relationships
+        #[arg(long = "tree")]
+        tree: bool,
+    },
 
     /// Remove a tag from all files (cleans up files with no remaining tags)
     #[command(visible_alias = "rm")]
@@ -702,6 +735,55 @@ pub enum BatchFormatArg {
     /// JSON format: `[{"file":"...","tags":["t1","t2"]}]`
     Json,
 }
+
+/// Alias management subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum AliasCommands {
+    /// Add a new alias
+    Add {
+        /// Alias name (e.g., "js")
+        alias: String,
+
+        /// Canonical tag (e.g., "javascript")
+        canonical: String,
+    },
+
+    /// Remove an alias
+    #[command(visible_alias = "rm")]
+    Remove {
+        /// Alias to remove
+        alias: String,
+    },
+
+    /// List all aliases
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Show aliases for a specific tag
+    Show {
+        /// Tag name
+        tag: String,
+    },
+
+    /// Swap which tag is canonical (renames database tags and reverses alias)
+    #[command(name = "set-canonical")]
+    SetCanonical {
+        /// Current alias that will become the canonical tag
+        alias: String,
+
+        /// Current canonical tag that will become an alias
+        canonical: String,
+
+        /// Preview changes without applying them
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+}
+
 /// Filter management subcommands
 #[derive(Subcommand, Debug, Clone)]
 pub enum FilterCommands {
@@ -787,6 +869,7 @@ pub struct DbArgs {
 
 /// Shared search criteria arguments (tags, file patterns, virtual tags)
 #[derive(Parser, Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SearchCriteriaArgs {
     /// Tags to search for
     #[arg(short = 't', long = "tag", value_name = "TAG", num_args = 0..)]
@@ -892,6 +975,14 @@ pub enum Commands {
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
 
+        /// Disable hierarchical tag matching (use exact matching only)
+        ///
+        /// By default, tags use prefix matching: -t lang matches lang:rust, lang:python, etc.
+        /// Deeper tags override shallower ones via specificity rules.
+        /// This flag disables that behavior and requires exact tag matches.
+        #[arg(long = "no-hierarchy")]
+        no_hierarchy: bool,
+
         /// Execute command for each selected file (use {} as placeholder for file path)
         #[arg(short = 'x', long = "exec", value_name = "COMMAND")]
         execute: Option<String>,
@@ -945,6 +1036,12 @@ pub enum Commands {
         command: FilterCommands,
     },
 
+    /// Manage tag aliases
+    Alias {
+        #[command(subcommand)]
+        command: AliasCommands,
+    },
+
     /// Tag a file with one or more tags
     #[command(visible_alias = "t")]
     Tag {
@@ -964,6 +1061,10 @@ pub enum Commands {
         #[arg(value_name = "TAGS", conflicts_with = "tags_flag")]
         tags_pos: Vec<String>,
 
+        /// Skip tag canonicalization (use tags as-is, don't resolve aliases)
+        #[arg(long = "no-canonicalize")]
+        no_canonicalize: bool,
+
         #[command(flatten)]
         db_args: DbArgs,
     },
@@ -977,6 +1078,14 @@ pub enum Commands {
 
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
+
+        /// Disable hierarchical tag matching (use exact matching only)
+        ///
+        /// By default, tags use prefix matching: -t lang matches lang:rust, lang:python, etc.
+        /// Deeper tags override shallower ones via specificity rules.
+        /// This flag disables that behavior and requires exact tag matches.
+        #[arg(long = "no-hierarchy")]
+        no_hierarchy: bool,
 
         /// Display absolute paths (overrides config)
         #[arg(long = "absolute", conflicts_with = "relative")]
@@ -1078,6 +1187,7 @@ impl Commands {
                 file_pos,
                 tags_flag,
                 tags_pos,
+                no_canonicalize,
                 ..
             } => {
                 let file = file_flag.clone().or_else(|| file_pos.clone());
@@ -1086,7 +1196,11 @@ impl Commands {
                 } else {
                     tags_flag.clone()
                 };
-                Some(TagContext { file, tags })
+                Some(TagContext {
+                    file,
+                    tags,
+                    no_canonicalize: *no_canonicalize,
+                })
             }
             _ => None,
         }
@@ -1097,7 +1211,10 @@ impl Commands {
     pub fn get_search_params(&self) -> Option<SearchParams> {
         match self {
             Self::Search {
-                query, criteria, ..
+                query,
+                criteria,
+                no_hierarchy,
+                ..
             } => Some(SearchParams {
                 query: query.clone(),
                 tags: criteria.tags.clone(),
@@ -1122,6 +1239,7 @@ impl Commands {
                 } else {
                     SearchMode::All
                 },
+                no_hierarchy: *no_hierarchy,
             }),
             _ => None,
         }
@@ -1134,6 +1252,7 @@ impl Commands {
             Self::Browse {
                 query,
                 criteria,
+                no_hierarchy,
                 execute,
                 no_preview,
                 preview_lines,
@@ -1159,6 +1278,7 @@ impl Commands {
                         glob_files: false,
                         virtual_tags: criteria.virtual_tags.clone(),
                         virtual_mode: SearchMode::Any,
+                        no_hierarchy: *no_hierarchy,
                     })
                 } else {
                     None
@@ -1274,6 +1394,7 @@ impl Cli {
                 any_virtual: false,
                 all_virtual: false,
             },
+            no_hierarchy: false,
             execute: None,
             no_preview: false,
             preview_lines: None,

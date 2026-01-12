@@ -133,3 +133,46 @@ enabled = true
 
 # Automatically detect Git repositories
 detect_repo = true
+
+# Tag schema configuration
+[schema]
+# Path to tag schema file (stores aliases and hierarchy metadata)
+# Default: ~/.config/tagr/tag_schema.toml
+# schema_path = "/path/to/tag_schema.toml"
+
+# Enable automatic tag canonicalization when tagging files
+# When true, aliases are resolved to canonical tags before storage
+# Use --no-canonicalize flag to opt out per command
+auto_canonicalize = true
+
+# Enable hierarchy expansion in searches
+# When true, searching for a tag includes its parent tags
+# Use --no-hierarchy flag to opt out per search
+auto_expand_hierarchy = true
+
+# The tag_schema.toml file is created automatically when you add your first alias
+# Location: ~/.config/tagr/tag_schema.toml
+#
+# Example tag_schema.toml structure:
+#
+# [aliases]
+# # Map aliases to canonical tags
+# js = "javascript"
+# py = "python"
+# ts = "lang:typescript"
+# es6 = "javascript"
+#
+# # Hierarchical tags use colon delimiter
+# # Searching for "lang:rust" automatically includes "lang:rust:async", "lang:rust:web", etc.
+# # No explicit hierarchy configuration needed - automatically inferred from tag names
+#
+# # The schema file can be edited manually, but use the CLI for safety:
+# #   tagr alias add <alias> <canonical>
+# #   tagr alias remove <alias>
+# #   tagr alias list
+# #
+# # Validation rules:
+# # - Alias names cannot contain ':' (reserved for hierarchies)
+# # - Circular references are prevented (A→B→A)
+# # - Case-insensitive matching
+# # - Self-references allowed but not recommended

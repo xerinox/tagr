@@ -26,6 +26,9 @@ pub use types::{PathKey, PathString};
 /// Uses two trees for efficient bidirectional lookups:
 /// - `files` tree: `file_path` -> `Vec<tag>`
 /// - `tags` tree: tag -> Vec<`file_path`>
+///
+/// Clone is cheap - both `Db` and `Tree` are reference-counted internally.
+#[derive(Debug, Clone)]
 pub struct Database {
     db: Db,
     files: Tree,

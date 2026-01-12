@@ -5,6 +5,116 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-01-07
+
+### Added
+
+#### Tag Hierarchies and Aliases (Complete)
+- **Hierarchical Tags** - Organize tags with parent:child relationships using `:` delimiter
+  - Example: `lang:rust:async` creates three-level hierarchy
+  - Search expansion: searching `lang:rust` automatically includes `lang:rust:async`
+  - `--no-hierarchy` flag to disable expansion in search/browse
+  - Tree visualization with `tagr tags list --tree`
+- **Tag Aliases (Synonyms)** - Create multiple names for the same tag
+  - `tagr alias add js javascript` - map alias to canonical tag
+  - Automatic canonicalization on tag insertion (stores only canonical form)
+  - Search/browse expands to all synonyms (e.g., search "js" finds "javascript")
+  - `--no-canonicalize` flag to opt out when tagging
+  - Circular reference detection prevents infinite loops
+  - Case-insensitive alias matching
+- **Tag Schema Module** - Core type system for managing relationships
+  - `TagSchema` struct with bidirectional indices (forward + reverse)
+  - Persists to `~/.config/tagr/tag_schema.toml`
+  - Level-by-level canonicalization for hierarchical tags
+  - Comprehensive validation (reserved delimiters, circular refs)
+  - TOML serialization/deserialization
+- **CLI Commands** - Complete alias management interface
+  - `tagr alias add <alias> <canonical>` - Create new alias
+  - `tagr alias remove <alias>` - Delete alias
+  - `tagr alias list` - Show all aliases
+  - `tagr alias show <tag>` - Display synonyms for a tag
+  - Colored, user-friendly output
+- **Query Expansion** - Automatic tag expansion in searches
+  - Centralized in `db/query.rs::apply_search_params()`
+  - Expands to all synonyms (javascript → [js, es, javascript])
+  - Expands hierarchical tags to parents (lang:rust → [lang, lang:rust])
+  - Automatic ANY mode switching when single tag expands
+  - Works in CLI search and interactive browse (shared logic)
+- **TUI Enhancements** - Tag hierarchy visualization in browse mode
+  - **Hierarchical Tag Tree Widget** - Visual tree with parent-child relationships
+    - Automatic hierarchy inference from `:` delimiter
+    - Collapsible/expandable nodes with Space key
+    - Multi-select with visual checkmarks (green ✓)
+    - File counts for tags, (parent) markers for inferred nodes
+  - **Two-Pane Layout** - Split screen for tag selection phase
+    - Left: Hierarchical tag tree with navigation
+    - Right: Items list with synchronized selections
+    - Bidirectional cursor synchronization
+  - **Alias Display** - Shows synonyms inline in tree
+    - Format: "javascript (js, es) (42 files)"
+    - Tag consolidation by canonical form (deduplicates js/javascript)
+    - Short tag names in hierarchy (python vs lang:python)
+    - ANSI code stripping for clean rendering
+  - **Smart Filtering** - Tree filters match items list
+    - Both panes filter simultaneously
+    - Bidirectional cursor sync across filters
+    - Multi-select preserved during filter changes
+    - "No matching tags" message for empty results
+  - **Parent Multi-Select** - TAB on parent selects all children
+    - Recursive descendant collection
+    - Bulk selection for entire subtrees
+  - **Live CLI Preview** - Status bar shows equivalent CLI command
+    - Color-coded syntax highlighting
+    - Real-time updates as tags selected
+    - Educational tool for learning CLI syntax
+- **Filter Integration** - Hierarchies and aliases work with saved filters
+  - Filters store user-provided tags (not expanded)
+  - Expansion happens at query time (always uses latest schema)
+  - `--no-hierarchy` flag preserved in SearchParams
+  - Filter loading respects hierarchy settings
+- **Hierarchical Aliases** - Aliases can point to hierarchical tags
+  - Example: `ts → lang:typescript` (allowed)
+  - Aliases themselves cannot contain `:` (validation enforced)
+  - Powerful patterns for namespace consolidation
+
+### Changed
+
+- **Tag Validation** - Reserved `:` delimiter for hierarchies
+  - Canonical tags can contain `:` for hierarchies
+  - Alias names cannot contain `:` (enforced by schema)
+  - Proper error messages for invalid tag syntax
+- **Query Logic** - Centralized tag expansion in database layer
+  - Single source of truth in `db/query.rs`
+  - Consistent behavior across CLI and TUI
+  - Deduplication via HashSet
+
+### Fixed
+
+- **Filter Mode Preservation** - Critical bug fix for saved filters
+  - Filters now correctly preserve ANY/ALL tag mode
+  - CLI mode flags (`--any-tag`, `--all-tags`) properly override filter defaults
+  - `SearchParams::merge()` tracks explicit mode flags
+- **Circular Reference Prevention** - Comprehensive cycle detection
+  - Direct cycles (A→B→A) blocked
+  - Indirect cycles (A→B→C→A) blocked
+  - Long chain cycles (5+ hops) blocked
+  - Case-insensitive detection
+  - Self-references allowed (harmless)
+
+### Testing
+
+- 294 library tests passing
+- 37 integration tests passing
+- Comprehensive circular reference testing (10 scenarios)
+- Manual TUI testing:
+  - Tag tree navigation and expansion
+  - Alias display and consolidation
+  - Filtering and cursor synchronization
+  - Multi-select preservation
+  - Parent node selection
+
+---
+
 ## [0.8.0] - 2026-01-06
 
 ### Changed

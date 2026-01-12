@@ -59,6 +59,8 @@
 //!     phase: BrowsePhase::FileSelection,
 //!     available_tags: vec![],
 //!     search_criteria: None,
+//!     tag_schema: None,
+//!     database: None,
 //! };
 //!
 //! let finder = RatatuiFinder::new();
@@ -87,6 +89,8 @@
 //!             final_key: Some("enter".to_string()),
 //!             refine_search: None,
 //!             input_action: None,
+//!             direct_file_selection: false,
+//!             selected_tags: vec![],
 //!         })
 //!     }
 //! }

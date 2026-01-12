@@ -10,6 +10,7 @@ mod preview_pane;
 mod refine_search_overlay;
 mod search_bar;
 mod status_bar;
+mod tag_tree;
 mod text_input;
 
 pub use confirm_dialog::{ConfirmDialog, ConfirmDialogState};
@@ -20,4 +21,5 @@ pub use preview_pane::PreviewPane;
 pub use refine_search_overlay::{RefineField, RefineSearchOverlay, RefineSearchState};
 pub use search_bar::SearchBar;
 pub use status_bar::StatusBar;
+pub use tag_tree::{TagTree, TagTreeNode, TagTreeState, tag_tree_with_border};
 pub use text_input::{TextInputModal, TextInputState};

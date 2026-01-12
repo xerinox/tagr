@@ -192,6 +192,7 @@ enum TimeField {
     Accessed,
 }
 
+#[allow(clippy::too_many_lines)]
 fn evaluate_time_condition(file_time: SystemTime, cond: &TimeCondition) -> bool {
     let now = SystemTime::now();
     let local_now = Local::now();

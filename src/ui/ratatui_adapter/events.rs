@@ -138,6 +138,7 @@ pub fn key_to_string(key: &KeyEvent) -> Option<String> {
 }
 
 /// Handle events in normal mode
+#[allow(clippy::too_many_lines)]
 fn handle_normal_mode(
     state: &mut AppState,
     key: KeyEvent,
@@ -189,9 +190,40 @@ fn handle_normal_mode(
 
     // Handle standard keybinds
     match (key.code, key.modifiers) {
-        // Exit
-        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => EventResult::Abort,
-        (KeyCode::Enter, _) => EventResult::Confirm(Some("enter".to_string())),
+        // Exit (or exit search mode)
+        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            // If actively typing in search, exit search mode but keep filter
+            if state.search_active {
+                state.search_active = false;
+                state.search_initiated_from = None;
+                return EventResult::Continue;
+            }
+            EventResult::Abort
+        }
+        (KeyCode::Enter, _) => {
+            // If actively typing in search, exit search mode but keep filter
+            if state.search_active {
+                state.search_active = false;
+                state.search_initiated_from = None;
+                return EventResult::Continue;
+            }
+            // In TagSelection phase, Enter behavior depends on focused pane
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => {
+                        // Move focus to file list
+                        state.focused_pane = FocusPane::FilePreview;
+                        return EventResult::Continue;
+                    }
+                    FocusPane::FilePreview => {
+                        // Confirm selection - use multi-select if any, otherwise current file
+                        return EventResult::Confirm(Some("enter".to_string()));
+                    }
+                }
+            }
+            EventResult::Confirm(Some("enter".to_string()))
+        }
 
         // Preview scroll (Shift+Up/Down) - must be before general navigation
         (KeyCode::Up, KeyModifiers::SHIFT) => {
@@ -203,15 +235,55 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Navigation
+        // Navigation - route based on focused pane in TagSelection phase
         (KeyCode::Up, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
-            state.cursor_up();
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_up(),
+                    FocusPane::FilePreview => state.file_preview_cursor_up(),
+                }
+            } else {
+                state.cursor_up();
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Char('k'), KeyModifiers::NONE) if !state.search_active => {
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_up(),
+                    FocusPane::FilePreview => state.file_preview_cursor_up(),
+                }
+            } else {
+                state.cursor_up();
+            }
             EventResult::Continue
         }
         (KeyCode::Down, KeyModifiers::NONE | KeyModifiers::CONTROL)
         | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
-            state.cursor_down();
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_down(),
+                    FocusPane::FilePreview => state.file_preview_cursor_down(),
+                }
+            } else {
+                state.cursor_down();
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Char('j'), KeyModifiers::NONE) if !state.search_active => {
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => state.tag_tree_move_down(),
+                    FocusPane::FilePreview => state.file_preview_cursor_down(),
+                }
+            } else {
+                state.cursor_down();
+            }
             EventResult::Continue
         }
         (KeyCode::PageUp, _) => {
@@ -231,15 +303,133 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Multi-select
+        // Multi-select / Tag tree toggle - route based on focused pane
         (KeyCode::Tab, _) => {
-            state.toggle_selection();
-            state.cursor_down();
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => {
+                        // Toggle tag inclusion: parent nodes affect all children (Option A)
+                        if let Some(tree) = state.tag_tree_state.as_ref()
+                            && let Some(current_tag) = tree.current_tag()
+                        {
+                            let children = tree.get_all_descendant_tags(&current_tag);
+
+                            if children.is_empty() {
+                                // Leaf node - toggle just this tag
+                                state.active_filter.toggle_include_tag(current_tag);
+                            } else {
+                                // Parent node - toggle all children + parent if it's actual tag
+                                if tree.current_is_actual_tag() {
+                                    state.active_filter.toggle_include_tag(current_tag);
+                                }
+                                for child in children {
+                                    state.active_filter.toggle_include_tag(child);
+                                }
+                            }
+
+                            // Sync tag tree visual state from active_filter
+                            state.sync_tag_tree_from_filter();
+                            // Update file preview with new filter
+                            state.update_file_preview();
+                        }
+                        state.tag_tree_move_down();
+                    }
+                    FocusPane::FilePreview => {
+                        state.file_preview_toggle_selection();
+                        state.file_preview_cursor_down();
+                    }
+                }
+            } else {
+                state.toggle_selection();
+                state.cursor_down();
+            }
             EventResult::Continue
         }
         (KeyCode::BackTab, _) => {
-            state.toggle_selection();
-            state.cursor_up();
+            if state.is_tag_selection_phase() {
+                use crate::ui::ratatui_adapter::state::FocusPane;
+                match state.focused_pane {
+                    FocusPane::TagTree => {
+                        // Toggle tag exclusion: parent nodes affect all children (Option A)
+                        if let Some(tree) = state.tag_tree_state.as_ref()
+                            && let Some(current_tag) = tree.current_tag()
+                        {
+                            let children = tree.get_all_descendant_tags(&current_tag);
+
+                            if children.is_empty() {
+                                // Leaf node - toggle just this tag
+                                state.active_filter.toggle_exclude_tag(current_tag);
+                            } else {
+                                // Parent node - toggle all children + parent if it's actual tag
+                                if tree.current_is_actual_tag() {
+                                    state.active_filter.toggle_exclude_tag(current_tag);
+                                }
+                                for child in children {
+                                    state.active_filter.toggle_exclude_tag(child);
+                                }
+                            }
+
+                            // Sync exclusion state
+                            state.sync_tag_tree_exclusions();
+                            // Update file preview with new filter
+                            state.update_file_preview();
+                        }
+                        state.tag_tree_move_down();
+                    }
+                    FocusPane::FilePreview => {
+                        state.file_preview_toggle_selection();
+                        state.file_preview_cursor_down();
+                    }
+                }
+            } else {
+                state.toggle_selection();
+                state.cursor_down();
+            }
+            EventResult::Continue
+        }
+
+        // Tag tree expansion toggle (Space key in TagSelection phase)
+        (KeyCode::Char(' '), KeyModifiers::NONE) if state.is_tag_selection_phase() => {
+            state.tag_tree_toggle_expand();
+            EventResult::Continue
+        }
+
+        // Pane navigation: h/Left moves to previous pane, l/Right moves to next pane
+        (KeyCode::Char('h'), KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::FilePreview {
+                state.focused_pane = FocusPane::TagTree;
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Left, KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::FilePreview {
+                state.focused_pane = FocusPane::TagTree;
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Char('l'), KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::TagTree {
+                state.focused_pane = FocusPane::FilePreview;
+            }
+            EventResult::Continue
+        }
+        (KeyCode::Right, KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            use crate::ui::ratatui_adapter::state::FocusPane;
+            if state.focused_pane == FocusPane::TagTree {
+                state.focused_pane = FocusPane::FilePreview;
+            }
             EventResult::Continue
         }
 
@@ -249,12 +439,17 @@ fn handle_normal_mode(
             EventResult::Continue
         }
 
-        // Query editing
-        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+        // Query editing - / activates search mode
+        (KeyCode::Char('/'), KeyModifiers::NONE) => {
+            state.search_active = true;
+            EventResult::Continue
+        }
+        // Regular character input only when search is active
+        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) if state.search_active => {
             state.query_push(c);
             EventResult::QueryChanged
         }
-        (KeyCode::Backspace, _) => {
+        (KeyCode::Backspace, _) if state.search_active => {
             if state.query.is_empty() {
                 EventResult::Ignored
             } else {
@@ -262,7 +457,7 @@ fn handle_normal_mode(
                 EventResult::QueryChanged
             }
         }
-        (KeyCode::Delete, _) => {
+        (KeyCode::Delete, _) if state.search_active => {
             if state.query_cursor >= state.query.len() {
                 EventResult::Ignored
             } else {
@@ -278,11 +473,11 @@ fn handle_normal_mode(
             state.query_cursor_right();
             EventResult::Continue
         }
-        (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) if state.search_active => {
             state.query_clear();
             EventResult::QueryChanged
         }
-        (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
+        (KeyCode::Char('w'), KeyModifiers::CONTROL) if state.search_active => {
             // Delete word backwards
             let trimmed = state.query[..state.query_cursor].trim_end();
             if let Some(last_space) = trimmed.rfind(' ') {
@@ -378,7 +573,7 @@ fn handle_refine_search_mode(state: &mut AppState, key: KeyEvent) -> EventResult
 }
 
 /// Handle mouse events
-fn handle_mouse(state: &mut AppState, mouse: MouseEvent) -> EventResult {
+const fn handle_mouse(state: &mut AppState, mouse: MouseEvent) -> EventResult {
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             state.cursor_up();
@@ -551,7 +746,7 @@ mod tests {
         let items: Vec<DisplayItem> = (0..10)
             .map(|i| DisplayItem::new(format!("item{i}"), format!("Item {i}"), format!("item{i}")))
             .collect();
-        AppState::new(items, true)
+        AppState::new(items, true, None, None, "> ".to_string(), vec![], None)
     }
 
     #[test]
@@ -641,6 +836,15 @@ mod tests {
     fn test_query_input() {
         let mut state = make_state();
         let binds = KeybindMap::new();
+
+        // Enter search mode first with /
+        let result = handle_normal_mode(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+            &binds,
+        );
+        assert_eq!(result, EventResult::Continue);
+        assert!(state.search_active);
 
         let result = handle_normal_mode(
             &mut state,

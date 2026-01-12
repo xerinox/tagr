@@ -287,6 +287,20 @@ impl TagrItem {
     }
 }
 
+impl crate::search::AsFileTagPair for TagrItem {
+    fn as_pair(&self) -> crate::search::FileTagPair<'_> {
+        match &self.metadata {
+            ItemMetadata::File(FileMetadata { tags, .. }) => {
+                crate::search::FileTagPair::new(&self.id, tags)
+            }
+            ItemMetadata::Tag(_) => {
+                // Tags don't have associated files, return empty
+                crate::search::FileTagPair::new(&self.id, &[])
+            }
+        }
+    }
+}
+
 impl From<&Path> for CachedMetadata {
     fn from(path: &Path) -> Self {
         let exists = path.exists();
