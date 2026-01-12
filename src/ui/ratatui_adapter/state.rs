@@ -6,8 +6,9 @@
 use crate::browse::ActiveFilter;
 use crate::ui::output::MessageLevel;
 use crate::ui::ratatui_adapter::widgets::{
-    ConfirmDialogState, RefineSearchState, TagTreeState, TextInputState,
+    ConfirmDialogState, KeyHint, RefineSearchState, TagTreeState, TextInputState,
 };
+use crate::ui::traits::PreviewConfig;
 use crate::ui::types::{BrowsePhase, DisplayItem};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -69,6 +70,7 @@ impl StatusMessage {
 
 /// Application state for the fuzzy finder
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct AppState {
     /// All items available for selection
     pub items: Vec<DisplayItem>,
@@ -136,6 +138,12 @@ pub struct AppState {
     pub search_active: bool,
     /// Unified filter state (single source of truth for all filter criteria)
     pub active_filter: ActiveFilter,
+    /// The prompt to display in the search bar
+    pub prompt: String,
+    /// Static key hints for the help bar
+    pub hints: Vec<KeyHint>,
+    /// Preview configuration
+    pub preview_config: Option<PreviewConfig>,
 }
 
 impl AppState {
@@ -146,6 +154,9 @@ impl AppState {
         multi_select: bool,
         tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
         database: Option<std::sync::Arc<crate::db::Database>>,
+        prompt: String,
+        hints: Vec<KeyHint>,
+        preview_config: Option<PreviewConfig>,
     ) -> Self {
         let item_count = items.len();
         // Initially all items are visible (no filter applied)
@@ -186,6 +197,9 @@ impl AppState {
             search_initiated_from: None,
             search_active: false,
             active_filter: ActiveFilter::new(),
+            prompt,
+            hints,
+            preview_config,
         }
     }
 
@@ -882,8 +896,7 @@ impl AppState {
         // Calculate file count with exclusions applied
         if let Some(file_count) = self.calculate_matching_files_with_exclusions(&canonical_tags) {
             let plural = if file_count == 1 { "file" } else { "files" };
-            use std::fmt::Write;
-            let _ = write!(cmd, " → {file_count} {plural}");
+            let _ = std::fmt::Write::write_fmt(&mut cmd, format_args!(" → {file_count} {plural}"));
         }
 
         Some(cmd)
@@ -1012,7 +1025,15 @@ mod tests {
 
     #[test]
     fn test_cursor_navigation() {
-        let mut state = AppState::new(make_items(5), false, None, None);
+        let mut state = AppState::new(
+            make_items(5),
+            false,
+            None,
+            None,
+            "> ".to_string(),
+            vec![],
+            None,
+        );
 
         assert_eq!(state.cursor, 0);
 
@@ -1040,7 +1061,15 @@ mod tests {
 
     #[test]
     fn test_multi_select() {
-        let mut state = AppState::new(make_items(5), true, None, None);
+        let mut state = AppState::new(
+            make_items(5),
+            true,
+            None,
+            None,
+            "> ".to_string(),
+            vec![],
+            None,
+        );
 
         assert!(state.selected.is_empty());
 
@@ -1061,7 +1090,7 @@ mod tests {
 
     #[test]
     fn test_query_editing() {
-        let mut state = AppState::new(vec![], false, None, None);
+        let mut state = AppState::new(vec![], false, None, None, "> ".to_string(), vec![], None);
 
         state.query_push('h');
         state.query_push('e');
@@ -1089,7 +1118,15 @@ mod tests {
 
     #[test]
     fn test_selected_keys() {
-        let mut state = AppState::new(make_items(5), true, None, None);
+        let mut state = AppState::new(
+            make_items(5),
+            true,
+            None,
+            None,
+            "> ".to_string(),
+            vec![],
+            None,
+        );
 
         // No selection, returns current item
         let keys = state.selected_keys();

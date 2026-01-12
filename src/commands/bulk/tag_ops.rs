@@ -82,7 +82,7 @@ fn check_conditions(
 #[allow(clippy::too_many_arguments)]
 pub fn bulk_tag(
     db: &Database,
-    params: &SearchParams,
+    mut params: SearchParams,
     tags: &[String],
     conditions: &ConditionalArgs,
     dry_run: bool,
@@ -92,7 +92,6 @@ pub fn bulk_tag(
     if tags.is_empty() {
         return Err(TagrError::InvalidInput("No tags provided".into()));
     }
-    let mut params = params.clone();
     normalize_bulk_params(&mut params)?;
     let files = crate::db::query::apply_search_params(db, &params)?;
     if files.is_empty() {
@@ -156,7 +155,7 @@ pub fn bulk_tag(
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn bulk_untag(
     db: &Database,
-    params: &SearchParams,
+    mut params: SearchParams,
     tags: &[String],
     remove_all: bool,
     conditions: &ConditionalArgs,
@@ -169,7 +168,6 @@ pub fn bulk_untag(
             "No tags provided. Use --all to remove all tags".into(),
         ));
     }
-    let mut params = params.clone();
     normalize_bulk_params(&mut params)?;
     let files = crate::db::query::apply_search_params(db, &params)?;
     if files.is_empty() {
@@ -429,6 +427,7 @@ mod tests {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct CopyTagsConfig<'a> {
     pub specific_tags: Option<&'a [String]>,
     pub exclude_tags: &'a [String],
@@ -445,7 +444,7 @@ pub struct CopyTagsConfig<'a> {
 pub fn copy_tags(
     db: &Database,
     source_file: &Path,
-    params: &SearchParams,
+    mut params: SearchParams,
     config: CopyTagsConfig,
 ) -> Result<()> {
     let source_tags = db.get_tags(source_file)?.ok_or_else(|| {
@@ -471,7 +470,6 @@ pub fn copy_tags(
         }
         return Ok(());
     }
-    let mut params = params.clone();
     normalize_bulk_params(&mut params)?;
     let target_files = crate::db::query::apply_search_params(db, &params)?;
     if target_files.is_empty() {
@@ -552,6 +550,7 @@ pub fn copy_tags(
 /// # Errors
 /// Returns database errors during lookups and updates, and `TagrError::InvalidInput`
 /// for invalid inputs (e.g., empty source tags, target among sources).
+#[allow(clippy::too_many_lines)]
 pub fn merge_tags(
     db: &Database,
     source_tags: &[String],

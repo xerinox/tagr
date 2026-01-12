@@ -49,6 +49,7 @@ use std::time::Duration;
 /// };
 /// let files = apply_search_params(&db, &params)?;
 /// ```
+#[allow(clippy::too_many_lines)]
 pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<PathBuf>, DbError> {
     // Expand tags via schema if not in regex mode
     let mut expanded_params = params.clone();

@@ -41,7 +41,7 @@ pub struct TagTreeState {
     visible_nodes: Vec<TagTreeNodeRef>,
     /// Set of selected tag paths (for multi-select / inclusion)
     pub selected_tags: HashSet<String>,
-    /// Set of excluded tag paths (synced from ActiveFilter)
+    /// Set of excluded tag paths (synced from `ActiveFilter`)
     pub excluded_tags: HashSet<String>,
 }
 
@@ -594,6 +594,7 @@ impl Default for TagTree<'_> {
 impl StatefulWidget for TagTree<'_> {
     type State = TagTreeState;
 
+    #[allow(clippy::too_many_lines)]
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let area = self.block.as_ref().map_or(area, |b| {
             let inner = b.inner(area);

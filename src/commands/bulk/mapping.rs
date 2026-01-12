@@ -20,6 +20,7 @@ pub struct TagMapping {
 /// # Errors
 /// Returns `TagrError::InvalidInput` when the input cannot be read or parsed,
 /// or when mapping records are invalid (empty fields, wrong column count).
+#[allow(clippy::too_many_lines)]
 pub fn bulk_map_tags(
     db: &Database,
     input_path: &Path,

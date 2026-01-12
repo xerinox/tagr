@@ -244,10 +244,7 @@ impl RatatuiFinder {
         frame: &mut Frame,
         state: &mut AppState,
         theme: &Theme,
-        prompt: &str,
-        preview_config: Option<&crate::ui::PreviewConfig>,
         preview_content: Option<&StyledPreview>,
-        hints: &[KeyHint],
     ) {
         let area = frame.area();
 
@@ -264,19 +261,12 @@ impl RatatuiFinder {
             .split(area);
 
         // Render search bar
-        let search_bar = SearchBar::new(&state.query, state.query_cursor, prompt, theme);
+        let search_bar = SearchBar::new(&state.query, state.query_cursor, &state.prompt, theme);
         frame.render_widget(search_bar, main_layout[0]);
 
         // Content area: items list and optional preview
         let content_area = main_layout[1];
-        self.render_content(
-            frame,
-            state,
-            theme,
-            content_area,
-            preview_config,
-            preview_content,
-        );
+        self.render_content(frame, state, theme, content_area, preview_content);
 
         // Render status bar with optional CLI preview
         let messages: Vec<_> = state.active_messages();
@@ -285,7 +275,7 @@ impl RatatuiFinder {
         frame.render_widget(status_bar, main_layout[2]);
 
         // Render help bar
-        let help_bar = HelpBar::new(hints, theme);
+        let help_bar = HelpBar::new(&state.hints, theme);
         frame.render_widget(help_bar, main_layout[3]);
     }
 
@@ -325,13 +315,13 @@ impl RatatuiFinder {
     }
 
     /// Render the content area (items + preview OR tag tree + live results)
+    #[allow(clippy::too_many_lines)]
     fn render_content(
         &self,
         frame: &mut Frame,
         state: &mut AppState,
         theme: &Theme,
         area: Rect,
-        preview_config: Option<&crate::ui::PreviewConfig>,
         preview_content: Option<&StyledPreview>,
     ) {
         use crate::ui::types::BrowsePhase;
@@ -415,7 +405,8 @@ impl RatatuiFinder {
         }
 
         // Regular FileSelection phase rendering
-        let show_preview = preview_config.is_some_and(|c| c.enabled) && preview_content.is_some();
+        let show_preview =
+            state.preview_config.as_ref().is_some_and(|c| c.enabled) && preview_content.is_some();
 
         if !show_preview {
             // Just render item list
@@ -424,7 +415,7 @@ impl RatatuiFinder {
             return;
         }
 
-        let preview_config = preview_config.unwrap();
+        let preview_config = state.preview_config.as_ref().unwrap();
         let width_percent = u16::from(preview_config.width_percent);
 
         // Split based on preview position
@@ -546,16 +537,21 @@ impl RatatuiFinder {
     }
 
     /// Run the finder event loop
+    #[allow(clippy::too_many_lines)]
     fn run_loop(
         &self,
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,
         config: &FinderConfig,
     ) -> Result<FinderResult> {
+        let hints = Self::build_hints();
         let mut state = AppState::new(
             config.items.clone(),
             config.multi_select,
             config.tag_schema.clone(),
             config.database.clone(),
+            config.prompt.clone(),
+            hints,
+            config.preview_config.clone(),
         );
         // Set available tags for autocomplete in text input modals
         state.available_tags.clone_from(&config.available_tags);
@@ -606,7 +602,6 @@ impl RatatuiFinder {
 
         let mut nucleo = Self::create_matcher(&config.items);
         let custom_binds = Self::parse_keybinds(&config.bind);
-        let hints = Self::build_hints();
         let overlay_binds = Self::build_overlay_binds(&custom_binds);
         let mut prev_query = String::new();
         let mut prev_file_query = String::new();
@@ -634,15 +629,7 @@ impl RatatuiFinder {
 
             // Render
             terminal.draw(|frame| {
-                self.render(
-                    frame,
-                    &mut state,
-                    &self.theme,
-                    &config.prompt,
-                    config.preview_config.as_ref(),
-                    cached_preview.as_ref(),
-                    &hints,
-                );
+                self.render(frame, &mut state, &self.theme, cached_preview.as_ref());
                 Self::render_overlays(frame, &state, &self.theme, &overlay_binds);
             })?;
 
@@ -680,13 +667,12 @@ impl RatatuiFinder {
                     state.abort();
                 }
                 EventResult::QueryChanged => {
+                    let indices = Self::update_filter(&mut nucleo, &state.query, &prev_query);
+                    prev_query.clone_from(&state.query);
+                    state.update_filtered(indices);
+
                     // In TagSelection phase, filter BOTH panes simultaneously
                     if state.is_tag_selection_phase() {
-                        // Filter tag tree items (left pane)
-                        let indices = Self::update_filter(&mut nucleo, &state.query, &prev_query);
-                        prev_query.clone_from(&state.query);
-                        state.update_filtered(indices);
-
                         // Filter file preview items (right pane) from the unfiltered list
                         if !state.file_preview_items_unfiltered.is_empty() {
                             let mut temp_file_nucleo: Nucleo<u32> = Nucleo::new(
@@ -729,11 +715,6 @@ impl RatatuiFinder {
                             }
                             state.file_preview_scroll = 0;
                         }
-                    } else {
-                        // FileSelection phase: filter regular items
-                        let indices = Self::update_filter(&mut nucleo, &state.query, &prev_query);
-                        prev_query.clone_from(&state.query);
-                        state.update_filtered(indices);
                     }
                     // Reset preview cache when query changes
                     cached_preview_key = None;

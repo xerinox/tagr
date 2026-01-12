@@ -355,6 +355,7 @@ impl<'a> TextInputModal<'a> {
 }
 
 impl Widget for TextInputModal<'_> {
+    #[allow(clippy::too_many_lines)]
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Calculate modal size
         let width = 60.min(area.width.saturating_sub(4));

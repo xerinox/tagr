@@ -298,6 +298,7 @@ fn handle_config_command(
 ///
 /// Returns `TagrError` if configuration loading fails, database initialization fails,
 /// or any command handler returns an error.
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     let config = config::TagrConfig::load_or_setup()?;
 
@@ -363,6 +364,8 @@ fn main() -> Result<()> {
                 criteria,
                 ..
             } => {
+                use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+
                 let params = command.get_search_params().ok_or_else(|| {
                     TagrError::InvalidInput("Failed to parse search parameters".into())
                 })?;
@@ -376,8 +379,6 @@ fn main() -> Result<()> {
                 let has_explicit_tag_mode = criteria.any_tag || criteria.all_tags;
                 let has_explicit_file_mode = criteria.any_file || criteria.all_files;
                 let has_explicit_virtual_mode = criteria.any_virtual || criteria.all_virtual;
-
-                use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
 
                 commands::search(
                     &db,
@@ -417,7 +418,7 @@ fn main() -> Result<()> {
                     } => {
                         let params = SearchParams::from(criteria);
                         commands::bulk::bulk_tag(
-                            &db, &params, add_tags, conditions, *dry_run, *yes, quiet,
+                            &db, params, add_tags, conditions, *dry_run, *yes, quiet,
                         )?;
                     }
                     BulkCommands::Untag {
@@ -431,7 +432,7 @@ fn main() -> Result<()> {
                         let params = SearchParams::from(criteria);
                         commands::bulk::bulk_untag(
                             &db,
-                            &params,
+                            params,
                             remove_tags,
                             *all,
                             conditions,
@@ -471,6 +472,8 @@ fn main() -> Result<()> {
                         dry_run,
                         yes,
                     } => {
+                        use tagr::commands::bulk::CopyTagsConfig;
+
                         let params = SearchParams::from(criteria);
                         let specific = if specific_tags.is_empty() {
                             None
@@ -478,12 +481,10 @@ fn main() -> Result<()> {
                             Some(specific_tags.as_slice())
                         };
 
-                        use tagr::commands::bulk::CopyTagsConfig;
-
                         commands::bulk::copy_tags(
                             &db,
                             source,
-                            &params,
+                            params,
                             CopyTagsConfig {
                                 specific_tags: specific,
                                 exclude_tags: exclude,

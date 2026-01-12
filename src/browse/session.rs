@@ -440,11 +440,7 @@ impl<'a> BrowseSession<'a> {
         let old_params = self.config.initial_search.as_ref();
 
         // Determine if filters are being relaxed (need DB re-query)
-        let filters_relaxed = if let Some(old) = old_params {
-            is_filter_relaxation(old, &new_params)
-        } else {
-            false
-        };
+        let filters_relaxed = old_params.is_some_and(|old| is_filter_relaxation(old, &new_params));
 
         self.config.initial_search = Some(new_params.clone());
 
@@ -640,7 +636,7 @@ impl PhaseSettings {
 /// - Reducing number of include tags in ALL mode
 /// - Removing file patterns
 /// - Removing virtual tag constraints
-fn is_filter_relaxation(old: &SearchParams, new: &SearchParams) -> bool {
+const fn is_filter_relaxation(old: &SearchParams, new: &SearchParams) -> bool {
     // Exclude tags reduced
     if new.exclude_tags.len() < old.exclude_tags.len() {
         return true;

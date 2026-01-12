@@ -171,6 +171,7 @@ fn show_aliases(tag: &str) -> Result<(), SchemaError> {
 }
 
 /// Set canonical tag (swap alias and canonical, updating database)
+#[allow(clippy::too_many_lines)]
 fn set_canonical(
     alias: &str,
     canonical: &str,

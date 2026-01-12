@@ -388,26 +388,27 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         match &item.metadata {
             ItemMetadata::Tag(tag_meta) => {
                 // Build alias display if schema is available
-                let (display_name, alias_info) = if let Some(schema) = self.session.schema() {
-                    // Canonicalize the tag first
-                    let canonical = schema.canonicalize(&item.name);
+                let (display_name, alias_info) = self.session.schema().map_or_else(
+                    || (item.name.clone(), String::new()),
+                    |schema| {
+                        // Canonicalize the tag first
+                        let canonical = schema.canonicalize(&item.name);
 
-                    // Get all synonyms (including this tag if it's an alias)
-                    let mut synonyms = schema.expand_synonyms(&item.name);
+                        // Get all synonyms (including this tag if it's an alias)
+                        let mut synonyms = schema.expand_synonyms(&item.name);
 
-                    // Remove the canonical form from synonyms to show as aliases
-                    synonyms.retain(|s| s != &canonical);
+                        // Remove the canonical form from synonyms to show as aliases
+                        synonyms.retain(|s| s != &canonical);
 
-                    let alias_text = if synonyms.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", synonyms.join(", ")).dimmed().to_string()
-                    };
+                        let alias_text = if synonyms.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", synonyms.join(", ")).dimmed().to_string()
+                        };
 
-                    (canonical, alias_text)
-                } else {
-                    (item.name.clone(), String::new())
-                };
+                        (canonical, alias_text)
+                    },
+                );
 
                 let display = format!(
                     "{}{}{}",

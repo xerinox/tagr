@@ -96,7 +96,7 @@ fn test_bulk_tag_basic() {
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["bulk".into(), "added".into()],
         &ConditionalArgs::default(),
         false,
@@ -137,7 +137,7 @@ fn test_bulk_untag_specific_tags() {
     };
     bulk_untag(
         db,
-        &params,
+        params,
         &["tag1".into(), "tag2".into()],
         false,
         &ConditionalArgs::default(),
@@ -225,7 +225,7 @@ fn test_copy_tags_all() {
     copy_tags(
         db,
         source.path(),
-        &params,
+        params,
         CopyTagsConfig {
             specific_tags: None,
             exclude_tags: &[],
@@ -317,7 +317,7 @@ fn test_bulk_tag_if_not_exists() {
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["existing".into(), "new".into()],
         &conditions,
         false,
@@ -376,7 +376,7 @@ fn test_bulk_tag_if_has_tag() {
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["conditional".into()],
         &conditions,
         false,
@@ -441,7 +441,7 @@ fn test_bulk_tag_if_missing_tag() {
     };
     bulk_tag(
         db,
-        &params,
+        params,
         &["needs-review".into()],
         &conditions,
         false,

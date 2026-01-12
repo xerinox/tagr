@@ -108,7 +108,7 @@ fn test_e2e_bulk_tag_with_glob_file_patterns() {
     // Execute bulk tag (normalize should enable glob and match only .rs files)
     bulk_tag(
         test_db.db(),
-        &params,
+        params,
         &["added".into()],
         &tagr::cli::ConditionalArgs::default(),
         /*dry_run*/ false,
@@ -164,7 +164,7 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
 
     bulk_untag(
         test_db.db(),
-        &params,
+        params,
         &["remove".into()],
         /*remove_all*/ false,
         &tagr::cli::ConditionalArgs::default(),
@@ -213,7 +213,10 @@ fn test_e2e_search_execute_with_glob_flag() {
     let res = search_cmd::execute(
         db,
         params,
-        FilterConfig { apply: None, save: None },
+        FilterConfig {
+            apply: None,
+            save: None,
+        },
         ExplicitFlags {
             tag_mode: false,
             file_mode: false,

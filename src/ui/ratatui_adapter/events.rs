@@ -138,6 +138,7 @@ pub fn key_to_string(key: &KeyEvent) -> Option<String> {
 }
 
 /// Handle events in normal mode
+#[allow(clippy::too_many_lines)]
 fn handle_normal_mode(
     state: &mut AppState,
     key: KeyEvent,
@@ -745,7 +746,7 @@ mod tests {
         let items: Vec<DisplayItem> = (0..10)
             .map(|i| DisplayItem::new(format!("item{i}"), format!("Item {i}"), format!("item{i}")))
             .collect();
-        AppState::new(items, true, None, None)
+        AppState::new(items, true, None, None, "> ".to_string(), vec![], None)
     }
 
     #[test]

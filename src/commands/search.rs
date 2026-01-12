@@ -13,17 +13,20 @@ use std::path::PathBuf;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
+#[derive(Clone, Copy)]
 pub struct ExplicitFlags {
     pub tag_mode: bool,
     pub file_mode: bool,
     pub virtual_mode: bool,
 }
 
+#[derive(Clone, Copy)]
 pub struct OutputConfig {
     pub format: config::PathFormat,
     pub quiet: bool,
 }
 
+#[derive(Clone, Copy)]
 pub struct FilterConfig<'a> {
     pub apply: Option<&'a str>,
     pub save: Option<(&'a str, Option<&'a str>)>,
@@ -131,13 +134,7 @@ pub fn execute(
     let files = query::apply_search_params(db, &params)?;
 
     if let Some(query) = &params.query {
-        print_results(
-            db,
-            &files,
-            query,
-            output_config.format,
-            output_config.quiet,
-        );
+        print_results(db, &files, query, output_config.format, output_config.quiet);
     } else if files.is_empty() {
         if !output_config.quiet {
             let criteria = build_criteria_description(&params);
@@ -277,7 +274,10 @@ mod tests {
         let err = execute(
             db,
             params,
-            FilterConfig { apply: None, save: None },
+            FilterConfig {
+                apply: None,
+                save: None,
+            },
             ExplicitFlags {
                 tag_mode: false,
                 file_mode: false,
@@ -319,7 +319,10 @@ mod tests {
         let res = execute(
             db,
             params,
-            FilterConfig { apply: None, save: None },
+            FilterConfig {
+                apply: None,
+                save: None,
+            },
             ExplicitFlags {
                 tag_mode: false,
                 file_mode: false,
@@ -354,7 +357,10 @@ mod tests {
         let err = execute(
             db,
             params,
-            FilterConfig { apply: None, save: None },
+            FilterConfig {
+                apply: None,
+                save: None,
+            },
             ExplicitFlags {
                 tag_mode: false,
                 file_mode: false,

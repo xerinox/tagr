@@ -73,6 +73,7 @@ pub enum SearchMode {
 
 /// Parameters for search command
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SearchParams {
     /// General query (for combined filename and tag search)
     pub query: Option<String>,
@@ -868,6 +869,7 @@ pub struct DbArgs {
 
 /// Shared search criteria arguments (tags, file patterns, virtual tags)
 #[derive(Parser, Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SearchCriteriaArgs {
     /// Tags to search for
     #[arg(short = 't', long = "tag", value_name = "TAG", num_args = 0..)]

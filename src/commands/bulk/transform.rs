@@ -71,6 +71,8 @@ impl TagTransformation {
 /// # Errors
 /// Returns database errors during file queries and updates, and `TagrError::InvalidInput`
 /// for invalid regex patterns.
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::missing_panics_doc)]
 pub fn transform_tags(
     db: &Database,
     transformation: &TagTransformation,

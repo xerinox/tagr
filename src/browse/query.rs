@@ -177,6 +177,7 @@ pub fn get_files_by_tags(
 /// ```ignore
 /// let filtered: Vec<_> = filter_items_in_memory(&all_items, &params);
 /// ```
+#[must_use]
 pub fn filter_items_in_memory<'a>(
     items: &'a [TagrItem],
     params: &'a SearchParams,

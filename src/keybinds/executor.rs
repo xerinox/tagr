@@ -479,6 +479,7 @@ pub enum ExecutorError {
 }
 
 /// Format file size in human-readable format.
+#[allow(clippy::cast_precision_loss)]
 fn format_file_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
