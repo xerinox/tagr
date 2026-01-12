@@ -28,8 +28,10 @@
 pub mod error;
 pub mod filter;
 pub mod hierarchy;
+pub mod traits;
 
 pub use error::SearchError;
+pub use traits::{AsFileTagPair, FileTagPair, FilterExt};
 
 use crate::db::Database;
 use crate::schema::{HIERARCHY_DELIMITER, TagSchema};

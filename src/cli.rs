@@ -62,16 +62,17 @@ pub enum ListVariant {
 }
 
 /// Search mode for combining multiple criteria
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchMode {
     /// Match ANY of the criteria (OR logic)
+    #[default]
     Any,
     /// Match ALL of the criteria (AND logic)
     All,
 }
 
 /// Parameters for search command
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SearchParams {
     /// General query (for combined filename and tag search)
     pub query: Option<String>,
