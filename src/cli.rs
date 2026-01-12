@@ -972,7 +972,11 @@ pub enum Commands {
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
 
-        /// Skip hierarchy expansion (don't search parent tags)
+        /// Disable hierarchical tag matching (use exact matching only)
+        ///
+        /// By default, tags use prefix matching: -t lang matches lang:rust, lang:python, etc.
+        /// Deeper tags override shallower ones via specificity rules.
+        /// This flag disables that behavior and requires exact tag matches.
         #[arg(long = "no-hierarchy")]
         no_hierarchy: bool,
 
@@ -1072,7 +1076,11 @@ pub enum Commands {
         #[command(flatten)]
         criteria: SearchCriteriaArgs,
 
-        /// Skip hierarchy expansion (don't search parent tags)
+        /// Disable hierarchical tag matching (use exact matching only)
+        ///
+        /// By default, tags use prefix matching: -t lang matches lang:rust, lang:python, etc.
+        /// Deeper tags override shallower ones via specificity rules.
+        /// This flag disables that behavior and requires exact tag matches.
         #[arg(long = "no-hierarchy")]
         no_hierarchy: bool,
 

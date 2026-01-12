@@ -215,8 +215,15 @@ impl PathTagFilterExt for Vec<PathBuf> {
         let mut result = Self::new();
         for file in self {
             if let Some(file_tags) = db.get_tags(&file)? {
-                let has_excluded = file_tags.iter().any(|tag| exclude_tags.contains(tag));
-                if !has_excluded {
+                // Use hierarchical filtering for exclude patterns
+                // Empty include patterns means we're only excluding
+                let should_include = crate::search::hierarchy::should_include_file(
+                    &file_tags,
+                    &[], // No include patterns
+                    exclude_tags,
+                );
+                
+                if should_include {
                     result.push(file);
                 }
             } else {

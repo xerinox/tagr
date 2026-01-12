@@ -27,6 +27,7 @@
 
 pub mod error;
 pub mod filter;
+pub mod hierarchy;
 
 pub use error::SearchError;
 

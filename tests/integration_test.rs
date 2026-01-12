@@ -1126,3 +1126,256 @@ fn test_filter_name_validation() {
     let result = manager.create(&long_name, "Too long".into(), criteria);
     assert!(result.is_err());
 }
+
+// ============================================================================
+// Hierarchical Tag Filtering Tests
+// ============================================================================
+
+#[test]
+fn test_hierarchy_prefix_matching() {
+    let test_db = TestDb::new("hierarchy_prefix");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("file1.js", "").unwrap();
+    let file2 = TestFile::create("file2.rs", "").unwrap();
+    let file3 = TestFile::create("file3.py", "").unwrap();
+
+    db.insert_pair(&Pair::new(
+        file1.path().to_path_buf(),
+        vec!["lang:javascript".into(), "production".into()],
+    ))
+    .unwrap();
+    db.insert_pair(&Pair::new(
+        file2.path().to_path_buf(),
+        vec!["lang:rust".into(), "tests".into()],
+    ))
+    .unwrap();
+    db.insert_pair(&Pair::new(
+        file3.path().to_path_buf(),
+        vec!["lang:python".into(), "tests".into()],
+    ))
+    .unwrap();
+
+    // Search for "-t lang" should match all files with lang:* tags
+    let params = SearchParams {
+        query: None,
+        tags: vec!["lang".to_string()],
+        tag_mode: SearchMode::Any,
+        file_patterns: vec![],
+        file_mode: SearchMode::All,
+        exclude_tags: vec![],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+        no_hierarchy: false,
+    };
+
+    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    assert_eq!(results.len(), 3);
+}
+
+#[test]
+fn test_hierarchy_specificity_exclude_wins() {
+    let test_db = TestDb::new("hierarchy_specificity");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("spec1.js", "").unwrap();
+    let file2 = TestFile::create("spec2.rs", "").unwrap();
+
+    db.insert_pair(&Pair::new(
+        file1.path().to_path_buf(),
+        vec!["lang:javascript".into()],
+    ))
+    .unwrap();
+    db.insert_pair(&Pair::new(
+        file2.path().to_path_buf(),
+        vec!["lang:rust".into()],
+    ))
+    .unwrap();
+
+    // Search: -t lang -x lang:rust
+    // Should include lang:javascript but exclude lang:rust
+    let params = SearchParams {
+        query: None,
+        tags: vec!["lang".to_string()],
+        tag_mode: SearchMode::Any,
+        file_patterns: vec![],
+        file_mode: SearchMode::All,
+        exclude_tags: vec!["lang:rust".to_string()],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+        no_hierarchy: false,
+    };
+
+    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].to_str().unwrap().contains("spec1.js"));
+}
+
+#[test]
+fn test_hierarchy_cross_hierarchy_exclude() {
+    let test_db = TestDb::new("cross_hierarchy");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("cross1.js", "").unwrap();
+    let file2 = TestFile::create("cross2.js", "").unwrap();
+
+    db.insert_pair(&Pair::new(
+        file1.path().to_path_buf(),
+        vec!["lang:javascript".into(), "production".into()],
+    ))
+    .unwrap();
+    db.insert_pair(&Pair::new(
+        file2.path().to_path_buf(),
+        vec!["lang:javascript".into(), "tests".into()],
+    ))
+    .unwrap();
+
+    // Search: -t lang -x tests
+    // Different hierarchies - exclude wins
+    let params = SearchParams {
+        query: None,
+        tags: vec!["lang".to_string()],
+        tag_mode: SearchMode::Any,
+        file_patterns: vec![],
+        file_mode: SearchMode::All,
+        exclude_tags: vec!["tests".to_string()],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+        no_hierarchy: false,
+    };
+
+    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].to_str().unwrap().contains("cross1.js"));
+}
+
+#[test]
+fn test_hierarchy_deeper_include_overrides_exclude() {
+    let test_db = TestDb::new("deeper_override");
+    let db = test_db.db();
+
+    let file = TestFile::create("deep.rs", "").unwrap();
+
+    db.insert_pair(&Pair::new(
+        file.path().to_path_buf(),
+        vec!["lang:rust:async".into()],
+    ))
+    .unwrap();
+
+    // Search: -t lang -t lang:rust:async -x lang:rust
+    // Depth 3 include should override depth 2 exclude
+    let params = SearchParams {
+        query: None,
+        tags: vec!["lang".to_string(), "lang:rust:async".to_string()],
+        tag_mode: SearchMode::Any,
+        file_patterns: vec![],
+        file_mode: SearchMode::All,
+        exclude_tags: vec!["lang:rust".to_string()],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+        no_hierarchy: false,
+    };
+
+    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn test_hierarchy_all_mode_requires_all_patterns() {
+    let test_db = TestDb::new("all_mode_hierarchy");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("all1.rs", "").unwrap();
+    let file2 = TestFile::create("all2.rs", "").unwrap();
+    let file3 = TestFile::create("all3.rs", "").unwrap();
+
+    db.insert_pair(&Pair::new(
+        file1.path().to_path_buf(),
+        vec!["lang:rust".into(), "project:backend".into()],
+    ))
+    .unwrap();
+    db.insert_pair(&Pair::new(
+        file2.path().to_path_buf(),
+        vec!["lang:rust".into()],
+    ))
+    .unwrap();
+    db.insert_pair(&Pair::new(
+        file3.path().to_path_buf(),
+        vec!["project:backend".into()],
+    ))
+    .unwrap();
+
+    // Search: -t lang -t project --all-tags
+    // Only file1 has tags matching both patterns
+    let params = SearchParams {
+        query: None,
+        tags: vec!["lang".to_string(), "project".to_string()],
+        tag_mode: SearchMode::All,
+        file_patterns: vec![],
+        file_mode: SearchMode::All,
+        exclude_tags: vec![],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+        no_hierarchy: false,
+    };
+
+    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].to_str().unwrap().contains("all1.rs"));
+}
+
+#[test]
+fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
+    let test_db = TestDb::new("no_hierarchy_flag");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("nohier1.rs", "").unwrap();
+    let file2 = TestFile::create("nohier2.rs", "").unwrap();
+
+    db.insert_pair(&Pair::new(
+        file1.path().to_path_buf(),
+        vec!["lang:rust".into()],
+    ))
+    .unwrap();
+    db.insert_pair(&Pair::new(
+        file2.path().to_path_buf(),
+        vec!["lang".into()],
+    ))
+    .unwrap();
+
+    // Search: -t lang --no-hierarchy
+    // Should only match file2 (exact match only)
+    let params = SearchParams {
+        query: None,
+        tags: vec!["lang".to_string()],
+        tag_mode: SearchMode::Any,
+        file_patterns: vec![],
+        file_mode: SearchMode::All,
+        exclude_tags: vec![],
+        regex_tag: false,
+        regex_file: false,
+        glob_files: false,
+        virtual_tags: vec![],
+        virtual_mode: SearchMode::All,
+        no_hierarchy: true,
+    };
+
+    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].to_str().unwrap().contains("nohier2.rs"));
+}

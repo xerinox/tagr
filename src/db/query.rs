@@ -6,6 +6,7 @@
 use crate::cli::{SearchMode, SearchParams};
 use crate::db::{Database, DbError};
 use crate::search::filter::{PathFilterExt, PathTagFilterExt};
+use crate::search::hierarchy;
 use crate::vtags::{VirtualTag, VirtualTagConfig, VirtualTagEvaluator};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -15,8 +16,13 @@ use std::time::Duration;
 ///
 /// Constructs a list of files based on the search criteria in params:
 /// - General query mode: searches both tags (regex) and filenames
-/// - Tag mode: finds files by tags (all/any)
+/// - Tag mode: finds files by tags (all/any) with hierarchical filtering
 /// - No criteria: returns all files
+///
+/// Tag matching uses hierarchical prefix matching and specificity rules:
+/// - `-t lang` matches any tag starting with `lang:` (e.g., `lang:rust`)
+/// - Deeper tags override shallower ones within the same hierarchy
+/// - Excludes always win against includes from different hierarchies
 ///
 /// Then applies file pattern filters and tag exclusions.
 ///
@@ -114,10 +120,63 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
                 }
             }
         } else {
-            // Handle exact tag matching
-            match expanded_params.tag_mode {
-                SearchMode::All => db.find_by_all_tags(&expanded_params.tags)?,
-                SearchMode::Any => db.find_by_any_tag(&expanded_params.tags)?,
+            // Handle exact tag matching with hierarchical filtering
+            // When no_hierarchy is false, use hierarchical prefix matching
+            if params.no_hierarchy {
+                // Traditional exact matching
+                match expanded_params.tag_mode {
+                    SearchMode::All => db.find_by_all_tags(&expanded_params.tags)?,
+                    SearchMode::Any => db.find_by_any_tag(&expanded_params.tags)?,
+                }
+            } else {
+                // Hierarchical matching with specificity rules
+                // Note: tag_mode (Any/All) is handled by the hierarchical filter
+                // For now, we treat it as ANY since hierarchical matching is more nuanced
+                // Get all files from database and filter using hierarchical logic
+                let all_files = db.list_all()?;
+                
+                let files_with_tags: Vec<(String, Vec<String>)> = all_files
+                    .into_iter()
+                    .filter_map(|pair| {
+                        pair.file.to_str().map(|s| (s.to_string(), pair.tags))
+                    })
+                    .collect();
+
+                let files_refs: Vec<(&str, &[String])> = files_with_tags
+                    .iter()
+                    .map(|(f, tags)| (f.as_str(), tags.as_slice()))
+                    .collect();
+
+                // For ALL mode with hierarchical matching, we need files that match ALL patterns
+                // For ANY mode, files that match ANY pattern
+                let filtered_paths: Vec<PathBuf> = match expanded_params.tag_mode {
+                    SearchMode::All => {
+                        // File must have tags matching ALL include patterns
+                        files_refs
+                            .into_iter()
+                            .filter(|(_, tags)| {
+                                // Check if file has tags matching all patterns
+                                expanded_params.tags.iter().all(|pattern| {
+                                    tags.iter().any(|tag| hierarchy::pattern_matches(pattern, tag))
+                                })
+                            })
+                            .map(|(file, _)| PathBuf::from(file))
+                            .collect()
+                    }
+                    SearchMode::Any => {
+                        // File must have tags matching ANY include pattern
+                        hierarchy::filter_by_hierarchy(
+                            files_refs.into_iter(),
+                            &expanded_params.tags,
+                            &[], // Excludes handled separately
+                        )
+                        .into_iter()
+                        .map(PathBuf::from)
+                        .collect()
+                    }
+                };
+
+                filtered_paths
             }
         }
     } else {
@@ -134,7 +193,31 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
     }
 
     if !expanded_params.exclude_tags.is_empty() {
-        files = files.exclude_tags(db, &expanded_params.exclude_tags)?;
+        if params.no_hierarchy {
+            // Traditional exclude logic (simple contains check)
+            files = files.exclude_tags(db, &expanded_params.exclude_tags)?;
+        } else {
+            // Hierarchical exclude logic with specificity rules
+            let mut filtered_files = Vec::new();
+            for file in files {
+                if let Some(file_tags) = db.get_tags(&file)? {
+                    // Use hierarchical filtering - pass include patterns from original search
+                    let should_include = hierarchy::should_include_file(
+                        &file_tags,
+                        &expanded_params.tags,
+                        &expanded_params.exclude_tags,
+                    );
+                    
+                    if should_include {
+                        filtered_files.push(file);
+                    }
+                } else {
+                    // Files without tags pass through
+                    filtered_files.push(file);
+                }
+            }
+            files = filtered_files;
+        }
     }
 
     if !expanded_params.virtual_tags.is_empty() {
