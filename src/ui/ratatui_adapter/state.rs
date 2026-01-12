@@ -663,14 +663,11 @@ impl AppState {
         let canonical_tags: Vec<String> = selected_tags
             .iter()
             .map(|tag| {
-                if let Some(ref schema) = self.tag_schema {
-                    schema.canonicalize(tag)
-                } else {
-                    tag.clone()
-                }
+                self.tag_schema
+                    .as_ref()
+                    .map_or_else(|| tag.clone(), |schema| schema.canonicalize(tag))
             })
             .collect();
-
         let expanded_tags: Vec<String> = if let Some(ref schema) = self.tag_schema {
             canonical_tags
                 .iter()
@@ -745,7 +742,7 @@ impl AppState {
     }
 
     /// Move cursor up in file preview pane
-    pub fn file_preview_cursor_up(&mut self) {
+    pub const fn file_preview_cursor_up(&mut self) {
         if self.file_preview_cursor > 0 {
             self.file_preview_cursor -= 1;
             self.adjust_file_preview_scroll();
@@ -753,7 +750,7 @@ impl AppState {
     }
 
     /// Move cursor down in file preview pane
-    pub fn file_preview_cursor_down(&mut self) {
+    pub const fn file_preview_cursor_down(&mut self) {
         if self.file_preview_cursor + 1 < self.file_preview_items.len() {
             self.file_preview_cursor += 1;
             self.adjust_file_preview_scroll();
@@ -761,7 +758,7 @@ impl AppState {
     }
 
     /// Adjust file preview scroll to keep cursor visible
-    fn adjust_file_preview_scroll(&mut self) {
+    const fn adjust_file_preview_scroll(&mut self) {
         if self.file_preview_cursor < self.file_preview_scroll {
             self.file_preview_scroll = self.file_preview_cursor;
         } else if self.file_preview_cursor >= self.file_preview_scroll + self.visible_height {
@@ -818,9 +815,9 @@ impl AppState {
             .map_or_else(Vec::new, TagTreeState::selected_tag_paths)
     }
 
-    /// Sync tag tree excluded_tags from active_filter
+    /// Sync tag tree `excluded_tags` from `ActiveFilter`
     ///
-    /// Should be called whenever active_filter changes to keep UI in sync.
+    /// Should be called whenever `active_filter` changes to keep UI in sync.
     pub fn sync_tag_tree_exclusions(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.excluded_tags = self
@@ -833,10 +830,10 @@ impl AppState {
         }
     }
 
-    /// Sync tag tree state from active_filter (both selected and excluded tags)
+    /// Sync tag tree state from `active_filter` (both selected and excluded tags)
     ///
-    /// This makes active_filter the single source of truth for tag filtering state.
-    /// Should be called whenever active_filter changes.
+    /// This makes `active_filter` the single source of truth for tag filtering state.
+    /// Should be called whenever `active_filter` changes.
     pub fn sync_tag_tree_from_filter(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.selected_tags = self.active_filter.criteria.tags.iter().cloned().collect();
@@ -876,11 +873,9 @@ impl AppState {
             .tags
             .iter()
             .map(|tag| {
-                if let Some(ref schema) = self.tag_schema {
-                    schema.canonicalize(tag)
-                } else {
-                    tag.clone()
-                }
+                self.tag_schema
+                    .as_ref()
+                    .map_or_else(|| tag.clone(), |schema| schema.canonicalize(tag))
             })
             .collect();
 
@@ -906,13 +901,14 @@ impl AppState {
         }
 
         // Expand tags to include all aliases (same as actual search does)
-        let expanded_tags: Vec<String> = if let Some(ref schema) = self.tag_schema {
-            tags.iter()
-                .flat_map(|tag| schema.expand_synonyms(tag))
-                .collect()
-        } else {
-            tags.to_vec()
-        };
+        let expanded_tags: Vec<String> = self.tag_schema.as_ref().map_or_else(
+            || tags.to_vec(),
+            |schema| {
+                tags.iter()
+                    .flat_map(|tag| schema.expand_synonyms(tag))
+                    .collect()
+            },
+        );
 
         // Use ANY mode (union) - count unique files across all expanded tags
         let mut file_set = std::collections::HashSet::new();

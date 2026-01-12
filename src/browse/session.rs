@@ -647,9 +647,7 @@ fn is_filter_relaxation(old: &SearchParams, new: &SearchParams) -> bool {
     }
 
     // Include tags reduced in ALL mode (becomes less restrictive)
-    if matches!(old.tag_mode, crate::cli::SearchMode::All)
-        && new.tags.len() < old.tags.len()
-    {
+    if matches!(old.tag_mode, crate::cli::SearchMode::All) && new.tags.len() < old.tags.len() {
         return true;
     }
 

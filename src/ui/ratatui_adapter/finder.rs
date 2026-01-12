@@ -583,7 +583,7 @@ impl RatatuiFinder {
                 .map(|item| (item.key.clone(), item.display.clone()))
                 .collect();
 
-            tag_tree_state.build_from_tags_with_display(tags, &display_map);
+            tag_tree_state.build_from_tags_with_display(&tags, &display_map);
             state.tag_tree_state = Some(tag_tree_state);
 
             // Synchronize the initial cursor position

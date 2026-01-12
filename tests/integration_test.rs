@@ -1352,11 +1352,8 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
         vec!["lang:rust".into()],
     ))
     .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&Pair::new(file2.path().to_path_buf(), vec!["lang".into()]))
+        .unwrap();
 
     // Search: -t lang --no-hierarchy
     // Should only match file2 (exact match only)

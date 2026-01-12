@@ -58,6 +58,7 @@ pub struct FileTagPair<'a> {
 
 impl<'a> FileTagPair<'a> {
     /// Create a new file-tag pair
+    #[must_use]
     pub const fn new(file: &'a str, tags: &'a [String]) -> Self {
         Self { file, tags }
     }
@@ -117,19 +118,13 @@ pub trait FilterExt<T: AsFileTagPair> {
     ///
     /// # Returns
     /// Iterator over items that match the search criteria
-    fn apply_filter<'a>(
-        &'a self,
-        params: &'a SearchParams,
-    ) -> impl Iterator<Item = &'a T> + 'a
+    fn apply_filter<'a>(&'a self, params: &'a SearchParams) -> impl Iterator<Item = &'a T> + 'a
     where
         T: 'a;
 }
 
 impl<T: AsFileTagPair> FilterExt<T> for [T] {
-    fn apply_filter<'a>(
-        &'a self,
-        params: &'a SearchParams,
-    ) -> impl Iterator<Item = &'a T> + 'a
+    fn apply_filter<'a>(&'a self, params: &'a SearchParams) -> impl Iterator<Item = &'a T> + 'a
     where
         T: 'a,
     {
@@ -156,10 +151,8 @@ impl<T: AsFileTagPair> FilterExt<T> for [T] {
 
                     // Exact exclude matching
                     if !params.exclude_tags.is_empty() {
-                        let has_excluded = params
-                            .exclude_tags
-                            .iter()
-                            .any(|t| pair.tags.contains(t));
+                        let has_excluded =
+                            params.exclude_tags.iter().any(|t| pair.tags.contains(t));
                         if has_excluded {
                             return false;
                         }

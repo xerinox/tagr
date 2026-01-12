@@ -35,6 +35,7 @@ use std::collections::HashMap;
 /// assert_eq!(tag_depth("lang:rust"), 2);
 /// assert_eq!(tag_depth("lang:rust:async"), 3);
 /// ```
+#[must_use]
 pub fn tag_depth(tag: &str) -> usize {
     tag.matches(HIERARCHY_DELIMITER).count() + 1
 }
@@ -50,6 +51,7 @@ pub fn tag_depth(tag: &str) -> usize {
 /// assert_eq!(hierarchy_root("lang:rust"), "lang");
 /// assert_eq!(hierarchy_root("lang:rust:async"), "lang");
 /// ```
+#[must_use]
 pub fn hierarchy_root(tag: &str) -> &str {
     tag.split(HIERARCHY_DELIMITER).next().unwrap_or(tag)
 }
@@ -68,11 +70,12 @@ pub fn hierarchy_root(tag: &str) -> &str {
 /// assert!(pattern_matches("lang:rust", "lang:rust:async"));
 /// assert!(!pattern_matches("lang:python", "lang:rust"));
 /// ```
+#[must_use]
 pub fn pattern_matches(pattern: &str, tag: &str) -> bool {
     if pattern == tag {
         return true;
     }
-    
+
     // Check if tag starts with "pattern:"
     let prefix = format!("{pattern}{HIERARCHY_DELIMITER}");
     tag.starts_with(&prefix)
@@ -164,10 +167,11 @@ fn most_specific_match(
 /// let file_tags = vec!["lang:rust".to_string(), "tests".to_string()];
 /// let include = vec!["lang".to_string()];
 /// let exclude = vec!["tests".to_string()];
-/// 
+///
 /// // Result: false (tests is excluded, cross-hierarchy)
 /// assert!(!should_include_file(&file_tags, &include, &exclude));
 /// ```
+#[must_use]
 pub fn should_include_file(
     file_tags: &[String],
     include_patterns: &[String],
@@ -178,8 +182,9 @@ pub fn should_include_file(
 
     for tag in file_tags {
         let root = hierarchy_root(tag).to_string();
-        
-        if let Some((signal, depth)) = most_specific_match(tag, include_patterns, exclude_patterns) {
+
+        if let Some((signal, depth)) = most_specific_match(tag, include_patterns, exclude_patterns)
+        {
             hierarchy_signals
                 .entry(root)
                 .or_default()
@@ -191,14 +196,16 @@ pub fn should_include_file(
     for signals in hierarchy_signals.values() {
         // Within a hierarchy, use the most specific signal
         let mut most_specific: Option<(Signal, usize)> = None;
-        
+
         for &(signal, depth) in signals {
             match most_specific {
                 None => most_specific = Some((signal, depth)),
                 Some((_, best_depth)) if depth > best_depth => {
                     most_specific = Some((signal, depth));
                 }
-                Some((Signal::Include, best_depth)) if depth == best_depth && signal == Signal::Exclude => {
+                Some((Signal::Include, best_depth))
+                    if depth == best_depth && signal == Signal::Exclude =>
+                {
                     // Prefer exclude at same depth
                     most_specific = Some((signal, depth));
                 }
@@ -215,9 +222,11 @@ pub fn should_include_file(
     // If we have include patterns but no tags matched, exclude the file
     if !include_patterns.is_empty() {
         let has_match = file_tags.iter().any(|tag| {
-            include_patterns.iter().any(|pattern| pattern_matches(pattern, tag))
+            include_patterns
+                .iter()
+                .any(|pattern| pattern_matches(pattern, tag))
         });
-        
+
         if !has_match {
             return false;
         }
@@ -400,20 +409,20 @@ mod tests {
         // lang:rust is excluded, but lang:javascript is included
         // However, having any excluded tag in the file excludes it
         // Wait, this needs clarification...
-        
+
         // Based on the algorithm: we check per-hierarchy
         // lang hierarchy: has both javascript (include) and rust (exclude at depth 2)
         // Most specific in lang hierarchy would be the exclude at depth 2
         // So this should be excluded
-        
+
         // Actually, let me re-read the algorithm...
         // We need to check if ANY tag produces an exclude signal
-        
+
         // For lang:javascript: matches lang (include, depth 1)
         // For lang:rust: matches lang (include, depth 1) and lang:rust (exclude, depth 2)
         //   → most specific is exclude
         // For tests: no match
-        
+
         // Since lang:rust produces exclude signal, file is excluded
         assert!(!should_include_file(&file_tags, &includes, &excludes));
     }
@@ -441,9 +450,18 @@ mod tests {
     #[test]
     fn test_filter_by_hierarchy() {
         let files_tags = vec![
-            ("file1.js", vec!["lang:javascript".to_string(), "production".to_string()]),
-            ("file2.js", vec!["lang:javascript".to_string(), "tests".to_string()]),
-            ("file3.rs", vec!["lang:rust".to_string(), "tests".to_string()]),
+            (
+                "file1.js",
+                vec!["lang:javascript".to_string(), "production".to_string()],
+            ),
+            (
+                "file2.js",
+                vec!["lang:javascript".to_string(), "tests".to_string()],
+            ),
+            (
+                "file3.rs",
+                vec!["lang:rust".to_string(), "tests".to_string()],
+            ),
         ];
 
         let includes = vec!["lang".to_string()];

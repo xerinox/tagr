@@ -309,28 +309,28 @@ fn handle_normal_mode(
                 match state.focused_pane {
                     FocusPane::TagTree => {
                         // Toggle tag inclusion: parent nodes affect all children (Option A)
-                        if let Some(tree) = state.tag_tree_state.as_ref() {
-                            if let Some(current_tag) = tree.current_tag() {
-                                let children = tree.get_all_descendant_tags(&current_tag);
+                        if let Some(tree) = state.tag_tree_state.as_ref()
+                            && let Some(current_tag) = tree.current_tag()
+                        {
+                            let children = tree.get_all_descendant_tags(&current_tag);
 
-                                if children.is_empty() {
-                                    // Leaf node - toggle just this tag
+                            if children.is_empty() {
+                                // Leaf node - toggle just this tag
+                                state.active_filter.toggle_include_tag(current_tag);
+                            } else {
+                                // Parent node - toggle all children + parent if it's actual tag
+                                if tree.current_is_actual_tag() {
                                     state.active_filter.toggle_include_tag(current_tag);
-                                } else {
-                                    // Parent node - toggle all children + parent if it's actual tag
-                                    if tree.current_is_actual_tag() {
-                                        state.active_filter.toggle_include_tag(current_tag.clone());
-                                    }
-                                    for child in children {
-                                        state.active_filter.toggle_include_tag(child);
-                                    }
                                 }
-
-                                // Sync tag tree visual state from active_filter
-                                state.sync_tag_tree_from_filter();
-                                // Update file preview with new filter
-                                state.update_file_preview();
+                                for child in children {
+                                    state.active_filter.toggle_include_tag(child);
+                                }
                             }
+
+                            // Sync tag tree visual state from active_filter
+                            state.sync_tag_tree_from_filter();
+                            // Update file preview with new filter
+                            state.update_file_preview();
                         }
                         state.tag_tree_move_down();
                     }
@@ -351,28 +351,28 @@ fn handle_normal_mode(
                 match state.focused_pane {
                     FocusPane::TagTree => {
                         // Toggle tag exclusion: parent nodes affect all children (Option A)
-                        if let Some(tree) = state.tag_tree_state.as_ref() {
-                            if let Some(current_tag) = tree.current_tag() {
-                                let children = tree.get_all_descendant_tags(&current_tag);
+                        if let Some(tree) = state.tag_tree_state.as_ref()
+                            && let Some(current_tag) = tree.current_tag()
+                        {
+                            let children = tree.get_all_descendant_tags(&current_tag);
 
-                                if children.is_empty() {
-                                    // Leaf node - toggle just this tag
+                            if children.is_empty() {
+                                // Leaf node - toggle just this tag
+                                state.active_filter.toggle_exclude_tag(current_tag);
+                            } else {
+                                // Parent node - toggle all children + parent if it's actual tag
+                                if tree.current_is_actual_tag() {
                                     state.active_filter.toggle_exclude_tag(current_tag);
-                                } else {
-                                    // Parent node - toggle all children + parent if it's actual tag
-                                    if tree.current_is_actual_tag() {
-                                        state.active_filter.toggle_exclude_tag(current_tag.clone());
-                                    }
-                                    for child in children {
-                                        state.active_filter.toggle_exclude_tag(child);
-                                    }
                                 }
-
-                                // Sync exclusion state
-                                state.sync_tag_tree_exclusions();
-                                // Update file preview with new filter
-                                state.update_file_preview();
+                                for child in children {
+                                    state.active_filter.toggle_exclude_tag(child);
+                                }
                             }
+
+                            // Sync exclusion state
+                            state.sync_tag_tree_exclusions();
+                            // Update file preview with new filter
+                            state.update_file_preview();
                         }
                         state.tag_tree_move_down();
                     }
@@ -572,7 +572,7 @@ fn handle_refine_search_mode(state: &mut AppState, key: KeyEvent) -> EventResult
 }
 
 /// Handle mouse events
-fn handle_mouse(state: &mut AppState, mouse: MouseEvent) -> EventResult {
+const fn handle_mouse(state: &mut AppState, mouse: MouseEvent) -> EventResult {
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             state.cursor_up();

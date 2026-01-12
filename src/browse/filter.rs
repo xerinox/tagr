@@ -11,10 +11,10 @@ use std::fmt;
 ///
 /// Wraps `FilterCriteria` with additional runtime state and Display impl
 /// for CLI preview generation. This provides a single source of truth for
-/// all filter state in the TUI, avoiding scattered fields across AppState.
+/// all filter state in the TUI, avoiding scattered fields across `AppState`.
 #[derive(Debug, Clone, Default)]
 pub struct ActiveFilter {
-    /// Core filter criteria (reuses existing FilterCriteria)
+    /// Core filter criteria (reuses existing `FilterCriteria`)
     pub criteria: FilterCriteria,
 }
 
@@ -127,7 +127,7 @@ impl ActiveFilter {
     }
 
     /// Toggle search mode (ANY ↔ ALL)
-    pub fn toggle_mode(&mut self) {
+    pub const fn toggle_mode(&mut self) {
         self.criteria.tag_mode = match self.criteria.tag_mode {
             TagMode::Any => TagMode::All,
             TagMode::All => TagMode::Any,
@@ -136,7 +136,7 @@ impl ActiveFilter {
 
     /// Check if filter is empty (nothing to save)
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.criteria.tags.is_empty()
             && self.criteria.excludes.is_empty()
             && self.criteria.file_patterns.is_empty()
@@ -168,7 +168,7 @@ impl ActiveFilter {
     }
 
     /// Toggle file mode (ANY ↔ ALL)
-    pub fn toggle_file_mode(&mut self) {
+    pub const fn toggle_file_mode(&mut self) {
         self.criteria.file_mode = match self.criteria.file_mode {
             FileMode::Any => FileMode::All,
             FileMode::All => FileMode::Any,
@@ -176,7 +176,7 @@ impl ActiveFilter {
     }
 
     /// Toggle virtual tag mode (ANY ↔ ALL)
-    pub fn toggle_virtual_mode(&mut self) {
+    pub const fn toggle_virtual_mode(&mut self) {
         self.criteria.virtual_mode = match self.criteria.virtual_mode {
             TagMode::Any => TagMode::All,
             TagMode::All => TagMode::Any,

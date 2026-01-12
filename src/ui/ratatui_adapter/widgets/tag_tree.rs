@@ -132,11 +132,11 @@ impl TagTreeState {
     /// Build tree from tags with display text for aliases
     pub fn build_from_tags_with_display(
         &mut self,
-        tags: Vec<(String, usize)>,
+        tags: &[(String, usize)],
         display_map: &std::collections::HashMap<String, String>,
     ) {
         // First build the tree structure
-        self.build_from_tags(&tags);
+        self.build_from_tags(tags);
 
         // Then update display_text for actual tags, extracting alias info
         for node in &mut self.visible_nodes {
@@ -244,7 +244,7 @@ impl TagTreeState {
             format!("{parent_path}:")
         };
 
-        for full_tag in actual_tags.iter() {
+        for full_tag in actual_tags {
             if parent_path.is_empty() {
                 // Root level - get first component
                 let first_part: &str = full_tag.split(':').next().unwrap_or(full_tag);
@@ -322,14 +322,14 @@ impl TagTreeState {
     }
 
     /// Move selection up
-    pub fn move_up(&mut self) {
+    pub const fn move_up(&mut self) {
         if self.selected > 0 {
             self.selected -= 1;
         }
     }
 
     /// Move selection down
-    pub fn move_down(&mut self) {
+    pub const fn move_down(&mut self) {
         if self.selected + 1 < self.visible_nodes.len() {
             self.selected += 1;
         }
@@ -411,6 +411,7 @@ impl TagTreeState {
     }
 
     /// Get all descendant tags (actual tags only, not inferred parents) under a parent path
+    #[must_use]
     pub fn get_all_descendant_tags(&self, parent_path: &str) -> Vec<String> {
         let prefix = format!("{parent_path}:");
 
@@ -448,7 +449,7 @@ impl TagTreeState {
     pub fn current_is_actual_tag(&self) -> bool {
         self.visible_nodes
             .get(self.selected)
-            .map_or(false, |n| n.is_actual_tag)
+            .is_some_and(|n| n.is_actual_tag)
     }
 
     /// Get all selected tag paths
@@ -536,7 +537,7 @@ impl TagTreeState {
 
     /// Get count of visible nodes
     #[must_use]
-    pub fn visible_count(&self) -> usize {
+    pub const fn visible_count(&self) -> usize {
         self.visible_nodes.len()
     }
 }
@@ -607,7 +608,11 @@ impl StatefulWidget for TagTree<'_> {
         // Show message if no visible nodes
         if state.visible_nodes.is_empty() {
             let message = "No matching tags";
-            let x = area.x + (area.width.saturating_sub(message.len() as u16)) / 2;
+            let x = area.x
+                + (area
+                    .width
+                    .saturating_sub(u16::try_from(message.len()).unwrap_or(u16::MAX)))
+                    / 2;
             let y = area.y + area.height / 2;
             buf.set_string(x, y, message, Style::default().fg(Color::DarkGray));
             return;
@@ -627,7 +632,7 @@ impl StatefulWidget for TagTree<'_> {
         let end = (start + visible_height).min(state.visible_nodes.len());
 
         for (i, node_ref) in state.visible_nodes[start..end].iter().enumerate() {
-            let y = area.y + i as u16;
+            let y = area.y + u16::try_from(i).unwrap_or(0);
             if y >= area.y + area.height {
                 break;
             }
@@ -658,7 +663,10 @@ impl StatefulWidget for TagTree<'_> {
             } else {
                 // Parent nodes - check children state
                 let children = state.get_all_descendant_tags(&node_ref.full_path);
-                if !children.is_empty() {
+                if children.is_empty() {
+                    // Parent with no children
+                    spans.push(Span::raw("  "));
+                } else {
                     let all_selected = children.iter().all(|c| state.selected_tags.contains(c));
                     let all_excluded = children.iter().all(|c| state.excluded_tags.contains(c));
                     let some_selected = children.iter().any(|c| state.selected_tags.contains(c));
@@ -691,9 +699,6 @@ impl StatefulWidget for TagTree<'_> {
                         // No children selected or excluded
                         spans.push(Span::raw("  "));
                     }
-                } else {
-                    // Parent with no children
-                    spans.push(Span::raw("  "));
                 }
             }
 
@@ -708,14 +713,16 @@ impl StatefulWidget for TagTree<'_> {
                 self.inferred_style
             };
 
-            let display_text = if let Some(ref custom_display) = node_ref.display_text {
-                // Use custom display text (includes aliases)
-                custom_display.clone()
-            } else if node_ref.is_actual_tag {
-                format!("{} ({})", node_ref.name, node_ref.file_count)
-            } else {
-                format!("{} (parent)", node_ref.name)
-            };
+            let display_text = node_ref.display_text.as_ref().map_or_else(
+                || {
+                    if node_ref.is_actual_tag {
+                        format!("{} ({})", node_ref.name, node_ref.file_count)
+                    } else {
+                        format!("{} (parent)", node_ref.name)
+                    }
+                },
+                Clone::clone,
+            );
 
             spans.push(Span::styled(display_text, name_style));
 

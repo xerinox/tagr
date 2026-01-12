@@ -134,12 +134,10 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
                 // For now, we treat it as ANY since hierarchical matching is more nuanced
                 // Get all files from database and filter using hierarchical logic
                 let all_files = db.list_all()?;
-                
+
                 let files_with_tags: Vec<(String, Vec<String>)> = all_files
                     .into_iter()
-                    .filter_map(|pair| {
-                        pair.file.to_str().map(|s| (s.to_string(), pair.tags))
-                    })
+                    .filter_map(|pair| pair.file.to_str().map(|s| (s.to_string(), pair.tags)))
                     .collect();
 
                 let files_refs: Vec<(&str, &[String])> = files_with_tags
@@ -157,7 +155,8 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
                             .filter(|(_, tags)| {
                                 // Check if file has tags matching all patterns
                                 expanded_params.tags.iter().all(|pattern| {
-                                    tags.iter().any(|tag| hierarchy::pattern_matches(pattern, tag))
+                                    tags.iter()
+                                        .any(|tag| hierarchy::pattern_matches(pattern, tag))
                                 })
                             })
                             .map(|(file, _)| PathBuf::from(file))
@@ -207,7 +206,7 @@ pub fn apply_search_params(db: &Database, params: &SearchParams) -> Result<Vec<P
                         &expanded_params.tags,
                         &expanded_params.exclude_tags,
                     );
-                    
+
                     if should_include {
                         filtered_files.push(file);
                     }

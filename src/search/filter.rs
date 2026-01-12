@@ -222,7 +222,7 @@ impl PathTagFilterExt for Vec<PathBuf> {
                     &[], // No include patterns
                     exclude_tags,
                 );
-                
+
                 if should_include {
                     result.push(file);
                 }
