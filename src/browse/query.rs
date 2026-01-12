@@ -10,6 +10,7 @@
 use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
 use crate::db::{Database, DbError};
+use crate::search::FilterExt; // Import trait for in-memory filtering
 use std::collections::{HashMap, HashSet};
 
 /// Query all available tags from the database with file counts
@@ -158,6 +159,29 @@ pub fn get_files_by_tags(
     };
 
     get_matching_files(db, &params)
+}
+
+/// Filter an existing collection of items in-memory using search parameters
+///
+/// This function provides fast in-memory filtering without requiring database queries.
+/// Useful for live filtering in the TUI as users type or adjust search criteria.
+///
+/// # Arguments
+/// * `items` - Collection of `TagrItem` to filter
+/// * `params` - Search parameters containing tag filters
+///
+/// # Returns
+/// Vector of references to items that match the search criteria
+///
+/// # Examples
+/// ```ignore
+/// let filtered: Vec<_> = filter_items_in_memory(&all_items, &params);
+/// ```
+pub fn filter_items_in_memory<'a>(
+    items: &'a [TagrItem],
+    params: &'a SearchParams,
+) -> Vec<&'a TagrItem> {
+    items.apply_filter(params).collect()
 }
 
 impl From<crate::browse::models::SearchMode> for crate::cli::SearchMode {
