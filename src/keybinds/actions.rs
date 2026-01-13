@@ -32,6 +32,11 @@ pub enum BrowseAction {
     /// Filter by file extension - Ctrl+F
     FilterExtension,
 
+    /// Edit note for selected file - Ctrl+N
+    EditNote,
+    /// Toggle between file and note preview - Alt+N
+    ToggleNotePreview,
+
     /// Select all visible files - Ctrl+A
     SelectAll,
     /// Clear current selection - Ctrl+X
@@ -94,6 +99,8 @@ impl FromStr for BrowseAction {
             "toggle_tag_display" => Ok(Self::ToggleTagDisplay),
             "show_details" => Ok(Self::ShowDetails),
             "filter_extension" => Ok(Self::FilterExtension),
+            "edit_note" => Ok(Self::EditNote),
+            "toggle_note_preview" => Ok(Self::ToggleNotePreview),
             "select_all" => Ok(Self::SelectAll),
             "clear_selection" => Ok(Self::ClearSelection),
             "quick_search" => Ok(Self::QuickTagSearch),
@@ -132,6 +139,7 @@ impl BrowseAction {
                 | Self::CopyPath
                 | Self::CopyFiles
                 | Self::DeleteFromDb
+                | Self::EditNote
         )
     }
 
@@ -169,6 +177,8 @@ impl BrowseAction {
             Self::ToggleTagDisplay => "Toggle tag display mode",
             Self::ShowDetails => "Show file details",
             Self::FilterExtension => "Filter by extension",
+            Self::EditNote => "Edit note for selected file",
+            Self::ToggleNotePreview => "Toggle file/note preview",
             Self::SelectAll => "Select all files",
             Self::ClearSelection => "Clear selection",
             Self::QuickTagSearch => "Quick tag search",

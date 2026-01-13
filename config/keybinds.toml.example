@@ -20,6 +20,10 @@ toggle_tag_display = "ctrl-i"  # Toggle tag display mode
 show_details = "ctrl-l"        # Show file details
 filter_extension = "ctrl-f"    # Filter by extension
 
+# Note Management
+edit_note = "ctrl-n"           # Edit note for selected file
+toggle_note_preview = "alt-n"  # Toggle between file and note preview
+
 # Navigation
 select_all = "ctrl-a"       # Select all files
 clear_selection = "ctrl-x"  # Clear selection

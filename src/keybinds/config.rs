@@ -207,6 +207,16 @@ fn default_keybinds() -> HashMap<String, KeybindDef> {
         KeybindDef::Single("ctrl-f".to_string()),
     );
 
+    // Note Management
+    keybinds.insert(
+        "edit_note".to_string(),
+        KeybindDef::Single("ctrl-n".to_string()),
+    );
+    keybinds.insert(
+        "toggle_note_preview".to_string(),
+        KeybindDef::Single("alt-n".to_string()),
+    );
+
     // Navigation
     keybinds.insert(
         "select_all".to_string(),
