@@ -1182,6 +1182,14 @@ pub enum Commands {
         #[command(subcommand)]
         command: crate::commands::note::NoteSubcommand,
 
+        /// Display absolute paths (overrides config)
+        #[arg(long = "absolute", conflicts_with = "relative")]
+        absolute: bool,
+
+        /// Display relative paths (overrides config)
+        #[arg(long = "relative", conflicts_with = "absolute")]
+        relative: bool,
+
         #[command(flatten)]
         db_args: DbArgs,
     },
@@ -1443,6 +1451,9 @@ impl Cli {
                     absolute, relative, ..
                 }
                 | Commands::List {
+                    absolute, relative, ..
+                }
+                | Commands::Note {
                     absolute, relative, ..
                 },
             ) => to_format(*absolute, *relative),

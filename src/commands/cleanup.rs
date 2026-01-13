@@ -17,19 +17,28 @@ pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> R
 
     let all_pairs = db.list_all()?;
     let mut missing_files = Vec::new();
-    let mut untagged_files = Vec::new();
+    let mut untagged_no_notes = Vec::new();
+    let mut notes_only_files = Vec::new();
 
     for pair in all_pairs {
         if !pair.file.exists() {
             missing_files.push(pair.file);
         } else if pair.tags.is_empty() {
-            untagged_files.push(pair.file);
+            // File has no tags - check if it has a note
+            let has_note = db.get_note(&pair.file)?.is_some();
+            if has_note {
+                notes_only_files.push(pair.file);
+            } else {
+                // No tags and no note - this shouldn't happen with equality model
+                // but handle it gracefully
+                untagged_no_notes.push(pair.file);
+            }
         }
     }
 
-    let total_issues = missing_files.len() + untagged_files.len();
+    let total_issues = missing_files.len() + untagged_no_notes.len();
 
-    if total_issues == 0 {
+    if total_issues == 0 && notes_only_files.is_empty() {
         if !quiet {
             println!("No issues found. Database is clean.");
         }
@@ -55,18 +64,23 @@ pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> R
         skipped_count += skipped;
     }
 
-    if !untagged_files.is_empty() {
+    if !untagged_no_notes.is_empty() {
         if !quiet {
-            println!("\n=== Files with No Tags ===");
-            println!("Found {} file(s) with no tags:", untagged_files.len());
-            for file in &untagged_files {
+            println!("\n=== Files with No Tags or Notes ===");
+            println!("Found {} orphaned file(s):", untagged_no_notes.len());
+            for file in &untagged_no_notes {
                 println!("  - {}", output::format_path(file, path_format));
             }
             println!();
         }
 
-        let (deleted, skipped) =
-            process_cleanup_files(db, &untagged_files, "File has no tags", path_format, quiet)?;
+        let (deleted, skipped) = process_cleanup_files(
+            db,
+            &untagged_no_notes,
+            "File has no tags or notes",
+            path_format,
+            quiet,
+        )?;
         deleted_count += deleted;
         skipped_count += skipped;
     }
@@ -75,9 +89,28 @@ pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> R
         println!("\n=== Cleanup Summary ===");
         println!("Total issues found: {total_issues}");
         println!("  Missing files: {}", missing_files.len());
-        println!("  Files with no tags: {}", untagged_files.len());
-        println!("Deleted: {deleted_count}");
+        println!("  Files with no tags or notes: {}", untagged_no_notes.len());
+        
+        if !notes_only_files.is_empty() {
+            println!("\n ℹ Known files (notes only, no tags): {}", notes_only_files.len());
+            for file in &notes_only_files {
+                println!("  - {}", output::format_path(file, path_format));
+            }
+        }
+        
+        println!("\nDeleted: {deleted_count}");
         println!("Skipped: {skipped_count}");
+    }
+
+    // Clean up orphaned notes from deleted missing files
+    let mut orphaned_notes = 0;
+    for file in &missing_files {
+        if db.delete_note(file)? {
+            orphaned_notes += 1;
+        }
+    }
+    if !quiet && orphaned_notes > 0 {
+        println!("Cleaned up {orphaned_notes} orphaned note(s) from deleted files");
     }
 
     Ok(())

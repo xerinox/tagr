@@ -189,6 +189,9 @@ impl Database {
             self.remove_from_tag_index(&file_path, &tags)?;
         }
 
+        // Also remove associated note if it exists
+        self.delete_note(file.as_ref())?;
+
         Ok(self.files.remove(key.as_slice())?.is_some())
     }
 
@@ -213,6 +216,9 @@ impl Database {
 
     /// Remove specific tags from a file
     ///
+    /// If all tags are removed but the file has a note, the file entry will be preserved
+    /// with an empty tags list (maintaining the equality model: files with notes are tracked).
+    ///
     /// # Arguments
     /// * `file` - Path to the file
     /// * `tags_to_remove` - Tags to remove
@@ -230,7 +236,15 @@ impl Database {
             tags.retain(|tag| !tags_to_remove.contains(tag));
 
             if tags.is_empty() {
-                self.remove(path)?;
+                // Check if file has a note before removing from database
+                let has_note = self.get_note(path)?.is_some();
+                if has_note {
+                    // Keep file in database with empty tags (equality model)
+                    self.insert(path, tags)?;
+                } else {
+                    // No note - safe to remove completely
+                    self.remove(path)?;
+                }
             } else {
                 self.insert(path, tags)?;
             }
@@ -632,9 +646,18 @@ impl Database {
     ///
     /// Returns `DbError` if path contains invalid UTF-8 or serialization fails.
     pub fn set_note<P: AsRef<Path>>(&self, file: P, note: NoteRecord) -> Result<(), DbError> {
-        let key = bincode::encode_to_vec(&file.as_ref(), bincode::config::standard())?;
+        let file_path = file.as_ref();
+        let key = bincode::encode_to_vec(&file_path, bincode::config::standard())?;
         let value = bincode::encode_to_vec(&note, bincode::config::standard())?;
         self.notes.insert(key, value)?;
+
+        // Ensure file exists in files tree (with empty tags if not already present)
+        // This maintains the equality model: files with notes are "tracked" even without tags
+        if self.get_tags(file_path)?.is_none() {
+            // File not in database - add it with empty tags
+            self.insert(file_path, vec![])?;
+        }
+
         Ok(())
     }
 
@@ -664,6 +687,9 @@ impl Database {
 
     /// Delete a note for a file
     ///
+    /// If the file has no tags after note deletion, it will be removed from the files tree
+    /// (maintaining the equality model: files with neither tags nor notes are not tracked).
+    ///
     /// # Arguments
     /// * `file` - Path to the file
     ///
@@ -675,8 +701,24 @@ impl Database {
     ///
     /// Returns `DbError` if database operation fails.
     pub fn delete_note<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
-        let key = bincode::encode_to_vec(&file.as_ref(), bincode::config::standard())?;
-        Ok(self.notes.remove(key)?.is_some())
+        let file_path = file.as_ref();
+        let key = bincode::encode_to_vec(&file_path, bincode::config::standard())?;
+        let was_deleted = self.notes.remove(key.clone())?.is_some();
+
+        if was_deleted {
+            // Check if file has any tags - if not, remove from files tree
+            if let Some(tags_value) = self.files.get(key.clone())? {
+                let (tags, _): (Vec<String>, usize) =
+                    bincode::decode_from_slice(&tags_value, bincode::config::standard())?;
+                
+                if tags.is_empty() {
+                    // No tags and no note - remove from files tree
+                    self.files.remove(key)?;
+                }
+            }
+        }
+
+        Ok(was_deleted)
     }
 
     /// List all files that have notes

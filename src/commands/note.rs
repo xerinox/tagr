@@ -2,6 +2,7 @@
 
 use crate::config::TagrConfig;
 use crate::db::{Database, NoteRecord};
+use crate::{config, output};
 use clap::{Args, Subcommand, ValueEnum};
 use std::io::Write;
 use std::path::PathBuf;
@@ -125,13 +126,13 @@ impl NoteSubcommand {
     /// # Errors
     ///
     /// Returns error if the operation fails
-    pub fn execute(&self, db: &Database, config: &TagrConfig) -> Result<(), NoteError> {
+    pub fn execute(&self, db: &Database, config: &TagrConfig, path_format: config::PathFormat) -> Result<(), NoteError> {
         match self {
             Self::Edit(args) => execute_edit(args, db, config),
-            Self::Show(args) => execute_show(args, db),
-            Self::Delete(args) => execute_delete(args, db),
-            Self::List(args) => execute_list(args, db),
-            Self::Search(args) => execute_search(args, db),
+            Self::Show(args) => execute_show(args, db, path_format),
+            Self::Delete(args) => execute_delete(args, db, path_format),
+            Self::List(args) => execute_list(args, db, path_format),
+            Self::Search(args) => execute_search(args, db, path_format),
         }
     }
 }
@@ -144,8 +145,15 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
         .unwrap_or_else(|| config.notes.get_editor());
 
     for file in &args.files {
+        let canonical_path = file.canonicalize().map_err(|e| {
+            NoteError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Cannot access path '{}': {}", file.display(), e),
+            ))
+        })?;
+        
         // Get existing note or create new one
-        let existing_note = db.get_note(file)?;
+        let existing_note = db.get_note(&canonical_path)?;
         let initial_content = existing_note
             .as_ref()
             .map(|n| n.content.clone())
@@ -191,7 +199,7 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             NoteRecord::new(updated_content)
         };
 
-        db.set_note(file, note)?;
+        db.set_note(&canonical_path, note)?;
         println!("✓ Updated note for {}", file.display());
     }
 
@@ -199,15 +207,22 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
 }
 
 /// Show notes for files
-fn execute_show(args: &ShowArgs, db: &Database) -> Result<(), NoteError> {
+fn execute_show(args: &ShowArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
     for file in &args.files {
-        let note = db.get_note(file)?;
+        let canonical_path = file.canonicalize().map_err(|e| {
+            NoteError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Cannot access path '{}': {}", file.display(), e),
+            ))
+        })?;
+        
+        let note = db.get_note(&canonical_path)?;
 
         match note {
             Some(note) => match args.format {
                 OutputFormat::Text => {
                     if args.verbose {
-                        println!("File: {}", file.display());
+                        println!("File: {}", output::format_path(&canonical_path, path_format));
                         println!("Created: {}", format_timestamp(note.metadata.created_at));
                         println!("Updated: {}", format_timestamp(note.metadata.updated_at));
                         if let Some(author) = &note.metadata.author {
@@ -223,7 +238,7 @@ fn execute_show(args: &ShowArgs, db: &Database) -> Result<(), NoteError> {
                 }
                 OutputFormat::Json => {
                     let json = serde_json::json!({
-                        "file": file.display().to_string(),
+                        "file": output::format_path(&canonical_path, path_format),
                         "content": note.content,
                         "metadata": {
                             "created_at": note.metadata.created_at,
@@ -236,7 +251,7 @@ fn execute_show(args: &ShowArgs, db: &Database) -> Result<(), NoteError> {
                     println!("{}", serde_json::to_string_pretty(&json)?);
                 }
                 OutputFormat::Quiet => {
-                    println!("{}", file.display());
+                    println!("{}", output::format_path(&canonical_path, path_format));
                 }
             },
             None => {
@@ -252,13 +267,20 @@ fn execute_show(args: &ShowArgs, db: &Database) -> Result<(), NoteError> {
 }
 
 /// Delete notes from files
-fn execute_delete(args: &DeleteArgs, db: &Database) -> Result<(), NoteError> {
+fn execute_delete(args: &DeleteArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
     let mut files_to_delete = Vec::new();
 
     // Check which files have notes
     for file in &args.files {
-        if db.get_note(file)?.is_some() {
-            files_to_delete.push(file.clone());
+        let canonical_path = file.canonicalize().map_err(|e| {
+            NoteError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Cannot access path '{}': {}", file.display(), e),
+            ))
+        })?;
+        
+        if db.get_note(&canonical_path)?.is_some() {
+            files_to_delete.push(canonical_path);
         }
     }
 
@@ -270,7 +292,7 @@ fn execute_delete(args: &DeleteArgs, db: &Database) -> Result<(), NoteError> {
     if args.dry_run {
         println!("Would delete notes for {} file(s):", files_to_delete.len());
         for file in &files_to_delete {
-            println!("  - {}", file.display());
+            println!("  - {}", output::format_path(file, path_format));
         }
         return Ok(());
     }
@@ -297,7 +319,7 @@ fn execute_delete(args: &DeleteArgs, db: &Database) -> Result<(), NoteError> {
     for file in &files_to_delete {
         if db.delete_note(file)? {
             deleted += 1;
-            println!("✓ Deleted note for {}", file.display());
+            println!("✓ Deleted note for {}", output::format_path(file, path_format));
         }
     }
 
@@ -306,7 +328,7 @@ fn execute_delete(args: &DeleteArgs, db: &Database) -> Result<(), NoteError> {
 }
 
 /// List all files with notes
-fn execute_list(args: &ListArgs, db: &Database) -> Result<(), NoteError> {
+fn execute_list(args: &ListArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
     let all_notes = db.list_all_notes()?;
 
     if all_notes.is_empty() {
@@ -323,13 +345,13 @@ fn execute_list(args: &ListArgs, db: &Database) -> Result<(), NoteError> {
                 for (path, note) in &all_notes {
                     println!(
                         "  {} [updated: {}]",
-                        path.display(),
+                        output::format_path(path, path_format),
                         format_timestamp(note.metadata.updated_at)
                     );
                 }
             } else {
                 for (path, _) in &all_notes {
-                    println!("{}", path.display());
+                    println!("{}", output::format_path(path, path_format));
                 }
             }
         }
@@ -338,7 +360,7 @@ fn execute_list(args: &ListArgs, db: &Database) -> Result<(), NoteError> {
                 .iter()
                 .map(|(path, note)| {
                     serde_json::json!({
-                        "file": path.display().to_string(),
+                        "file": output::format_path(path, path_format),
                         "created_at": note.metadata.created_at,
                         "updated_at": note.metadata.updated_at,
                         "author": note.metadata.author,
@@ -350,7 +372,7 @@ fn execute_list(args: &ListArgs, db: &Database) -> Result<(), NoteError> {
         }
         OutputFormat::Quiet => {
             for (path, _) in &all_notes {
-                println!("{}", path.display());
+                println!("{}", output::format_path(path, path_format));
             }
         }
     }
@@ -359,7 +381,7 @@ fn execute_list(args: &ListArgs, db: &Database) -> Result<(), NoteError> {
 }
 
 /// Search notes by content
-fn execute_search(args: &SearchArgs, db: &Database) -> Result<(), NoteError> {
+fn execute_search(args: &SearchArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
     let results = db.search_notes(&args.query)?;
 
     if results.is_empty() {
@@ -372,7 +394,7 @@ fn execute_search(args: &SearchArgs, db: &Database) -> Result<(), NoteError> {
     match args.format {
         OutputFormat::Text => {
             for (path, note) in &results {
-                println!("{}", path.display());
+                println!("{}", output::format_path(path, path_format));
                 if args.show_content {
                     let snippet = create_snippet(&note.content, &args.query, 100);
                     println!("  {snippet}");
@@ -384,7 +406,7 @@ fn execute_search(args: &SearchArgs, db: &Database) -> Result<(), NoteError> {
                 .iter()
                 .map(|(path, note)| {
                     let mut obj = serde_json::json!({
-                        "file": path.display().to_string(),
+                        "file": output::format_path(path, path_format),
                         "metadata": {
                             "created_at": note.metadata.created_at,
                             "updated_at": note.metadata.updated_at,
@@ -404,7 +426,7 @@ fn execute_search(args: &SearchArgs, db: &Database) -> Result<(), NoteError> {
         }
         OutputFormat::Quiet => {
             for (path, _) in &results {
-                println!("{}", path.display());
+                println!("{}", output::format_path(path, path_format));
             }
         }
     }
