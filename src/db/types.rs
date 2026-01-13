@@ -147,6 +147,60 @@ impl std::ops::Deref for PathString {
     }
 }
 
+/// Metadata for a note
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode)]
+pub struct NoteMeta {
+    /// Unix timestamp when note was created
+    pub created_at: i64,
+    /// Unix timestamp when note was last updated
+    pub updated_at: i64,
+    /// Optional author name
+    pub author: Option<String>,
+    /// Optional priority (0-255, higher = more important)
+    pub priority: Option<u8>,
+}
+
+impl Default for NoteMeta {
+    fn default() -> Self {
+        let now = chrono::Utc::now().timestamp();
+        Self {
+            created_at: now,
+            updated_at: now,
+            author: None,
+            priority: None,
+        }
+    }
+}
+
+/// A note attached to a file
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode)]
+pub struct NoteRecord {
+    /// Markdown content of the note
+    pub content: String,
+    /// Note metadata (timestamps, author, etc.)
+    pub metadata: NoteMeta,
+    /// Paths or IDs to attachments (future: file-backed mode)
+    pub attachments: Vec<String>,
+}
+
+impl NoteRecord {
+    /// Create a new note with the given content
+    #[must_use]
+    pub fn new(content: String) -> Self {
+        Self {
+            content,
+            metadata: NoteMeta::default(),
+            attachments: Vec::new(),
+        }
+    }
+
+    /// Update the content and bump the updated_at timestamp
+    pub fn update_content(&mut self, content: String) {
+        self.content = content;
+        self.metadata.updated_at = chrono::Utc::now().timestamp();
+    }
+}
+
 #[cfg(test)]
 #[path = "types_tests.rs"]
 mod types_tests;

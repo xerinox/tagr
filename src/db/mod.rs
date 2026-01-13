@@ -19,13 +19,14 @@ pub mod query;
 pub mod types;
 
 pub use error::DbError;
-pub use types::{PathKey, PathString};
+pub use types::{NoteRecord, NoteMeta, PathKey, PathString};
 
 /// Database wrapper that encapsulates all database operations
 ///
-/// Uses two trees for efficient bidirectional lookups:
+/// Uses multiple trees for efficient operations:
 /// - `files` tree: `file_path` -> `Vec<tag>`
-/// - `tags` tree: tag -> Vec<`file_path`>
+/// - `tags` tree: tag -> `Vec<file_path>` (reverse index)
+/// - `notes` tree: `file_path` -> `NoteRecord`
 ///
 /// Clone is cheap - both `Db` and `Tree` are reference-counted internally.
 #[derive(Debug, Clone)]
@@ -33,6 +34,7 @@ pub struct Database {
     db: Db,
     files: Tree,
     tags: Tree,
+    notes: Tree,
 }
 
 impl Database {
@@ -54,7 +56,13 @@ impl Database {
         let db = sled::open(path)?;
         let files = db.open_tree("files")?;
         let tags = db.open_tree("tags")?;
-        Ok(Self { db, files, tags })
+        let notes = db.open_tree("notes")?;
+        Ok(Self {
+            db,
+            files,
+            tags,
+            notes,
+        })
     }
 
     /// Insert or update a file-tags pairing
@@ -602,6 +610,131 @@ impl Database {
         }
         Ok(())
     }
+
+    // ==================== Note Operations ====================
+
+    /// Set or update a note for a file
+    ///
+    /// # Arguments
+    /// * `file` - Path to the file
+    /// * `note` - Note content and metadata
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use tagr::db::{Database, NoteRecord};
+    ///
+    /// let db = Database::open("my_db").unwrap();
+    /// let note = NoteRecord::new("My note content".to_string());
+    /// db.set_note("file.txt", note).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if path contains invalid UTF-8 or serialization fails.
+    pub fn set_note<P: AsRef<Path>>(&self, file: P, note: NoteRecord) -> Result<(), DbError> {
+        let key = bincode::encode_to_vec(&file.as_ref(), bincode::config::standard())?;
+        let value = bincode::encode_to_vec(&note, bincode::config::standard())?;
+        self.notes.insert(key, value)?;
+        Ok(())
+    }
+
+    /// Get the note for a file
+    ///
+    /// # Arguments
+    /// * `file` - Path to the file
+    ///
+    /// # Returns
+    /// * `Some(NoteRecord)` if note exists
+    /// * `None` if no note exists for this file
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if deserialization fails.
+    pub fn get_note<P: AsRef<Path>>(&self, file: P) -> Result<Option<NoteRecord>, DbError> {
+        let key = bincode::encode_to_vec(&file.as_ref(), bincode::config::standard())?;
+        
+        if let Some(value) = self.notes.get(key)? {
+            let (note, _): (NoteRecord, usize) =
+                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            Ok(Some(note))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Delete a note for a file
+    ///
+    /// # Arguments
+    /// * `file` - Path to the file
+    ///
+    /// # Returns
+    /// * `true` if note was deleted
+    /// * `false` if no note existed
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if database operation fails.
+    pub fn delete_note<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
+        let key = bincode::encode_to_vec(&file.as_ref(), bincode::config::standard())?;
+        Ok(self.notes.remove(key)?.is_some())
+    }
+
+    /// List all files that have notes
+    ///
+    /// # Returns
+    /// Vector of (file_path, note) tuples
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if deserialization fails.
+    pub fn list_all_notes(&self) -> Result<Vec<(PathBuf, NoteRecord)>, DbError> {
+        let mut results = Vec::new();
+        
+        for item in self.notes.iter() {
+            let (key, value) = item?;
+            let (path, _): (PathBuf, usize) =
+                bincode::decode_from_slice(&key, bincode::config::standard())?;
+            let (note, _): (NoteRecord, usize) =
+                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            results.push((path, note));
+        }
+        
+        Ok(results)
+    }
+
+    /// Search for files whose notes contain the query string
+    ///
+    /// Uses case-insensitive substring matching. For large databases (>100 notes),
+    /// consider using a token index for better performance (future enhancement).
+    ///
+    /// # Arguments
+    /// * `query` - Search query (searches in note content)
+    ///
+    /// # Returns
+    /// Vector of (file_path, note) tuples matching the query
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if deserialization fails.
+    pub fn search_notes(&self, query: &str) -> Result<Vec<(PathBuf, NoteRecord)>, DbError> {
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
+        
+        for item in self.notes.iter() {
+            let (key, value) = item?;
+            let (path, _): (PathBuf, usize) =
+                bincode::decode_from_slice(&key, bincode::config::standard())?;
+            let (note, _): (NoteRecord, usize) =
+                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            
+            // Case-insensitive search in content
+            if note.content.to_lowercase().contains(&query_lower) {
+                results.push((path, note));
+            }
+        }
+        
+        Ok(results)
+    }
 }
 
 impl Drop for Database {
@@ -809,5 +942,212 @@ mod tests {
 
         let files = db.find_by_tag("tag1").unwrap();
         assert_eq!(files.len(), 1);
+    }
+
+    // ==================== Note Tests ====================
+
+    #[test]
+    fn test_set_and_get_note() {
+        let test_db = TestDb::new("test_set_and_get_note");
+        let db = test_db.db();
+
+        let file = TempFile::create("note_test.txt").unwrap();
+        let note = NoteRecord::new("Test note content".to_string());
+
+        // Set note
+        db.set_note(file.path(), note.clone()).unwrap();
+
+        // Get note
+        let retrieved = db.get_note(file.path()).unwrap();
+        assert_eq!(retrieved, Some(note));
+    }
+
+    #[test]
+    fn test_update_note() {
+        let test_db = TestDb::new("test_update_note");
+        let db = test_db.db();
+
+        let file = TempFile::create("update_test.txt").unwrap();
+        let note1 = NoteRecord::new("Original content".to_string());
+        let mut note2 = NoteRecord::new("Updated content".to_string());
+        note2.metadata.created_at = note1.metadata.created_at; // Keep same creation time
+
+        // Set initial note
+        db.set_note(file.path(), note1).unwrap();
+
+        // Update note
+        db.set_note(file.path(), note2.clone()).unwrap();
+
+        // Verify update
+        let retrieved = db.get_note(file.path()).unwrap().unwrap();
+        assert_eq!(retrieved.content, "Updated content");
+    }
+
+    #[test]
+    fn test_delete_note() {
+        let test_db = TestDb::new("test_delete_note");
+        let db = test_db.db();
+
+        let file = TempFile::create("delete_test.txt").unwrap();
+        let note = NoteRecord::new("To be deleted".to_string());
+
+        // Set note
+        db.set_note(file.path(), note).unwrap();
+        assert!(db.get_note(file.path()).unwrap().is_some());
+
+        // Delete note
+        let deleted = db.delete_note(file.path()).unwrap();
+        assert!(deleted);
+
+        // Verify deletion
+        assert!(db.get_note(file.path()).unwrap().is_none());
+
+        // Delete again should return false
+        let deleted_again = db.delete_note(file.path()).unwrap();
+        assert!(!deleted_again);
+    }
+
+    #[test]
+    fn test_get_nonexistent_note() {
+        let test_db = TestDb::new("test_get_nonexistent_note");
+        let db = test_db.db();
+
+        let file = TempFile::create("nonexistent.txt").unwrap();
+        let result = db.get_note(file.path()).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_list_all_notes() {
+        let test_db = TestDb::new("test_list_all_notes");
+        let db = test_db.db();
+
+        let file1 = TempFile::create("file1.txt").unwrap();
+        let file2 = TempFile::create("file2.txt").unwrap();
+        let file3 = TempFile::create("file3.txt").unwrap();
+
+        let note1 = NoteRecord::new("Note 1".to_string());
+        let note2 = NoteRecord::new("Note 2".to_string());
+
+        // Add notes to file1 and file2
+        db.set_note(file1.path(), note1).unwrap();
+        db.set_note(file2.path(), note2).unwrap();
+
+        // file3 has no note
+
+        let all_notes = db.list_all_notes().unwrap();
+        assert_eq!(all_notes.len(), 2);
+
+        let paths: Vec<PathBuf> = all_notes.iter().map(|(p, _)| p.clone()).collect();
+        assert!(paths.contains(&file1.path().to_path_buf()));
+        assert!(paths.contains(&file2.path().to_path_buf()));
+        assert!(!paths.contains(&file3.path().to_path_buf()));
+    }
+
+    #[test]
+    fn test_search_notes_basic() {
+        let test_db = TestDb::new("test_search_notes_basic");
+        let db = test_db.db();
+
+        let file1 = TempFile::create("rust_file.txt").unwrap();
+        let file2 = TempFile::create("python_file.txt").unwrap();
+        let _file3 = TempFile::create("empty_file.txt").unwrap();
+
+        db.set_note(file1.path(), NoteRecord::new("rust programming".to_string()))
+            .unwrap();
+        db.set_note(
+            file2.path(),
+            NoteRecord::new("python scripting".to_string()),
+        )
+        .unwrap();
+
+        // Search for "rust"
+        let results = db.search_notes("rust").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, file1.path().to_path_buf());
+
+        // Search for "programming"
+        let results = db.search_notes("programming").unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Search for non-existent term
+        let results = db.search_notes("java").unwrap();
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_search_notes_case_insensitive() {
+        let test_db = TestDb::new("test_search_notes_case");
+        let db = test_db.db();
+
+        let file = TempFile::create("test.txt").unwrap();
+        db.set_note(
+            file.path(),
+            NoteRecord::new("Rust Programming Language".to_string()),
+        )
+        .unwrap();
+
+        // All these should match
+        assert_eq!(db.search_notes("rust").unwrap().len(), 1);
+        assert_eq!(db.search_notes("RUST").unwrap().len(), 1);
+        assert_eq!(db.search_notes("RuSt").unwrap().len(), 1);
+        assert_eq!(db.search_notes("programming").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_search_notes_partial_match() {
+        let test_db = TestDb::new("test_search_notes_partial");
+        let db = test_db.db();
+
+        let file = TempFile::create("test.txt").unwrap();
+        db.set_note(file.path(), NoteRecord::new("async/await in rust".to_string()))
+            .unwrap();
+
+        // Partial matches should work
+        assert_eq!(db.search_notes("async").unwrap().len(), 1);
+        assert_eq!(db.search_notes("await").unwrap().len(), 1);
+        assert_eq!(db.search_notes("rus").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_note_with_metadata() {
+        let test_db = TestDb::new("test_note_metadata");
+        let db = test_db.db();
+
+        let file = TempFile::create("metadata_test.txt").unwrap();
+        let note = NoteRecord {
+            content: "Test content".to_string(),
+            metadata: NoteMeta {
+                created_at: 1234567890,
+                updated_at: 1234567890,
+                author: Some("testuser".to_string()),
+                priority: Some(5),
+            },
+            attachments: vec!["attachment1.pdf".to_string()],
+        };
+
+        db.set_note(file.path(), note.clone()).unwrap();
+        let retrieved = db.get_note(file.path()).unwrap().unwrap();
+
+        assert_eq!(retrieved.metadata.author, Some("testuser".to_string()));
+        assert_eq!(retrieved.metadata.priority, Some(5));
+        assert_eq!(retrieved.attachments.len(), 1);
+    }
+
+    #[test]
+    fn test_note_update_content_helper() {
+        let mut note = NoteRecord::new("Original".to_string());
+        let original_created = note.metadata.created_at;
+        let original_updated = note.metadata.updated_at;
+
+        // Sleep to ensure next timestamp will be different
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        note.update_content("Updated".to_string());
+
+        assert_eq!(note.content, "Updated");
+        assert_eq!(note.metadata.created_at, original_created);
+        assert!(note.metadata.updated_at >= original_updated);
+        // Note: >= instead of > because system time might not advance on all platforms
     }
 }
