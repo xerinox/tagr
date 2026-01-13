@@ -437,7 +437,7 @@ fn execute_search(args: &SearchArgs, db: &Database, path_format: config::PathFor
 // ==================== Helpers ====================
 
 /// Create a temporary file for note editing
-fn create_temp_note_file(content: &str) -> Result<PathBuf, NoteError> {
+pub fn create_temp_note_file(content: &str) -> Result<PathBuf, NoteError> {
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!("tagr_note_{}.md", std::process::id()));
 

@@ -4,6 +4,7 @@
 //! and delegates business logic to `browse::actions`.
 
 use crate::browse::{actions, models::ActionOutcome};
+use crate::commands::note::create_temp_note_file;
 use crate::db::Database;
 use crate::keybinds::prompts::{PromptError, prompt_for_confirmation, prompt_for_input};
 use crate::keybinds::{ActionResult, BrowseAction};
@@ -59,6 +60,8 @@ impl ActionExecutor {
             BrowseAction::ToggleTagDisplay => Self::execute_toggle_tag_display(context),
             BrowseAction::ShowDetails => Self::execute_show_details(context),
             BrowseAction::FilterExtension => Self::execute_filter_extension(context),
+            BrowseAction::EditNote => Self::execute_edit_note(context),
+            BrowseAction::ToggleNotePreview => Self::execute_toggle_note_preview(context),
             BrowseAction::SelectAll => Self::execute_select_all(context),
             BrowseAction::ClearSelection => Self::execute_clear_selection(context),
             BrowseAction::ShowHelp => Self::execute_show_help(context),
@@ -254,6 +257,76 @@ impl ActionExecutor {
         let outcome = actions::execute_copy_files(&files, &dest_dir, true);
 
         Ok(outcome.into())
+    }
+
+    /// Execute the `EditNote` action.
+    fn execute_edit_note(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+        let file_to_edit = if let Some(file) = context.current_file {
+            file
+        } else if let Some(file) = context.selected_files.first() {
+            file
+        } else {
+            return Err(ExecutorError::NoSelection);
+        };
+
+        // Get editor from environment
+        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+
+        // Get existing note or create new one
+        let existing_note = context.db.get_note(file_to_edit)?;
+        let initial_content = existing_note
+            .as_ref()
+            .map(|n| n.content.clone())
+            .unwrap_or_default();
+
+        // Create temp file with initial content
+        let temp_path = create_temp_note_file(&initial_content)
+            .map_err(|e| ExecutorError::ExecutionFailed(e.to_string()))?;
+
+        // Open editor
+        let status = std::process::Command::new(&editor)
+            .arg(&temp_path)
+            .status()
+            .map_err(|e| ExecutorError::ExecutionFailed(format!("Failed to launch editor: {e}")))?;
+
+        if !status.success() {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(ExecutorError::ExecutionFailed(format!(
+                "Editor exited with status: {status}"
+            )));
+        }
+
+        // Read updated content
+        let updated_content = std::fs::read_to_string(&temp_path)?;
+        let _ = std::fs::remove_file(&temp_path);
+
+        // Save note
+        let note = if let Some(mut existing) = existing_note {
+            existing.update_content(updated_content);
+            existing
+        } else {
+            crate::db::NoteRecord::new(updated_content)
+        };
+
+        context.db.set_note(file_to_edit, note)?;
+
+        Ok(ActionResult::Message(format!(
+            "✓ Updated note for {}",
+            file_to_edit.display()
+        )))
+    }
+
+    /// Execute the `ToggleNotePreview` action.
+    ///
+    /// **Note**: This action is handled by the TUI layer since it controls
+    /// preview state. This executor just returns a signal to toggle the preview.
+    /// The actual preview rendering is done in the preview system.
+    #[allow(clippy::unnecessary_wraps)]
+    fn execute_toggle_note_preview(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+        // TUI layer will intercept this and toggle preview mode
+        Ok(ActionResult::Message(
+            "Preview mode toggled (handled by TUI layer)".to_string(),
+        ))
     }
 
     /// Execute the `ToggleTagDisplay` action.

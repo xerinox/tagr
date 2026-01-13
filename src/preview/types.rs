@@ -37,6 +37,18 @@ pub enum PreviewContent {
         truncated: bool,
     },
 
+    /// Note content attached to a file
+    Note {
+        /// Note content (markdown)
+        content: String,
+        /// Creation timestamp
+        created_at: i64,
+        /// Last update timestamp
+        updated_at: i64,
+        /// Optional author
+        author: Option<String>,
+    },
+
     /// Empty file
     Empty,
 
@@ -134,6 +146,20 @@ impl std::fmt::Display for PreviewContent {
                 }
                 Ok(())
             }
+            Self::Note {
+                content,
+                created_at,
+                updated_at,
+                author,
+            } => {
+                write!(f, "📝 Note\n")?;
+                write!(f, "Created: {}\n", format_timestamp(*created_at))?;
+                write!(f, "Updated: {}\n", format_timestamp(*updated_at))?;
+                if let Some(author_name) = author {
+                    write!(f, "Author: {author_name}\n")?;
+                }
+                write!(f, "\n{}", content.trim())
+            }
             Self::Empty => write!(f, "Empty file (0 bytes)"),
             Self::Error(msg) => write!(f, "Error: {msg}"),
         }
@@ -187,4 +213,15 @@ fn format_image_metadata(metadata: &ImageMetadata) -> String {
     }
 
     output
+}
+
+/// Format Unix timestamp as human-readable string
+fn format_timestamp(timestamp: i64) -> String {
+    use chrono::{DateTime, Local, TimeZone};
+
+    Local
+        .timestamp_opt(timestamp, 0)
+        .single()
+        .map(|dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
