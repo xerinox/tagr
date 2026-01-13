@@ -60,6 +60,9 @@ pub enum TagrError {
     /// Schema error
     #[error("Schema error: {0}")]
     SchemaError(#[from] schema::SchemaError),
+    /// Note error
+    #[error("Note error: {0}")]
+    NoteError(#[from] commands::note::NoteError),
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),

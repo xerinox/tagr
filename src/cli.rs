@@ -1175,6 +1175,16 @@ pub enum Commands {
         #[command(flatten)]
         db_args: DbArgs,
     },
+
+    /// Manage file notes and descriptions
+    #[command(visible_alias = "n")]
+    Note {
+        #[command(subcommand)]
+        command: crate::commands::note::NoteSubcommand,
+
+        #[command(flatten)]
+        db_args: DbArgs,
+    },
 }
 
 impl Commands {
