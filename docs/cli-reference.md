@@ -42,6 +42,9 @@ tagr untag
 # List files or tags
 tagr list
 
+# File notes
+tagr note
+
 # Cleanup database
 tagr cleanup
 
@@ -340,6 +343,151 @@ tagr filter export --output team-filters.toml
 
 # Import filters
 tagr filter import team-filters.toml --overwrite
+```
+
+---
+
+## Note Command
+
+Attach and manage markdown notes for files.
+
+### note edit
+
+Edit note in $EDITOR:
+
+```bash
+# Edit note for one file
+tagr note edit config.toml
+
+# Edit notes for multiple files
+tagr note edit file1.txt file2.txt
+
+# Use specific editor
+tagr note edit README.md --editor nvim
+```
+
+### note add
+
+Append timestamped entry (quick workflow):
+
+```bash
+# Add first entry
+tagr note add refactor.rs "Started breaking into smaller modules"
+# Creates:
+# ### 2026-01-14 10:30
+# 
+# Started breaking into smaller modules
+
+# Add subsequent entry
+tagr note add refactor.rs "Completed refactor, tests passing"
+# Appends:
+# ---
+# ### 2026-01-14 15:45
+# 
+# Completed refactor, tests passing
+```
+
+Timestamp format: `### YYYY-MM-DD HH:MM` (markdown H3 heading)  
+Separator: `---` (horizontal rule)
+
+### note show
+
+Display note content:
+
+```bash
+# Show note (plain text)
+tagr note show file.txt
+
+# Show with metadata
+tagr note show file.txt --verbose
+
+# JSON output
+tagr note show file.txt --format json
+
+# Quiet mode (just file path if note exists)
+tagr note show file.txt --format quiet
+```
+
+### note search
+
+Search note content:
+
+```bash
+# Find notes containing "TODO"
+tagr note search "TODO"
+
+# Show content snippets
+tagr note search "refactor" --show-content
+
+# Quiet output for piping
+tagr note search "bug" --format quiet | xargs -I {} echo "File: {}"
+
+# JSON output
+tagr note search "urgent" --format json
+```
+
+### note list
+
+List all files with notes:
+
+```bash
+# List files (one per line)
+tagr note list
+
+# Show metadata
+tagr note list --verbose
+
+# JSON output
+tagr note list --format json
+```
+
+### note delete
+
+Remove notes from files:
+
+```bash
+# Delete note from one file
+tagr note delete old-file.txt
+
+# Delete from multiple files
+tagr note delete file1.txt file2.txt
+
+# Preview deletion
+tagr note delete *.tmp --dry-run
+
+# Skip confirmation
+tagr note delete file.txt --yes
+```
+
+### Notes in TUI
+
+Browse mode (`tagr browse`) integration:
+
+- **Ctrl+N**: Edit note for selected file
+- **Alt+N**: Toggle file/note preview
+- **📝 icon**: Indicates files with notes
+- **"📝 Notes Only"**: Special category for files with notes but no tags
+
+### Output Formats
+
+All note commands support `--format` flag:
+
+```bash
+--format text    # Human-readable (default)
+--format json    # Structured JSON for scripting
+--format quiet   # Minimal output (paths only)
+```
+
+### Configuration
+
+Configure in `~/.config/tagr/config.toml`:
+
+```toml
+[notes]
+storage = "integrated"        # Database storage
+editor = "nvim"               # Override $EDITOR
+max_note_size_kb = 100       # Size limit warning
+default_template = ""        # Pre-populate new notes
 ```
 
 ---

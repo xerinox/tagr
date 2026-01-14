@@ -528,13 +528,16 @@ fn format_note_timestamp(timestamp: i64) -> String {
 fn append_note_entry(existing: &str, new_content: &str) -> String {
     let timestamp = chrono::Utc::now().timestamp();
     let formatted_time = format_note_timestamp(timestamp);
-    
+
     if existing.trim().is_empty() {
         // First entry - no leading separator
         format!("### {}\n\n{}", formatted_time, new_content)
     } else {
         // Append to existing - add horizontal rule and heading
-        format!("{}\n\n---\n### {}\n\n{}", existing, formatted_time, new_content)
+        format!(
+            "{}\n\n---\n### {}\n\n{}",
+            existing, formatted_time, new_content
+        )
     }
 }
 
@@ -636,7 +639,7 @@ mod tests {
     fn test_append_note_entry_existing() {
         let existing = "### 2026-01-14 10:30\n\nFirst note";
         let result = append_note_entry(existing, "Second note");
-        
+
         // Should contain both entries
         assert!(result.contains("First note"));
         assert!(result.contains("Second note"));

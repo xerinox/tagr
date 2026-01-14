@@ -107,7 +107,7 @@ impl StyledPreview {
         // Note content with markdown syntax highlighting
         #[cfg(feature = "syntax-highlighting")]
         let content_lines = Self::highlight_markdown(&note_record.content);
-        
+
         #[cfg(not(feature = "syntax-highlighting"))]
         let content_lines: Vec<Line<'static>> = note_record
             .content
@@ -135,31 +135,29 @@ impl StyledPreview {
 
         let syntax_set = SyntaxSet::load_defaults_newlines();
         let theme_set = ThemeSet::load_defaults();
-        
+
         let syntax = syntax_set
             .find_syntax_by_extension("md")
             .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
-        
+
         let theme = &theme_set.themes["base16-ocean.dark"];
         let mut highlighter = HighlightLines::new(syntax, theme);
 
         content
             .lines()
             .map(|line| {
-                highlighter
-                    .highlight_line(line, &syntax_set)
-                    .map_or_else(
-                        |_| Line::raw(line.to_string()),
-                        |ranges| {
-                            let spans: Vec<Span<'static>> = ranges
-                                .iter()
-                                .map(|(style, text)| {
-                                    Span::styled(text.to_string(), syntect_to_ratatui(style))
-                                })
-                                .collect();
-                            Line::from(spans)
-                        },
-                    )
+                highlighter.highlight_line(line, &syntax_set).map_or_else(
+                    |_| Line::raw(line.to_string()),
+                    |ranges| {
+                        let spans: Vec<Span<'static>> = ranges
+                            .iter()
+                            .map(|(style, text)| {
+                                Span::styled(text.to_string(), syntect_to_ratatui(style))
+                            })
+                            .collect();
+                        Line::from(spans)
+                    },
+                )
             })
             .collect()
     }
