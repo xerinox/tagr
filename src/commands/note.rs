@@ -53,7 +53,6 @@ pub enum OutputFormat {
     Quiet,
 }
 
-
 /// Arguments for the show subcommand
 #[derive(Debug, Clone, Args)]
 pub struct ShowArgs {

@@ -768,7 +768,23 @@ impl AppState {
 
         self.file_preview_items = files
             .iter()
-            .map(|path| DisplayItem::new(path.clone(), path.clone(), path.clone()))
+            .map(|path| {
+                // Check if file has a note
+                let has_note = self
+                    .database
+                    .as_ref()
+                    .and_then(|db| {
+                        std::path::Path::new(path)
+                            .canonicalize()
+                            .ok()
+                            .and_then(|canonical| db.get_note(&canonical).ok().flatten())
+                    })
+                    .is_some();
+
+                let mut item = DisplayItem::new(path.clone(), path.clone(), path.clone());
+                item.metadata.has_note = has_note;
+                item
+            })
             .collect();
 
         // Save unfiltered list for search filtering

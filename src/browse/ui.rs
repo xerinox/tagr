@@ -421,6 +421,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     index: Some(tag_meta.file_count), // Store file_count for tag tree
                     tags: vec![],
                     exists: true,
+                    has_note: false, // Tags don't have notes
                 };
 
                 DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
@@ -442,10 +443,19 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
                 let display = format!("{path_display}{tags_display}");
 
+                // Check if file has a note
+                let has_note = file_meta
+                    .path
+                    .canonicalize()
+                    .ok()
+                    .and_then(|canonical| self.session.db().get_note(&canonical).ok().flatten())
+                    .is_some();
+
                 let metadata = crate::ui::ItemMetadata {
                     index: Some(index),
                     tags: file_meta.tags.clone(),
                     exists: file_meta.cached.exists,
+                    has_note,
                 };
 
                 DisplayItem::with_metadata(item.id.clone(), display, path_str, metadata)

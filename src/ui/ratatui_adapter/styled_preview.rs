@@ -75,21 +75,10 @@ impl StyledPreview {
     pub fn note(note_record: &crate::db::NoteRecord) -> Self {
         use chrono::{Local, TimeZone};
 
-        let title_style = Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD);
         let dim_style = Style::default().fg(Color::DarkGray);
         let content_style = Style::default().fg(Color::White);
 
         let mut lines = Vec::new();
-
-        // Header with metadata
-        lines.push(Line::from(vec![
-            Span::styled("📝 ", title_style),
-            Span::styled("Note", title_style),
-        ]));
-
-        lines.push(Line::raw(""));
 
         // Metadata section
         let created = Local
@@ -137,7 +126,7 @@ impl StyledPreview {
             lines,
             truncated: false,
             total_lines: total_lines + 8, // +8 for header lines
-            title: String::from(" 📝 Note Preview "),
+            title: String::from(" Note "),
         }
     }
 

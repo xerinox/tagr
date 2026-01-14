@@ -97,6 +97,8 @@ pub struct ItemMetadata {
     pub tags: Vec<String>,
     /// Whether the item exists (e.g., file exists on disk)
     pub exists: bool,
+    /// Whether the item has a note attached
+    pub has_note: bool,
     /// Optional index for ordering
     pub index: Option<usize>,
 }

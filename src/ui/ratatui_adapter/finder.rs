@@ -513,6 +513,15 @@ impl RatatuiFinder {
                     .unwrap_or(&item.key);
                 spans.push(Span::styled(display.to_string(), text_style));
 
+                // Add right-aligned note indicator if file has a note
+                if item.metadata.has_note {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(
+                        "",
+                        ratatui::style::Style::default().fg(Color::Cyan).dim(),
+                    ));
+                }
+
                 let line = Line::from(spans);
 
                 if is_cursor {

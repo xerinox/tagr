@@ -115,6 +115,17 @@ impl<'a> ItemList<'a> {
         // Use searchable (plain text) and apply ratatui styling
         spans.push(Span::styled(item.searchable.clone(), text_style));
 
+        // Add right-aligned note indicator if file has a note
+        if item.metadata.has_note {
+            // Calculate padding to right-align the icon
+            // Area width is unknown here, so we'll add it at fixed position
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                "",
+                ratatui::style::Style::default().fg(Color::Cyan).dim(),
+            ));
+        }
+
         let line = Line::from(spans);
 
         if is_cursor {

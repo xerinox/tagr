@@ -417,8 +417,7 @@ mod tests {
             no_hierarchy: false,
         };
 
-        let err = normalize_bulk_params(&mut params)
-            .expect_err("should error");
+        let err = normalize_bulk_params(&mut params).expect_err("should error");
         match err {
             TagrError::PatternError(_) => {}
             _ => panic!("Expected PatternError for glob-like tag token"),
