@@ -688,21 +688,23 @@ mod tests {
     #[test]
     fn test_session_starts_at_file_phase_with_initial_search() {
         let db = TestDb::new("test_session_file_phase");
-        let mut config = BrowseConfig::default();
-        config.initial_search = Some(SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        });
+        let config = BrowseConfig {
+            initial_search: Some(SearchParams {
+                query: None,
+                tags: vec!["rust".to_string()],
+                tag_mode: crate::cli::SearchMode::Any,
+                file_patterns: vec![],
+                file_mode: crate::cli::SearchMode::All,
+                exclude_tags: vec![],
+                regex_tag: false,
+                regex_file: false,
+                glob_files: false,
+                virtual_tags: vec![],
+                virtual_mode: crate::cli::SearchMode::All,
+                no_hierarchy: false,
+            }),
+            ..Default::default()
+        };
 
         let session = BrowseSession::new(db.db(), config).unwrap();
 
@@ -765,21 +767,23 @@ mod tests {
             ))
             .unwrap();
 
-        let mut config = BrowseConfig::default();
-        config.initial_search = Some(SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        });
+        let config = BrowseConfig {
+            initial_search: Some(SearchParams {
+                query: None,
+                tags: vec!["rust".to_string()],
+                tag_mode: crate::cli::SearchMode::Any,
+                file_patterns: vec![],
+                file_mode: crate::cli::SearchMode::All,
+                exclude_tags: vec![],
+                regex_tag: false,
+                regex_file: false,
+                glob_files: false,
+                virtual_tags: vec![],
+                virtual_mode: crate::cli::SearchMode::All,
+                no_hierarchy: false,
+            }),
+            ..Default::default()
+        };
 
         let mut session = BrowseSession::new(db.db(), config).unwrap();
 
@@ -818,21 +822,23 @@ mod tests {
             .insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["test".into()]))
             .unwrap();
 
-        let mut config = BrowseConfig::default();
-        config.initial_search = Some(SearchParams {
-            query: None,
-            tags: vec!["test".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        });
+        let config = BrowseConfig {
+            initial_search: Some(SearchParams {
+                query: None,
+                tags: vec!["test".to_string()],
+                tag_mode: crate::cli::SearchMode::Any,
+                file_patterns: vec![],
+                file_mode: crate::cli::SearchMode::All,
+                exclude_tags: vec![],
+                regex_tag: false,
+                regex_file: false,
+                glob_files: false,
+                virtual_tags: vec![],
+                virtual_mode: crate::cli::SearchMode::All,
+                no_hierarchy: false,
+            }),
+            ..Default::default()
+        };
 
         let session = BrowseSession::new(db.db(), config).unwrap();
 
@@ -968,7 +974,7 @@ mod tests {
         // Create 10 files (well below threshold)
         let mut files = vec![];
         for i in 0..10 {
-            let file = TempFile::create(&format!("file{i}.txt")).unwrap();
+            let file = TempFile::create(format!("file{i}.txt")).unwrap();
             db.db()
                 .insert_pair(&Pair::new(
                     file.path().to_path_buf(),
@@ -978,21 +984,23 @@ mod tests {
             files.push(file);
         }
 
-        let mut config = BrowseConfig::default();
-        config.initial_search = Some(SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        });
+        let config = BrowseConfig {
+            initial_search: Some(SearchParams {
+                query: None,
+                tags: vec!["rust".to_string()],
+                tag_mode: crate::cli::SearchMode::Any,
+                file_patterns: vec![],
+                file_mode: crate::cli::SearchMode::All,
+                exclude_tags: vec![],
+                regex_tag: false,
+                regex_file: false,
+                glob_files: false,
+                virtual_tags: vec![],
+                virtual_mode: crate::cli::SearchMode::All,
+                no_hierarchy: false,
+            }),
+            ..Default::default()
+        };
 
         let mut session = BrowseSession::new(db.db(), config).unwrap();
         assert_eq!(session.current_phase().items.len(), 10);
@@ -1048,21 +1056,23 @@ mod tests {
             ))
             .unwrap();
 
-        let mut config = BrowseConfig::default();
-        config.initial_search = Some(SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec!["cli".to_string()],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        });
+        let config = BrowseConfig {
+            initial_search: Some(SearchParams {
+                query: None,
+                tags: vec!["rust".to_string()],
+                tag_mode: crate::cli::SearchMode::Any,
+                file_patterns: vec![],
+                file_mode: crate::cli::SearchMode::All,
+                exclude_tags: vec!["cli".to_string()],
+                regex_tag: false,
+                regex_file: false,
+                glob_files: false,
+                virtual_tags: vec![],
+                virtual_mode: crate::cli::SearchMode::All,
+                no_hierarchy: false,
+            }),
+            ..Default::default()
+        };
 
         let mut session = BrowseSession::new(db.db(), config).unwrap();
         assert_eq!(session.current_phase().items.len(), 1); // file1 only
@@ -1102,21 +1112,23 @@ mod tests {
             .insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
             .unwrap();
 
-        let mut config = BrowseConfig::default();
-        config.initial_search = Some(SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        });
+        let config = BrowseConfig {
+            initial_search: Some(SearchParams {
+                query: None,
+                tags: vec!["rust".to_string()],
+                tag_mode: crate::cli::SearchMode::Any,
+                file_patterns: vec![],
+                file_mode: crate::cli::SearchMode::All,
+                exclude_tags: vec![],
+                regex_tag: false,
+                regex_file: false,
+                glob_files: false,
+                virtual_tags: vec![],
+                virtual_mode: crate::cli::SearchMode::All,
+                no_hierarchy: false,
+            }),
+            ..Default::default()
+        };
 
         let mut session = BrowseSession::new(db.db(), config).unwrap();
 

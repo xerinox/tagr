@@ -149,12 +149,9 @@ fn handle_normal_mode(
     // Check custom keybinds first
     if let Some(action) = custom_binds.get(&key) {
         // Special case: actions that should be handled inline without exiting
-        match action.as_str() {
-            "toggle_note_preview" => {
-                state.toggle_preview_mode();
-                return EventResult::PreviewChanged;
-            }
-            _ => {}
+        if action.as_str() == "toggle_note_preview" {
+            state.toggle_preview_mode();
+            return EventResult::PreviewChanged;
         }
 
         // Actions that require text input open the modal

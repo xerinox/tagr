@@ -647,7 +647,7 @@ impl Database {
     /// Returns `DbError` if path contains invalid UTF-8 or serialization fails.
     pub fn set_note<P: AsRef<Path>>(&self, file: P, note: NoteRecord) -> Result<(), DbError> {
         let file_path = file.as_ref();
-        let key = bincode::encode_to_vec(&file_path, bincode::config::standard())?;
+        let key = bincode::encode_to_vec(file_path, bincode::config::standard())?;
         let value = bincode::encode_to_vec(&note, bincode::config::standard())?;
         self.notes.insert(key, value)?;
 
@@ -674,7 +674,7 @@ impl Database {
     ///
     /// Returns `DbError` if deserialization fails.
     pub fn get_note<P: AsRef<Path>>(&self, file: P) -> Result<Option<NoteRecord>, DbError> {
-        let key = bincode::encode_to_vec(&file.as_ref(), bincode::config::standard())?;
+        let key = bincode::encode_to_vec(file.as_ref(), bincode::config::standard())?;
 
         if let Some(value) = self.notes.get(key)? {
             let (note, _): (NoteRecord, usize) =
@@ -702,7 +702,7 @@ impl Database {
     /// Returns `DbError` if database operation fails.
     pub fn delete_note<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
         let file_path = file.as_ref();
-        let key = bincode::encode_to_vec(&file_path, bincode::config::standard())?;
+        let key = bincode::encode_to_vec(file_path, bincode::config::standard())?;
         let was_deleted = self.notes.remove(key.clone())?.is_some();
 
         if was_deleted {

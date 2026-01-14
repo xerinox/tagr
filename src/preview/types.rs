@@ -152,11 +152,11 @@ impl std::fmt::Display for PreviewContent {
                 updated_at,
                 author,
             } => {
-                write!(f, "📝 Note\n")?;
-                write!(f, "Created: {}\n", format_timestamp(*created_at))?;
-                write!(f, "Updated: {}\n", format_timestamp(*updated_at))?;
+                writeln!(f, "📝 Note")?;
+                writeln!(f, "Created: {}", format_timestamp(*created_at))?;
+                writeln!(f, "Updated: {}", format_timestamp(*updated_at))?;
                 if let Some(author_name) = author {
-                    write!(f, "Author: {author_name}\n")?;
+                    writeln!(f, "Author: {author_name}")?;
                 }
                 write!(f, "\n{}", content.trim())
             }

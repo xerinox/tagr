@@ -42,9 +42,10 @@ pub struct EditArgs {
 }
 
 /// Output format for note display
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum OutputFormat {
     /// Plain text output (default)
+    #[default]
     Text,
     /// JSON output for scripting
     Json,
@@ -52,11 +53,6 @@ pub enum OutputFormat {
     Quiet,
 }
 
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Text
-    }
-}
 
 /// Arguments for the show subcommand
 #[derive(Debug, Clone, Args)]

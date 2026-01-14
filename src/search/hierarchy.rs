@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_filter_by_hierarchy() {
-        let files_tags = vec![
+        let files_tags = [
             (
                 "file1.js",
                 vec!["lang:javascript".to_string(), "production".to_string()],
