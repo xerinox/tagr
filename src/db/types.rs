@@ -163,10 +163,6 @@ pub struct NoteMeta {
     pub created_at: i64,
     /// Unix timestamp when note was last updated
     pub updated_at: i64,
-    /// Optional author name
-    pub author: Option<String>,
-    /// Optional priority (0-255, higher = more important)
-    pub priority: Option<u8>,
 }
 
 impl Default for NoteMeta {
@@ -175,8 +171,6 @@ impl Default for NoteMeta {
         Self {
             created_at: now,
             updated_at: now,
-            author: None,
-            priority: None,
         }
     }
 }
@@ -193,12 +187,10 @@ impl Default for NoteMeta {
     bincode::Decode,
 )]
 pub struct NoteRecord {
-    /// Markdown content of the note
+    /// Markdown content of the note (free-form markdown with optional timestamped entries)
     pub content: String,
-    /// Note metadata (timestamps, author, etc.)
+    /// Note metadata (timestamps only)
     pub metadata: NoteMeta,
-    /// Paths or IDs to attachments (future: file-backed mode)
-    pub attachments: Vec<String>,
 }
 
 impl NoteRecord {
@@ -208,7 +200,6 @@ impl NoteRecord {
         Self {
             content,
             metadata: NoteMeta::default(),
-            attachments: Vec::new(),
         }
     }
 

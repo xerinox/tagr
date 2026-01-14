@@ -232,12 +232,6 @@ fn execute_show(
                         );
                         println!("Created: {}", format_timestamp(note.metadata.created_at));
                         println!("Updated: {}", format_timestamp(note.metadata.updated_at));
-                        if let Some(author) = &note.metadata.author {
-                            println!("Author: {author}");
-                        }
-                        if let Some(priority) = note.metadata.priority {
-                            println!("Priority: {priority}");
-                        }
                         println!("\n{}", note.content);
                     } else {
                         println!("{}", note.content);
@@ -250,10 +244,7 @@ fn execute_show(
                         "metadata": {
                             "created_at": note.metadata.created_at,
                             "updated_at": note.metadata.updated_at,
-                            "author": note.metadata.author,
-                            "priority": note.metadata.priority,
                         },
-                        "attachments": note.attachments,
                     });
                     println!("{}", serde_json::to_string_pretty(&json)?);
                 }
@@ -378,8 +369,6 @@ fn execute_list(
                         "file": output::format_path(path, path_format),
                         "created_at": note.metadata.created_at,
                         "updated_at": note.metadata.updated_at,
-                        "author": note.metadata.author,
-                        "priority": note.metadata.priority,
                     })
                 })
                 .collect();
@@ -429,8 +418,6 @@ fn execute_search(
                         "metadata": {
                             "created_at": note.metadata.created_at,
                             "updated_at": note.metadata.updated_at,
-                            "author": note.metadata.author,
-                            "priority": note.metadata.priority,
                         },
                     });
 

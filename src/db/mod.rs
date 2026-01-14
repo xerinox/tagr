@@ -1168,18 +1168,14 @@ mod tests {
             metadata: NoteMeta {
                 created_at: 1234567890,
                 updated_at: 1234567890,
-                author: Some("testuser".to_string()),
-                priority: Some(5),
             },
-            attachments: vec!["attachment1.pdf".to_string()],
         };
 
         db.set_note(file.path(), note.clone()).unwrap();
         let retrieved = db.get_note(file.path()).unwrap().unwrap();
 
-        assert_eq!(retrieved.metadata.author, Some("testuser".to_string()));
-        assert_eq!(retrieved.metadata.priority, Some(5));
-        assert_eq!(retrieved.attachments.len(), 1);
+        assert_eq!(retrieved.metadata.created_at, 1234567890);
+        assert_eq!(retrieved.metadata.updated_at, 1234567890);
     }
 
     #[test]

@@ -101,13 +101,6 @@ impl StyledPreview {
             Span::raw(updated),
         ]));
 
-        if let Some(author) = &note_record.metadata.author {
-            lines.push(Line::from(vec![
-                Span::styled("Author:  ", dim_style),
-                Span::raw(author.clone()),
-            ]));
-        }
-
         lines.push(Line::raw(""));
         lines.push(Line::styled("─".repeat(60), dim_style));
         lines.push(Line::raw(""));

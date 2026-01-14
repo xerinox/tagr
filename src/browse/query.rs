@@ -516,10 +516,7 @@ mod tests {
                 metadata: NoteMeta {
                     created_at: 0,
                     updated_at: 0,
-                    author: None,
-                    priority: None,
                 },
-                attachments: vec![],
             },
         )
         .unwrap();
@@ -532,10 +529,7 @@ mod tests {
                 metadata: NoteMeta {
                     created_at: 0,
                     updated_at: 0,
-                    author: None,
-                    priority: None,
                 },
-                attachments: vec![],
             },
         )
         .unwrap();
