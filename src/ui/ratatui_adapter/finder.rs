@@ -10,6 +10,8 @@ use super::widgets::{
     ConfirmDialog, HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, RefineSearchOverlay,
     SearchBar, StatusBar, TextInputModal,
 };
+use crate::commands::note::create_temp_note_file;
+use crate::keybinds::actions::BrowseAction;
 use crate::ui::error::Result;
 use crate::ui::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
 use crate::ui::types::{FinderResult, PreviewPosition};
@@ -116,7 +118,13 @@ impl RatatuiFinder {
     }
 
     /// Parse a key string like "ctrl-t" into a `KeyEvent`
-    fn parse_key_string(s: &str) -> Option<KeyEvent> {
+    ///
+    /// # Examples
+    /// ```ignore
+    /// let key = RatatuiFinder::parse_key_string("ctrl-t");
+    /// assert!(key.is_some());
+    /// ```
+    pub(crate) fn parse_key_string(s: &str) -> Option<KeyEvent> {
         use crossterm::event::{KeyCode, KeyModifiers};
 
         let parts: Vec<&str> = s.split('-').collect();
@@ -686,7 +694,107 @@ impl RatatuiFinder {
             let result = poll_and_handle(&mut state, &custom_binds, Duration::from_millis(50))?;
 
             match result {
-                EventResult::Confirm(Some(ref key)) if key == "refine_search" => {
+                EventResult::Action(BrowseAction::EditNote) => {
+                    // Suspend TUI to edit note
+                    Self::cleanup_terminal()?;
+
+                    // Get current file to edit
+                    let file_to_edit = if state.is_tag_selection_phase() {
+                        // In tag selection, use file at cursor in file preview pane
+                        state
+                            .file_preview_items
+                            .get(state.file_preview_cursor)
+                            .map(|item| std::path::PathBuf::from(&item.key))
+                    } else {
+                        // In file selection, use current item
+                        state.current_key().map(std::path::PathBuf::from)
+                    };
+
+                    if let Some(file_path) = file_to_edit {
+                        // Get canonical path
+                        if let Ok(canonical_path) = file_path.canonicalize() {
+                            // Get editor from environment
+                            let editor =
+                                std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+
+                            // Get existing note or create new one
+                            let existing_note = state
+                                .database
+                                .as_ref()
+                                .and_then(|db| db.get_note(&canonical_path).ok().flatten());
+
+                            let initial_content = existing_note
+                                .as_ref()
+                                .map(|n| n.content.clone())
+                                .unwrap_or_default();
+
+                            // Create temp file
+                            if let Ok(temp_path) = create_temp_note_file(&initial_content) {
+                                // Open editor
+                                let status =
+                                    std::process::Command::new(&editor).arg(&temp_path).status();
+
+                                if let Ok(status) = status {
+                                    if status.success() {
+                                        // Read updated content
+                                        if let Ok(updated_content) =
+                                            std::fs::read_to_string(&temp_path)
+                                        {
+                                            // Save note
+                                            if let Some(db) = &state.database {
+                                                let note = if let Some(mut existing) = existing_note
+                                                {
+                                                    existing.update_content(updated_content);
+                                                    existing
+                                                } else {
+                                                    crate::db::NoteRecord::new(updated_content)
+                                                };
+
+                                                let _ = db.set_note(&canonical_path, note);
+
+                                                // Invalidate preview cache to show updated note
+                                                cached_preview_key = None;
+                                                cached_preview_mode = None;
+
+                                                // Update has_note metadata for the current item
+                                                if state.is_tag_selection_phase() {
+                                                    if let Some(item) = state
+                                                        .file_preview_items
+                                                        .get_mut(state.file_preview_cursor)
+                                                    {
+                                                        item.metadata.has_note = true;
+                                                    }
+                                                    if let Some(item) = state
+                                                        .file_preview_items_unfiltered
+                                                        .iter_mut()
+                                                        .find(|i| {
+                                                            i.key == file_path.display().to_string()
+                                                        })
+                                                    {
+                                                        item.metadata.has_note = true;
+                                                    }
+                                                } else if let Some(current_idx) =
+                                                    state.filtered_indices.get(state.cursor)
+                                                {
+                                                    if let Some(item) =
+                                                        state.items.get_mut(*current_idx as usize)
+                                                    {
+                                                        item.metadata.has_note = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                let _ = std::fs::remove_file(&temp_path);
+                            }
+                        }
+                    }
+
+                    // Resume TUI
+                    *terminal = Self::setup_terminal()?;
+                }
+                EventResult::Action(BrowseAction::RefineSearch) => {
                     // Open the refine search overlay
                     let criteria = config.search_criteria.as_ref();
                     state.enter_refine_search(
@@ -697,7 +805,7 @@ impl RatatuiFinder {
                         config.available_tags.clone(),
                     );
                 }
-                EventResult::Confirm(Some(ref key)) if key == "refine_search_done" => {
+                EventResult::RefineSearchDone => {
                     // Apply the refined search criteria - return with special action
                     if let Some(refine_state) = state.exit_refine_search() {
                         // Build a result that signals refine search was applied
@@ -709,8 +817,12 @@ impl RatatuiFinder {
                         ));
                     }
                 }
-                EventResult::Confirm(key) => {
-                    state.confirm(key);
+                EventResult::Action(action) => {
+                    // Generic action handling - store action string for result
+                    state.confirm(Some(action.as_str().to_string()));
+                }
+                EventResult::Confirm => {
+                    state.confirm(None);
                 }
                 EventResult::Abort => {
                     state.abort();
@@ -773,20 +885,20 @@ impl RatatuiFinder {
                     cached_preview_mode = None;
                     cached_preview_key = None;
                 }
-                EventResult::InputSubmitted { action_id, values } => {
+                EventResult::InputSubmitted { action, values } => {
                     // The input modal was submitted - return to caller with action info
                     return Ok(FinderResult::with_action(
                         state.selected_keys(),
-                        action_id,
+                        action.as_str().to_string(),
                         values,
                     ));
                 }
-                EventResult::ConfirmSubmitted { action_id, context } => {
+                EventResult::ConfirmSubmitted { action, context } => {
                     // Confirmation dialog was confirmed - return to caller with action info
                     // The context contains the file paths that were selected for the action
                     return Ok(FinderResult::with_action(
                         context,
-                        action_id,
+                        action.as_str().to_string(),
                         Vec::new(), // No additional values for confirmation-only actions
                     ));
                 }

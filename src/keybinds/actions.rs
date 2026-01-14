@@ -203,6 +203,81 @@ impl BrowseAction {
             _ => self.description().to_string(),
         }
     }
+
+    /// Returns whether this action requires text input before executing.
+    #[must_use]
+    pub const fn requires_input(&self) -> bool {
+        matches!(self, Self::AddTag | Self::RemoveTag)
+    }
+
+    /// Returns whether this action requires user confirmation before executing.
+    #[must_use]
+    pub const fn requires_confirmation(&self) -> bool {
+        matches!(self, Self::DeleteFromDb)
+    }
+
+    /// Returns whether this action requires special handling (e.g., terminal suspend).
+    #[must_use]
+    pub const fn requires_special_handling(&self) -> bool {
+        matches!(self, Self::EditNote | Self::RefineSearch)
+    }
+
+    /// Returns the prompt title and placeholder for input-requiring actions.
+    #[must_use]
+    pub fn input_prompt(&self) -> (String, String) {
+        match self {
+            Self::AddTag => (
+                "Add Tags".to_string(),
+                "Enter tags (space-separated)".to_string(),
+            ),
+            Self::RemoveTag => (
+                "Remove Tags".to_string(),
+                "Enter tags to remove".to_string(),
+            ),
+            _ => ("Input".to_string(), "Enter value".to_string()),
+        }
+    }
+
+    /// Returns the confirmation prompt for confirmation-requiring actions.
+    #[must_use]
+    pub fn confirmation_prompt(&self) -> (String, String) {
+        match self {
+            Self::DeleteFromDb => (
+                "Confirm Deletion".to_string(),
+                "Are you sure you want to remove this file from the database?".to_string(),
+            ),
+            _ => ("Confirm Action".to_string(), "Are you sure?".to_string()),
+        }
+    }
+
+    /// Returns the string identifier for this action (for backward compatibility).
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::AddTag => "add_tag",
+            Self::RemoveTag => "remove_tag",
+            Self::EditTags => "edit_tags",
+            Self::OpenInDefault => "open_default",
+            Self::OpenInEditor => "open_editor",
+            Self::CopyPath => "copy_path",
+            Self::CopyFiles => "copy_files",
+            Self::DeleteFromDb => "delete_from_db",
+            Self::ToggleTagDisplay => "toggle_tag_display",
+            Self::ShowDetails => "show_details",
+            Self::FilterExtension => "filter_extension",
+            Self::EditNote => "edit_note",
+            Self::ToggleNotePreview => "toggle_note_preview",
+            Self::SelectAll => "select_all",
+            Self::ClearSelection => "clear_selection",
+            Self::QuickTagSearch => "quick_search",
+            Self::GoToFile => "goto_file",
+            Self::ShowHistory => "show_history",
+            Self::BookmarkSelection => "bookmark_selection",
+            Self::RefineSearch => "refine_search",
+            Self::ShowHelp => "show_help",
+            Self::Cancel => "cancel",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -254,5 +329,34 @@ mod tests {
             BrowseAction::AddTag.description_with_editor("nvim"),
             "Add tags to selected files"
         );
+    }
+
+    #[test]
+    fn test_requires_input() {
+        assert!(BrowseAction::AddTag.requires_input());
+        assert!(BrowseAction::RemoveTag.requires_input());
+        assert!(!BrowseAction::DeleteFromDb.requires_input());
+        assert!(!BrowseAction::ShowHelp.requires_input());
+    }
+
+    #[test]
+    fn test_requires_confirmation() {
+        assert!(BrowseAction::DeleteFromDb.requires_confirmation());
+        assert!(!BrowseAction::AddTag.requires_confirmation());
+        assert!(!BrowseAction::ShowHelp.requires_confirmation());
+    }
+
+    #[test]
+    fn test_requires_special_handling() {
+        assert!(BrowseAction::EditNote.requires_special_handling());
+        assert!(BrowseAction::RefineSearch.requires_special_handling());
+        assert!(!BrowseAction::AddTag.requires_special_handling());
+    }
+
+    #[test]
+    fn test_as_str() {
+        assert_eq!(BrowseAction::AddTag.as_str(), "add_tag");
+        assert_eq!(BrowseAction::EditNote.as_str(), "edit_note");
+        assert_eq!(BrowseAction::RefineSearch.as_str(), "refine_search");
     }
 }

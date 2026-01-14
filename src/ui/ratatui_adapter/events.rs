@@ -3,6 +3,7 @@
 //! Handles keyboard and mouse events, mapping them to application actions.
 
 use super::state::{AppState, Mode};
+use crate::keybinds::actions::BrowseAction;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -12,91 +13,38 @@ use std::time::Duration;
 pub enum EventResult {
     /// Continue running the event loop
     Continue,
-    /// Exit the finder with confirmation
-    Confirm(Option<String>),
+    /// Exit with an action to execute (actions requiring special handling like edit_note)
+    Action(BrowseAction),
+    /// Exit with confirmation (enter key)
+    Confirm,
     /// Exit the finder as aborted
     Abort,
     /// Query changed, needs re-matching
     QueryChanged,
     /// Preview mode changed, needs regeneration
     PreviewChanged,
-    /// Text input submitted with action ID and values
+    /// Text input submitted with action and values
     InputSubmitted {
-        action_id: String,
+        action: BrowseAction,
         values: Vec<String>,
     },
     /// Text input cancelled
     InputCancelled,
-    /// Confirmation dialog confirmed with action ID and context
+    /// Confirmation dialog confirmed with action and context
     ConfirmSubmitted {
-        action_id: String,
+        action: BrowseAction,
         context: Vec<String>,
     },
     /// Confirmation dialog cancelled
     ConfirmCancelled,
+    /// Refine search completed with updated criteria
+    RefineSearchDone,
     /// No action taken
     Ignored,
 }
 
 /// Keybind mapping from key events to action strings
 pub type KeybindMap = HashMap<KeyEvent, String>;
-
-/// Check if an action requires text input before executing
-#[must_use]
-fn action_requires_input(action: &str) -> bool {
-    matches!(
-        action,
-        "add_tag" | "remove_tag" | "rename_tag" | "copy_tags" | "set_tags"
-    )
-}
-
-/// Get the prompt title and placeholder text for an input-requiring action
-#[must_use]
-fn get_input_prompt_for_action(action: &str) -> (String, String) {
-    match action {
-        "add_tag" => (
-            "Add Tags".to_string(),
-            "Enter tags (space-separated)".to_string(),
-        ),
-        "remove_tag" => (
-            "Remove Tags".to_string(),
-            "Enter tags to remove".to_string(),
-        ),
-        "rename_tag" => ("Rename Tag".to_string(), "old_name new_name".to_string()),
-        "copy_tags" => (
-            "Copy Tags From".to_string(),
-            "Enter source file path".to_string(),
-        ),
-        "set_tags" => (
-            "Set Tags".to_string(),
-            "Enter tags (replaces existing)".to_string(),
-        ),
-        _ => ("Input".to_string(), "Enter value".to_string()),
-    }
-}
-
-/// Check if an action requires user confirmation before executing
-#[must_use]
-fn action_requires_confirmation(action: &str) -> bool {
-    matches!(action, "delete_from_db")
-}
-
-/// Get the confirmation dialog title and message for an action
-#[must_use]
-fn get_confirm_prompt_for_action(action: &str, selected_count: usize) -> (String, String) {
-    match action {
-        "delete_from_db" => {
-            let title = "Delete from Database".to_string();
-            let message = if selected_count == 1 {
-                "Remove this file from the tagr database?".to_string()
-            } else {
-                format!("Remove {selected_count} files from the tagr database?")
-            };
-            (title, message)
-        }
-        _ => ("Confirm Action".to_string(), "Are you sure?".to_string()),
-    }
-}
 
 /// Convert a key event to a string representation (for `final_key`)
 #[must_use]
@@ -147,34 +95,44 @@ fn handle_normal_mode(
     custom_binds: &KeybindMap,
 ) -> EventResult {
     // Check custom keybinds first
-    if let Some(action) = custom_binds.get(&key) {
+    if let Some(action_str) = custom_binds.get(&key) {
+        // Parse action string to enum
+        let action = match action_str.parse::<BrowseAction>() {
+            Ok(a) => a,
+            Err(_) => return EventResult::Ignored, // Unknown action
+        };
+
         // Special case: actions that should be handled inline without exiting
-        if action.as_str() == "toggle_note_preview" {
+        if action == BrowseAction::ToggleNotePreview {
             state.toggle_preview_mode();
             return EventResult::PreviewChanged;
         }
 
+        // Special case: actions requiring special handling (terminal suspend, etc.)
+        if action.requires_special_handling() {
+            // Signal to caller to handle (e.g., suspend TUI for edit_note)
+            return EventResult::Action(action);
+        }
+
         // Actions that require text input open the modal
-        if action_requires_input(action) {
-            let (title, _placeholder) = get_input_prompt_for_action(action);
+        if action.requires_input() {
+            let (title, _placeholder) = action.input_prompt();
 
             // Get tags on selected file(s)
             let file_tags = state.get_selected_items_tags();
 
             // For remove_tag: show only tags on the file(s), no exclusions
             // For add_tag: show all available tags, exclude those already on file(s)
-            let (autocomplete_items, excluded_tags) = if action == "remove_tag" {
-                (file_tags, Vec::new())
-            } else if action.contains("tag") {
-                (state.available_tags.clone(), file_tags)
-            } else {
-                (Vec::new(), Vec::new())
+            let (autocomplete_items, excluded_tags) = match action {
+                BrowseAction::RemoveTag => (file_tags, Vec::new()),
+                BrowseAction::AddTag => (state.available_tags.clone(), file_tags),
+                _ => (Vec::new(), Vec::new()),
             };
 
-            // enter_text_input(prompt, action_id, autocomplete_items, excluded_tags, multi_value)
+            // Enter text input modal (still uses string action_id for state management)
             state.enter_text_input(
                 title,
-                action.clone(),
+                action.as_str().to_string(),
                 autocomplete_items,
                 excluded_tags,
                 true,
@@ -183,17 +141,17 @@ fn handle_normal_mode(
         }
 
         // Actions that require confirmation open the confirm dialog
-        if action_requires_confirmation(action) {
+        if action.requires_confirmation() {
             let selected_keys = state.selected_keys();
             let selected_count = selected_keys.len();
             if selected_count > 0 {
-                let (title, message) = get_confirm_prompt_for_action(action, selected_count);
-                state.enter_confirm(title, message, action.clone(), selected_keys);
+                let (title, message) = action.confirmation_prompt();
+                state.enter_confirm(title, message, action.as_str().to_string(), selected_keys);
                 return EventResult::Continue;
             }
         }
 
-        return EventResult::Confirm(Some(action.clone()));
+        return EventResult::Action(action);
     }
 
     // Handle standard keybinds
@@ -226,11 +184,11 @@ fn handle_normal_mode(
                     }
                     FocusPane::FilePreview => {
                         // Confirm selection - use multi-select if any, otherwise current file
-                        return EventResult::Confirm(Some("enter".to_string()));
+                        return EventResult::Confirm;
                     }
                 }
             }
-            EventResult::Confirm(Some("enter".to_string()))
+            EventResult::Confirm
         }
 
         // Preview scroll (Shift+Up/Down) - must be before general navigation
@@ -565,7 +523,7 @@ fn handle_refine_search_mode(state: &mut AppState, key: KeyEvent) -> EventResult
                 // Apply changes - this will be handled by the finder
                 // We signal a special action
                 state.mode = Mode::Normal;
-                EventResult::Confirm(Some("refine_search_done".to_string()))
+                EventResult::RefineSearchDone
             }
             // Navigate fields
             (KeyCode::Up | KeyCode::Char('k'), _) => {
@@ -619,7 +577,7 @@ fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
         // Submit input
         (KeyCode::Enter, _) => {
             let values = input_state.values();
-            let action_id = input_state.action_id.clone();
+            let action_str = input_state.action_id.clone();
 
             // Don't submit empty values
             if values.is_empty() {
@@ -627,8 +585,17 @@ fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
                 return EventResult::InputCancelled;
             }
 
+            // Parse action string to enum
+            let action = match action_str.parse::<BrowseAction>() {
+                Ok(a) => a,
+                Err(_) => {
+                    state.cancel_text_input();
+                    return EventResult::Ignored; // Unknown action
+                }
+            };
+
             let _ = state.exit_text_input();
-            EventResult::InputSubmitted { action_id, values }
+            EventResult::InputSubmitted { action, values }
         }
 
         // Accept autocomplete suggestion
@@ -707,8 +674,17 @@ fn handle_confirm_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
         // Confirm action
         (KeyCode::Enter | KeyCode::Char('y' | 'Y'), _) => {
             if let Some(confirm_state) = state.exit_confirm() {
+                // Parse action string to enum
+                let action = match confirm_state.action_id.parse::<BrowseAction>() {
+                    Ok(a) => a,
+                    Err(_) => {
+                        state.cancel_confirm();
+                        return EventResult::Ignored; // Unknown action
+                    }
+                };
+
                 EventResult::ConfirmSubmitted {
-                    action_id: confirm_state.action_id,
+                    action,
                     context: confirm_state.context,
                 }
             } else {
@@ -832,10 +808,10 @@ mod tests {
     fn test_custom_keybind_direct_action() {
         let mut state = make_state();
         let mut binds = KeybindMap::new();
-        // open_file doesn't require input
+        // open_editor doesn't require input
         binds.insert(
             KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
-            "open_file".to_string(),
+            "open_editor".to_string(),
         );
 
         let result = handle_normal_mode(
@@ -843,7 +819,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
             &binds,
         );
-        assert_eq!(result, EventResult::Confirm(Some("open_file".to_string())));
+        assert_eq!(result, EventResult::Action(BrowseAction::OpenInEditor));
     }
 
     #[test]
