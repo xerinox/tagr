@@ -180,6 +180,7 @@ impl TagTreeState {
     /// Build tree from flat tag list with file counts
     ///
     /// Takes tags like `["rust", "lang:rust", "lang:python"]` and builds a tree:
+    /// -  Notes Only (inferred - files with notes but no tags)
     /// - lang (inferred parent)
     ///   ├── rust
     ///   └── python
@@ -188,8 +189,19 @@ impl TagTreeState {
         let mut hierarchy_map: HashMap<String, Vec<(String, usize, bool)>> = HashMap::new();
         let mut actual_tags: HashSet<String> = HashSet::new();
 
+        // Check for notes-only tag and extract its count
+        let notes_only_count = tags
+            .iter()
+            .find(|(tag, _)| tag == crate::browse::models::NOTES_ONLY_TAG)
+            .map(|(_, count)| *count)
+            .unwrap_or(0);
+
         // First pass: identify all actual tags and their hierarchy
         for (tag, count) in tags {
+            // Skip notes-only virtual tag - we'll add it separately at the top
+            if tag == crate::browse::models::NOTES_ONLY_TAG {
+                continue;
+            }
             actual_tags.insert(tag.clone());
 
             if tag.contains(':') {
@@ -223,7 +235,21 @@ impl TagTreeState {
         }
 
         // Build tree recursively
-        self.roots = Self::build_level(&hierarchy_map, &actual_tags, "", 0);
+        let mut roots = Self::build_level(&hierarchy_map, &actual_tags, "", 0);
+
+        // Add notes-only category at the beginning if there are files with notes but no tags
+        if notes_only_count > 0 {
+            let notes_only_node = TagTreeNode::new(
+                " Notes Only".to_string(),
+                crate::browse::models::NOTES_ONLY_TAG.to_string(),
+                notes_only_count,
+                true, // Treat as actual tag for selection purposes
+                0,
+            );
+            roots.insert(0, notes_only_node);
+        }
+
+        self.roots = roots;
         self.rebuild_visible_cache();
     }
 

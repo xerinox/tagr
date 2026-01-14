@@ -226,7 +226,30 @@ impl<'a> BrowseSession<'a> {
                     return Ok(AcceptResult::Cancelled);
                 }
 
-                let items = query::get_files_by_tags(self.db, &selected_ids, SearchMode::Any)?;
+                // Check if notes-only virtual tag is selected
+                let has_notes_only = selected_ids
+                    .iter()
+                    .any(|id| id == crate::browse::models::NOTES_ONLY_TAG);
+
+                let items = if has_notes_only && selected_ids.len() == 1 {
+                    // Only notes-only selected - show files with notes but no tags
+                    query::get_notes_only_files(self.db)?
+                } else if has_notes_only {
+                    // Notes-only mixed with regular tags - get both
+                    let regular_tags: Vec<String> = selected_ids
+                        .iter()
+                        .filter(|id| *id != crate::browse::models::NOTES_ONLY_TAG)
+                        .cloned()
+                        .collect();
+                    let mut regular_files =
+                        query::get_files_by_tags(self.db, &regular_tags, SearchMode::Any)?;
+                    let mut notes_files = query::get_notes_only_files(self.db)?;
+                    regular_files.append(&mut notes_files);
+                    regular_files
+                } else {
+                    // Normal tag selection
+                    query::get_files_by_tags(self.db, &selected_ids, SearchMode::Any)?
+                };
 
                 if items.is_empty() {
                     return Ok(AcceptResult::NoData);
