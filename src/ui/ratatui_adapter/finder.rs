@@ -271,7 +271,8 @@ impl RatatuiFinder {
         // Render status bar with optional CLI preview
         let messages: Vec<_> = state.active_messages();
         let cli_preview = state.build_cli_preview();
-        let status_bar = StatusBar::new(&messages, theme).with_cli_preview(cli_preview.as_deref());
+        let status_bar = StatusBar::new(&messages, theme, state.preview_mode)
+            .with_cli_preview(cli_preview.as_deref());
         frame.render_widget(status_bar, main_layout[2]);
 
         // Render help bar
@@ -385,21 +386,11 @@ impl RatatuiFinder {
             let preview_inner = preview_block.inner(chunks[2]);
             frame.render_widget(preview_block, chunks[2]);
 
-            // Only show file content when FilePreview pane is focused
-            if is_file_focused && !state.file_preview_items.is_empty() {
-                // Get current file path from file preview
-                if let Some(current_file) = state.file_preview_items.get(state.file_preview_cursor)
-                {
-                    // Generate preview using styled_generator
-                    if let Some(generator) = &self.styled_generator
-                        && let Ok(file_preview) =
-                            generator.generate(std::path::Path::new(&current_file.key))
-                    {
-                        let preview_pane = PreviewPane::new(Some(&file_preview), theme)
-                            .scroll(state.preview_scroll);
-                        frame.render_widget(preview_pane, preview_inner);
-                    }
-                }
+            // Show preview if we have content and files to preview
+            if !state.file_preview_items.is_empty() && preview_content.is_some() {
+                let preview_pane =
+                    PreviewPane::new(preview_content, theme).scroll(state.preview_scroll);
+                frame.render_widget(preview_pane, preview_inner);
             }
             return;
         }
@@ -611,20 +602,69 @@ impl RatatuiFinder {
 
         let mut cached_preview: Option<StyledPreview> = None;
         let mut cached_preview_key: Option<String> = None;
+        let mut cached_preview_mode: Option<crate::ui::ratatui_adapter::state::PreviewMode> = None;
 
         loop {
             // Update preview if needed - prefer styled_generator (native ratatui) over preview_provider (ANSI)
             if let Some(preview_config) = &config.preview_config
                 && preview_config.enabled
-                && let Some(current_key) = state
-                    .current_key()
-                    .filter(|&k| cached_preview_key.as_deref() != Some(k))
             {
-                // Use styled_generator for native ratatui styling
-                if let Some(generator) = &self.styled_generator {
-                    cached_preview = generator.generate(Path::new(current_key)).ok();
+                use crate::ui::types::BrowsePhase;
+
+                // Get the file path to preview (phase-aware)
+                let preview_file_key = match state.phase {
+                    BrowsePhase::TagSelection => {
+                        // In tag selection, preview the file at file_preview_cursor
+                        state
+                            .file_preview_items
+                            .get(state.file_preview_cursor)
+                            .map(|item| item.key.as_str())
+                    }
+                    BrowsePhase::FileSelection => {
+                        // In file selection, use current_key
+                        state.current_key()
+                    }
+                };
+
+                if let Some(current_key) = preview_file_key {
+                    // Regenerate preview if:
+                    // 1. File changed (cached_preview_key != current_key), OR
+                    // 2. Preview mode changed (cached_preview_mode != state.preview_mode)
+                    let should_regenerate = cached_preview_key.as_deref() != Some(current_key)
+                        || cached_preview_mode != Some(state.preview_mode);
+
+                    if should_regenerate {
+                        // Generate preview based on preview mode
+                        use crate::ui::ratatui_adapter::state::PreviewMode;
+                        cached_preview = match state.preview_mode {
+                            PreviewMode::File => {
+                                // Use styled_generator for native ratatui styling
+                                self.styled_generator.as_ref().and_then(|generator| {
+                                    generator.generate(Path::new(current_key)).ok()
+                                })
+                            }
+                            PreviewMode::Note => {
+                                // Generate note preview from database
+                                // Notes are stored with canonical paths, so canonicalize before lookup
+                                let note_preview = state
+                                    .database
+                                    .as_ref()
+                                    .and_then(|db| {
+                                        Path::new(current_key).canonicalize().ok().and_then(
+                                            |canonical_path| {
+                                                db.get_note(&canonical_path).ok().flatten()
+                                            },
+                                        )
+                                    })
+                                    .map(|note| StyledPreview::note(&note))
+                                    .unwrap_or_else(StyledPreview::no_note);
+                                Some(note_preview)
+                            }
+                        };
+                        cached_preview_key = Some(current_key.to_string());
+                        cached_preview_mode = Some(state.preview_mode);
+                    }
                 }
-                cached_preview_key = Some(current_key.to_string());
             }
 
             // Render
@@ -717,6 +757,11 @@ impl RatatuiFinder {
                         }
                     }
                     // Reset preview cache when query changes
+                    cached_preview_key = None;
+                }
+                EventResult::PreviewChanged => {
+                    // Preview mode toggled - invalidate cache to force regeneration
+                    cached_preview_mode = None;
                     cached_preview_key = None;
                 }
                 EventResult::InputSubmitted { action_id, values } => {

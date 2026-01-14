@@ -77,12 +77,13 @@ pub fn execute(
         .map_err(|e| TagrError::InvalidInput(format!("Failed to load keybinds: {e}")))?;
 
     let tag_phase_settings = PhaseSettings {
-        preview_enabled: false,
-        preview_config: None,
+        preview_enabled: preview_config.is_some(),
+        preview_config: preview_config.clone(),
         keybind_config: keybind_config.clone(),
         help_text: HelpText::TagBrowser(vec![
             ("TAB".to_string(), "Multi-select".to_string()),
             ("Enter".to_string(), "Confirm selection".to_string()),
+            ("Alt+N".to_string(), "Toggle file/note preview".to_string()),
             ("ESC".to_string(), "Cancel".to_string()),
         ]),
     };

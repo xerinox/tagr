@@ -18,6 +18,8 @@ pub enum EventResult {
     Abort,
     /// Query changed, needs re-matching
     QueryChanged,
+    /// Preview mode changed, needs regeneration
+    PreviewChanged,
     /// Text input submitted with action ID and values
     InputSubmitted {
         action_id: String,
@@ -146,6 +148,15 @@ fn handle_normal_mode(
 ) -> EventResult {
     // Check custom keybinds first
     if let Some(action) = custom_binds.get(&key) {
+        // Special case: actions that should be handled inline without exiting
+        match action.as_str() {
+            "toggle_note_preview" => {
+                state.toggle_preview_mode();
+                return EventResult::PreviewChanged;
+            }
+            _ => {}
+        }
+
         // Actions that require text input open the modal
         if action_requires_input(action) {
             let (title, _placeholder) = get_input_prompt_for_action(action);
@@ -437,6 +448,12 @@ fn handle_normal_mode(
         (KeyCode::F(1) | KeyCode::Char('?'), _) => {
             state.mode = Mode::Help;
             EventResult::Continue
+        }
+
+        // Toggle preview mode (Alt+N) - switch between file content and note
+        (KeyCode::Char('n'), KeyModifiers::ALT) => {
+            state.toggle_preview_mode();
+            EventResult::PreviewChanged
         }
 
         // Query editing - / activates search mode

@@ -39,6 +39,16 @@ pub enum FocusPane {
     FilePreview,
 }
 
+/// Preview mode for the preview pane
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreviewMode {
+    /// Show file content preview
+    #[default]
+    File,
+    /// Show note content preview
+    Note,
+}
+
 /// A status message with timestamp for TTL-based expiry
 #[derive(Debug, Clone)]
 pub struct StatusMessage {
@@ -144,6 +154,8 @@ pub struct AppState {
     pub hints: Vec<KeyHint>,
     /// Preview configuration
     pub preview_config: Option<PreviewConfig>,
+    /// Current preview mode (file content or note)
+    pub preview_mode: PreviewMode,
 }
 
 impl AppState {
@@ -200,6 +212,7 @@ impl AppState {
             prompt,
             hints,
             preview_config,
+            preview_mode: PreviewMode::File,
         }
     }
 
@@ -435,6 +448,17 @@ impl AppState {
     /// Clean up expired messages
     pub fn cleanup_messages(&mut self) {
         self.messages.retain(|m| !m.is_expired(self.message_ttl));
+    }
+
+    /// Toggle preview mode between file content and note
+    pub fn toggle_preview_mode(&mut self) {
+        use super::state::PreviewMode;
+        self.preview_mode = match self.preview_mode {
+            PreviewMode::File => PreviewMode::Note,
+            PreviewMode::Note => PreviewMode::File,
+        };
+        // Reset preview scroll when toggling
+        self.preview_scroll = 0;
     }
 
     /// Mark the finder to exit with confirmation

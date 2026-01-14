@@ -69,6 +69,99 @@ impl StyledPreview {
             title: String::from(" Binary File "),
         }
     }
+
+    /// Create a preview for a note
+    #[must_use]
+    pub fn note(note_record: &crate::db::NoteRecord) -> Self {
+        use chrono::{Local, TimeZone};
+
+        let title_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+        let dim_style = Style::default().fg(Color::DarkGray);
+        let content_style = Style::default().fg(Color::White);
+
+        let mut lines = Vec::new();
+
+        // Header with metadata
+        lines.push(Line::from(vec![
+            Span::styled("📝 ", title_style),
+            Span::styled("Note", title_style),
+        ]));
+
+        lines.push(Line::raw(""));
+
+        // Metadata section
+        let created = Local
+            .timestamp_opt(note_record.metadata.created_at, 0)
+            .single()
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        lines.push(Line::from(vec![
+            Span::styled("Created: ", dim_style),
+            Span::raw(created),
+        ]));
+
+        let updated = Local
+            .timestamp_opt(note_record.metadata.updated_at, 0)
+            .single()
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        lines.push(Line::from(vec![
+            Span::styled("Updated: ", dim_style),
+            Span::raw(updated),
+        ]));
+
+        if let Some(author) = &note_record.metadata.author {
+            lines.push(Line::from(vec![
+                Span::styled("Author:  ", dim_style),
+                Span::raw(author.clone()),
+            ]));
+        }
+
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("─".repeat(60), dim_style));
+        lines.push(Line::raw(""));
+
+        // Note content
+        let content_lines: Vec<Line<'static>> = note_record
+            .content
+            .lines()
+            .map(|line| Line::styled(line.to_string(), content_style))
+            .collect();
+
+        let total_lines = content_lines.len();
+        lines.extend(content_lines);
+
+        Self {
+            lines,
+            truncated: false,
+            total_lines: total_lines + 8, // +8 for header lines
+            title: String::from(" 📝 Note Preview "),
+        }
+    }
+
+    /// Create a preview indicating no note exists
+    #[must_use]
+    pub fn no_note() -> Self {
+        let dim_style = Style::default().fg(Color::DarkGray);
+        let hint_style = Style::default().fg(Color::Yellow);
+
+        let lines = vec![
+            Line::styled("No note attached to this file", dim_style),
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled("Press ", dim_style),
+                Span::styled("Ctrl+N", hint_style.add_modifier(Modifier::BOLD)),
+                Span::styled(" to create a note", dim_style),
+            ]),
+        ];
+
+        Self {
+            lines,
+            truncated: false,
+            total_lines: 3,
+            title: String::from(" No Note "),
+        }
+    }
 }
 
 /// Generator for styled previews using native ratatui styles
