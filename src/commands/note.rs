@@ -19,6 +19,8 @@ pub struct NoteCommand {
 pub enum NoteSubcommand {
     /// Edit note for one or more files in $EDITOR
     Edit(EditArgs),
+    /// Add timestamped entry to note (append mode)
+    Add(AddArgs),
     /// Show note content for files
     Show(ShowArgs),
     /// Delete notes from files
@@ -39,6 +41,16 @@ pub struct EditArgs {
     /// Editor to use (overrides config and $EDITOR)
     #[arg(short = 'e', long = "editor")]
     pub editor: Option<String>,
+}
+
+/// Arguments for the add subcommand
+#[derive(Debug, Clone, Args)]
+pub struct AddArgs {
+    /// File to add note entry to
+    pub file: PathBuf,
+
+    /// Note content to append
+    pub content: String,
 }
 
 /// Output format for note display
@@ -129,6 +141,7 @@ impl NoteSubcommand {
     ) -> Result<(), NoteError> {
         match self {
             Self::Edit(args) => execute_edit(args, db, config),
+            Self::Add(args) => execute_add(args, db, path_format),
             Self::Show(args) => execute_show(args, db, path_format),
             Self::Delete(args) => execute_delete(args, db, path_format),
             Self::List(args) => execute_list(args, db, path_format),
@@ -202,6 +215,45 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
         db.set_note(&canonical_path, note)?;
         println!("✓ Updated note for {}", file.display());
     }
+
+    Ok(())
+}
+
+/// Add a timestamped entry to a note (append mode)
+fn execute_add(
+    args: &AddArgs,
+    db: &Database,
+    path_format: config::PathFormat,
+) -> Result<(), NoteError> {
+    let canonical_path = args.file.canonicalize().map_err(|e| {
+        NoteError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Cannot access path '{}': {}", args.file.display(), e),
+        ))
+    })?;
+
+    // Get existing note content or empty string
+    let existing_content = db
+        .get_note(&canonical_path)?
+        .map(|n| n.content)
+        .unwrap_or_default();
+
+    // Append new entry with timestamp
+    let updated_content = append_note_entry(&existing_content, &args.content);
+
+    // Save note
+    let note = if let Some(mut existing) = db.get_note(&canonical_path)? {
+        existing.update_content(updated_content);
+        existing
+    } else {
+        NoteRecord::new(updated_content)
+    };
+
+    db.set_note(&canonical_path, note)?;
+    println!(
+        "✓ Added note entry to {}",
+        output::format_path(&canonical_path, path_format)
+    );
 
     Ok(())
 }
@@ -462,6 +514,30 @@ fn format_timestamp(timestamp: i64) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Format a timestamp for note entry headers (shorter format without seconds)
+fn format_note_timestamp(timestamp: i64) -> String {
+    use chrono::{DateTime, Local, TimeZone};
+    Local
+        .timestamp_opt(timestamp, 0)
+        .single()
+        .map(|dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Append a new timestamped entry to existing note content
+fn append_note_entry(existing: &str, new_content: &str) -> String {
+    let timestamp = chrono::Utc::now().timestamp();
+    let formatted_time = format_note_timestamp(timestamp);
+    
+    if existing.trim().is_empty() {
+        // First entry - no leading newline
+        format!("[Note added {}]\n{}", formatted_time, new_content)
+    } else {
+        // Append to existing - add separator
+        format!("{}\n\n[Note added {}]\n{}", existing, formatted_time, new_content)
+    }
+}
+
 /// Create a snippet from content around the query match
 fn create_snippet(content: &str, query: &str, max_length: usize) -> String {
     let query_lower = query.to_lowercase();
@@ -546,5 +622,42 @@ mod tests {
 
         assert!(!formatted.is_empty());
         assert_ne!(formatted, "unknown");
+    }
+
+    #[test]
+    fn test_append_note_entry_first() {
+        let result = append_note_entry("", "First note");
+        assert!(result.starts_with("[Note added "));
+        assert!(result.contains("]\nFirst note"));
+        assert!(!result.starts_with('\n'));
+    }
+
+    #[test]
+    fn test_append_note_entry_existing() {
+        let existing = "[Note added 2026-01-14 10:30]\nFirst note";
+        let result = append_note_entry(existing, "Second note");
+        
+        // Should contain both entries
+        assert!(result.contains("First note"));
+        assert!(result.contains("Second note"));
+        // Should have separator between entries
+        assert!(result.contains("\n\n[Note added "));
+    }
+
+    #[test]
+    fn test_append_note_entry_whitespace() {
+        let result = append_note_entry("   \n  ", "First note");
+        // Empty/whitespace content treated as first entry
+        assert!(!result.starts_with('\n'));
+    }
+
+    #[test]
+    fn test_format_note_timestamp() {
+        let timestamp = 1705243800_i64; // 2024-01-14 10:30:00
+        let formatted = format_note_timestamp(timestamp);
+        // Should not contain seconds
+        assert!(!formatted.contains(":00"));
+        // Should contain date
+        assert!(formatted.contains("2024-01-14"));
     }
 }
