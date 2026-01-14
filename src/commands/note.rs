@@ -530,11 +530,11 @@ fn append_note_entry(existing: &str, new_content: &str) -> String {
     let formatted_time = format_note_timestamp(timestamp);
     
     if existing.trim().is_empty() {
-        // First entry - no leading newline
-        format!("[Note added {}]\n{}", formatted_time, new_content)
+        // First entry - no leading separator
+        format!("### {}\n\n{}", formatted_time, new_content)
     } else {
-        // Append to existing - add separator
-        format!("{}\n\n[Note added {}]\n{}", existing, formatted_time, new_content)
+        // Append to existing - add horizontal rule and heading
+        format!("{}\n\n---\n### {}\n\n{}", existing, formatted_time, new_content)
     }
 }
 
@@ -627,28 +627,29 @@ mod tests {
     #[test]
     fn test_append_note_entry_first() {
         let result = append_note_entry("", "First note");
-        assert!(result.starts_with("[Note added "));
-        assert!(result.contains("]\nFirst note"));
-        assert!(!result.starts_with('\n'));
+        assert!(result.starts_with("### "));
+        assert!(result.contains("\n\nFirst note"));
+        assert!(!result.contains("---")); // No separator for first entry
     }
 
     #[test]
     fn test_append_note_entry_existing() {
-        let existing = "[Note added 2026-01-14 10:30]\nFirst note";
+        let existing = "### 2026-01-14 10:30\n\nFirst note";
         let result = append_note_entry(existing, "Second note");
         
         // Should contain both entries
         assert!(result.contains("First note"));
         assert!(result.contains("Second note"));
-        // Should have separator between entries
-        assert!(result.contains("\n\n[Note added "));
+        // Should have horizontal rule separator between entries
+        assert!(result.contains("\n---\n### "));
     }
 
     #[test]
     fn test_append_note_entry_whitespace() {
         let result = append_note_entry("   \n  ", "First note");
         // Empty/whitespace content treated as first entry
-        assert!(!result.starts_with('\n'));
+        assert!(result.starts_with("### "));
+        assert!(!result.contains("---")); // No separator for first entry
     }
 
     #[test]

@@ -70,13 +70,12 @@ impl StyledPreview {
         }
     }
 
-    /// Create a preview for a note
+    /// Create a preview for a note with syntax highlighting
     #[must_use]
     pub fn note(note_record: &crate::db::NoteRecord) -> Self {
         use chrono::{Local, TimeZone};
 
         let dim_style = Style::default().fg(Color::DarkGray);
-        let content_style = Style::default().fg(Color::White);
 
         let mut lines = Vec::new();
 
@@ -105,11 +104,15 @@ impl StyledPreview {
         lines.push(Line::styled("─".repeat(60), dim_style));
         lines.push(Line::raw(""));
 
-        // Note content
+        // Note content with markdown syntax highlighting
+        #[cfg(feature = "syntax-highlighting")]
+        let content_lines = Self::highlight_markdown(&note_record.content);
+        
+        #[cfg(not(feature = "syntax-highlighting"))]
         let content_lines: Vec<Line<'static>> = note_record
             .content
             .lines()
-            .map(|line| Line::styled(line.to_string(), content_style))
+            .map(|line| Self::style_note_line(line))
             .collect();
 
         let total_lines = content_lines.len();
@@ -120,6 +123,59 @@ impl StyledPreview {
             truncated: false,
             total_lines: total_lines + 8, // +8 for header lines
             title: String::from(" Note "),
+        }
+    }
+
+    /// Highlight note content as markdown using syntect
+    #[cfg(feature = "syntax-highlighting")]
+    fn highlight_markdown(content: &str) -> Vec<Line<'static>> {
+        use syntect::easy::HighlightLines;
+        use syntect::highlighting::ThemeSet;
+        use syntect::parsing::SyntaxSet;
+
+        let syntax_set = SyntaxSet::load_defaults_newlines();
+        let theme_set = ThemeSet::load_defaults();
+        
+        let syntax = syntax_set
+            .find_syntax_by_extension("md")
+            .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
+        
+        let theme = &theme_set.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
+        content
+            .lines()
+            .map(|line| {
+                highlighter
+                    .highlight_line(line, &syntax_set)
+                    .map_or_else(
+                        |_| Line::raw(line.to_string()),
+                        |ranges| {
+                            let spans: Vec<Span<'static>> = ranges
+                                .iter()
+                                .map(|(style, text)| {
+                                    Span::styled(text.to_string(), syntect_to_ratatui(style))
+                                })
+                                .collect();
+                            Line::from(spans)
+                        },
+                    )
+            })
+            .collect()
+    }
+
+    /// Style a note content line (fallback when syntax highlighting disabled)
+    #[cfg(not(feature = "syntax-highlighting"))]
+    fn style_note_line(line: &str) -> Line<'static> {
+        // Match pattern: [Note added YYYY-MM-DD HH:MM]
+        if line.starts_with("[Note added ") && line.ends_with(']') {
+            let header_style = Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD);
+            Line::styled(line.to_string(), header_style)
+        } else {
+            let content_style = Style::default().fg(Color::White);
+            Line::styled(line.to_string(), content_style)
         }
     }
 
