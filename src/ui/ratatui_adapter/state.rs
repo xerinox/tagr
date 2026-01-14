@@ -727,10 +727,12 @@ impl AppState {
 
         // Query files (ANY mode - union)
         let mut file_set = std::collections::HashSet::new();
-        
+
         // Check if notes-only virtual tag is selected
-        let has_notes_only = selected_tags.iter().any(|tag| tag == crate::browse::models::NOTES_ONLY_TAG);
-        
+        let has_notes_only = selected_tags
+            .iter()
+            .any(|tag| tag == crate::browse::models::NOTES_ONLY_TAG);
+
         if has_notes_only {
             // Add files with notes but no tags
             if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(db) {
@@ -741,12 +743,13 @@ impl AppState {
                 }
             }
         }
-        
+
         // Query regular tags
-        let regular_tags: Vec<&String> = expanded_tags.iter()
+        let regular_tags: Vec<&String> = expanded_tags
+            .iter()
             .filter(|tag| *tag != crate::browse::models::NOTES_ONLY_TAG)
             .collect();
-            
+
         for tag in &regular_tags {
             if let Ok(files) = db.find_by_tag(tag) {
                 for file in files {

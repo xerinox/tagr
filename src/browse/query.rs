@@ -109,7 +109,7 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
             .collect();
 
         tags.sort_by(|a, b| a.name.cmp(&b.name));
-        
+
         // Add notes-only virtual tag if there are files with notes but no tags
         if let Ok(notes_only_files) = get_notes_only_files(db) {
             if !notes_only_files.is_empty() {
@@ -119,7 +119,7 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
                 ));
             }
         }
-        
+
         Ok(tags)
     } else {
         // No schema - use original behavior
@@ -127,7 +127,7 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
             .into_iter()
             .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
             .collect();
-        
+
         // Add notes-only virtual tag if there are files with notes but no tags
         if let Ok(mut tag_vec) = tags {
             if let Ok(notes_only_files) = get_notes_only_files(db) {
