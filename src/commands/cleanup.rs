@@ -90,14 +90,17 @@ pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> R
         println!("Total issues found: {total_issues}");
         println!("  Missing files: {}", missing_files.len());
         println!("  Files with no tags or notes: {}", untagged_no_notes.len());
-        
+
         if !notes_only_files.is_empty() {
-            println!("\n ℹ Known files (notes only, no tags): {}", notes_only_files.len());
+            println!(
+                "\n ℹ Known files (notes only, no tags): {}",
+                notes_only_files.len()
+            );
             for file in &notes_only_files {
                 println!("  - {}", output::format_path(file, path_format));
             }
         }
-        
+
         println!("\nDeleted: {deleted_count}");
         println!("Skipped: {skipped_count}");
     }

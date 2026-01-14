@@ -459,6 +459,16 @@ impl AppState {
         };
         // Reset preview scroll when toggling
         self.preview_scroll = 0;
+
+        // Add a status message to confirm the toggle
+        let mode_name = match self.preview_mode {
+            PreviewMode::File => "File Preview",
+            PreviewMode::Note => "Note Preview",
+        };
+        self.add_message(
+            crate::ui::output::MessageLevel::Info,
+            format!("Switched to {mode_name} mode"),
+        );
     }
 
     /// Mark the finder to exit with confirmation

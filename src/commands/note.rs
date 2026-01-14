@@ -126,7 +126,12 @@ impl NoteSubcommand {
     /// # Errors
     ///
     /// Returns error if the operation fails
-    pub fn execute(&self, db: &Database, config: &TagrConfig, path_format: config::PathFormat) -> Result<(), NoteError> {
+    pub fn execute(
+        &self,
+        db: &Database,
+        config: &TagrConfig,
+        path_format: config::PathFormat,
+    ) -> Result<(), NoteError> {
         match self {
             Self::Edit(args) => execute_edit(args, db, config),
             Self::Show(args) => execute_show(args, db, path_format),
@@ -151,7 +156,7 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
                 format!("Cannot access path '{}': {}", file.display(), e),
             ))
         })?;
-        
+
         // Get existing note or create new one
         let existing_note = db.get_note(&canonical_path)?;
         let initial_content = existing_note
@@ -207,7 +212,11 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
 }
 
 /// Show notes for files
-fn execute_show(args: &ShowArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
+fn execute_show(
+    args: &ShowArgs,
+    db: &Database,
+    path_format: config::PathFormat,
+) -> Result<(), NoteError> {
     for file in &args.files {
         let canonical_path = file.canonicalize().map_err(|e| {
             NoteError::Io(std::io::Error::new(
@@ -215,14 +224,17 @@ fn execute_show(args: &ShowArgs, db: &Database, path_format: config::PathFormat)
                 format!("Cannot access path '{}': {}", file.display(), e),
             ))
         })?;
-        
+
         let note = db.get_note(&canonical_path)?;
 
         match note {
             Some(note) => match args.format {
                 OutputFormat::Text => {
                     if args.verbose {
-                        println!("File: {}", output::format_path(&canonical_path, path_format));
+                        println!(
+                            "File: {}",
+                            output::format_path(&canonical_path, path_format)
+                        );
                         println!("Created: {}", format_timestamp(note.metadata.created_at));
                         println!("Updated: {}", format_timestamp(note.metadata.updated_at));
                         if let Some(author) = &note.metadata.author {
@@ -267,7 +279,11 @@ fn execute_show(args: &ShowArgs, db: &Database, path_format: config::PathFormat)
 }
 
 /// Delete notes from files
-fn execute_delete(args: &DeleteArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
+fn execute_delete(
+    args: &DeleteArgs,
+    db: &Database,
+    path_format: config::PathFormat,
+) -> Result<(), NoteError> {
     let mut files_to_delete = Vec::new();
 
     // Check which files have notes
@@ -278,7 +294,7 @@ fn execute_delete(args: &DeleteArgs, db: &Database, path_format: config::PathFor
                 format!("Cannot access path '{}': {}", file.display(), e),
             ))
         })?;
-        
+
         if db.get_note(&canonical_path)?.is_some() {
             files_to_delete.push(canonical_path);
         }
@@ -299,10 +315,7 @@ fn execute_delete(args: &DeleteArgs, db: &Database, path_format: config::PathFor
 
     // Confirmation prompt
     if !args.yes {
-        print!(
-            "Delete notes for {} file(s)? [y/N] ",
-            files_to_delete.len()
-        );
+        print!("Delete notes for {} file(s)? [y/N] ", files_to_delete.len());
         std::io::stdout().flush()?;
 
         let mut input = String::new();
@@ -319,7 +332,10 @@ fn execute_delete(args: &DeleteArgs, db: &Database, path_format: config::PathFor
     for file in &files_to_delete {
         if db.delete_note(file)? {
             deleted += 1;
-            println!("✓ Deleted note for {}", output::format_path(file, path_format));
+            println!(
+                "✓ Deleted note for {}",
+                output::format_path(file, path_format)
+            );
         }
     }
 
@@ -328,7 +344,11 @@ fn execute_delete(args: &DeleteArgs, db: &Database, path_format: config::PathFor
 }
 
 /// List all files with notes
-fn execute_list(args: &ListArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
+fn execute_list(
+    args: &ListArgs,
+    db: &Database,
+    path_format: config::PathFormat,
+) -> Result<(), NoteError> {
     let all_notes = db.list_all_notes()?;
 
     if all_notes.is_empty() {
@@ -381,7 +401,11 @@ fn execute_list(args: &ListArgs, db: &Database, path_format: config::PathFormat)
 }
 
 /// Search notes by content
-fn execute_search(args: &SearchArgs, db: &Database, path_format: config::PathFormat) -> Result<(), NoteError> {
+fn execute_search(
+    args: &SearchArgs,
+    db: &Database,
+    path_format: config::PathFormat,
+) -> Result<(), NoteError> {
     let results = db.search_notes(&args.query)?;
 
     if results.is_empty() {

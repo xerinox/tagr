@@ -75,7 +75,9 @@ impl StyledPreview {
     pub fn note(note_record: &crate::db::NoteRecord) -> Self {
         use chrono::{Local, TimeZone};
 
-        let title_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+        let title_style = Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD);
         let dim_style = Style::default().fg(Color::DarkGray);
         let content_style = Style::default().fg(Color::White);
 

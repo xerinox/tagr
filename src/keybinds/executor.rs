@@ -322,7 +322,9 @@ impl ActionExecutor {
     /// preview state. This executor just returns a signal to toggle the preview.
     /// The actual preview rendering is done in the preview system.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_toggle_note_preview(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_toggle_note_preview(
+        _context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
         // TUI layer will intercept this and toggle preview mode
         Ok(ActionResult::Message(
             "Preview mode toggled (handled by TUI layer)".to_string(),

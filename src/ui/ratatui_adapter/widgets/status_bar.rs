@@ -153,9 +153,7 @@ impl Widget for StatusBar<'_> {
             PreviewMode::Note => "[Note Preview]",
         };
 
-        let indicator_style = Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::DIM);
+        let indicator_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM);
 
         let indicator_line = Line::styled(preview_indicator, indicator_style);
         let indicator_para = Paragraph::new(indicator_line);

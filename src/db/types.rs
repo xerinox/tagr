@@ -148,7 +148,16 @@ impl std::ops::Deref for PathString {
 }
 
 /// Metadata for a note
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    bincode::Encode,
+    bincode::Decode,
+)]
 pub struct NoteMeta {
     /// Unix timestamp when note was created
     pub created_at: i64,
@@ -173,7 +182,16 @@ impl Default for NoteMeta {
 }
 
 /// A note attached to a file
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    bincode::Encode,
+    bincode::Decode,
+)]
 pub struct NoteRecord {
     /// Markdown content of the note
     pub content: String,

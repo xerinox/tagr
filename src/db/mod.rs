@@ -19,7 +19,7 @@ pub mod query;
 pub mod types;
 
 pub use error::DbError;
-pub use types::{NoteRecord, NoteMeta, PathKey, PathString};
+pub use types::{NoteMeta, NoteRecord, PathKey, PathString};
 
 /// Database wrapper that encapsulates all database operations
 ///
@@ -675,7 +675,7 @@ impl Database {
     /// Returns `DbError` if deserialization fails.
     pub fn get_note<P: AsRef<Path>>(&self, file: P) -> Result<Option<NoteRecord>, DbError> {
         let key = bincode::encode_to_vec(&file.as_ref(), bincode::config::standard())?;
-        
+
         if let Some(value) = self.notes.get(key)? {
             let (note, _): (NoteRecord, usize) =
                 bincode::decode_from_slice(&value, bincode::config::standard())?;
@@ -710,7 +710,7 @@ impl Database {
             if let Some(tags_value) = self.files.get(key.clone())? {
                 let (tags, _): (Vec<String>, usize) =
                     bincode::decode_from_slice(&tags_value, bincode::config::standard())?;
-                
+
                 if tags.is_empty() {
                     // No tags and no note - remove from files tree
                     self.files.remove(key)?;
@@ -731,7 +731,7 @@ impl Database {
     /// Returns `DbError` if deserialization fails.
     pub fn list_all_notes(&self) -> Result<Vec<(PathBuf, NoteRecord)>, DbError> {
         let mut results = Vec::new();
-        
+
         for item in self.notes.iter() {
             let (key, value) = item?;
             let (path, _): (PathBuf, usize) =
@@ -740,7 +740,7 @@ impl Database {
                 bincode::decode_from_slice(&value, bincode::config::standard())?;
             results.push((path, note));
         }
-        
+
         Ok(results)
     }
 
@@ -761,20 +761,20 @@ impl Database {
     pub fn search_notes(&self, query: &str) -> Result<Vec<(PathBuf, NoteRecord)>, DbError> {
         let query_lower = query.to_lowercase();
         let mut results = Vec::new();
-        
+
         for item in self.notes.iter() {
             let (key, value) = item?;
             let (path, _): (PathBuf, usize) =
                 bincode::decode_from_slice(&key, bincode::config::standard())?;
             let (note, _): (NoteRecord, usize) =
                 bincode::decode_from_slice(&value, bincode::config::standard())?;
-            
+
             // Case-insensitive search in content
             if note.content.to_lowercase().contains(&query_lower) {
                 results.push((path, note));
             }
         }
-        
+
         Ok(results)
     }
 }
@@ -1095,8 +1095,11 @@ mod tests {
         let file2 = TempFile::create("python_file.txt").unwrap();
         let _file3 = TempFile::create("empty_file.txt").unwrap();
 
-        db.set_note(file1.path(), NoteRecord::new("rust programming".to_string()))
-            .unwrap();
+        db.set_note(
+            file1.path(),
+            NoteRecord::new("rust programming".to_string()),
+        )
+        .unwrap();
         db.set_note(
             file2.path(),
             NoteRecord::new("python scripting".to_string()),
@@ -1142,8 +1145,11 @@ mod tests {
         let db = test_db.db();
 
         let file = TempFile::create("test.txt").unwrap();
-        db.set_note(file.path(), NoteRecord::new("async/await in rust".to_string()))
-            .unwrap();
+        db.set_note(
+            file.path(),
+            NoteRecord::new("async/await in rust".to_string()),
+        )
+        .unwrap();
 
         // Partial matches should work
         assert_eq!(db.search_notes("async").unwrap().len(), 1);
