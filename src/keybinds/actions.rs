@@ -146,10 +146,13 @@ impl BrowseAction {
     /// Returns whether this action is available in tag selection phase.
     ///
     /// Tag phase is for selecting which tags to filter by. Only navigation
-    /// and universal actions (help, cancel) are available.
+    /// and universal actions (help, cancel, note editing, preview toggle) are available.
     #[must_use]
     pub const fn available_in_tag_phase(&self) -> bool {
-        matches!(self, Self::ShowHelp | Self::Cancel)
+        matches!(
+            self,
+            Self::ShowHelp | Self::Cancel | Self::EditNote | Self::ToggleNotePreview
+        )
     }
 
     /// Returns whether this action is available in file selection phase.

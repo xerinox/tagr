@@ -740,32 +740,57 @@ impl RatatuiFinder {
                                         if let Ok(updated_content) =
                                             std::fs::read_to_string(&temp_path)
                                         {
-                                            // Save note
+                                            // Save or delete note based on content
                                             if let Some(db) = &state.database {
-                                                let note = if let Some(mut existing) = existing_note
-                                                {
-                                                    existing.update_content(updated_content);
-                                                    existing
-                                                } else {
-                                                    crate::db::NoteRecord::new(updated_content)
-                                                };
-
-                                                let _ = db.set_note(&canonical_path, note);
-
-                                                // Invalidate preview cache to show updated note
-                                                cached_preview_key = None;
-                                                cached_preview_mode = None;
-
-                                                // Update has_note metadata for the current item
-                                                if state.is_tag_selection_phase() {
-                                                    if let Some(item) = state
-                                                        .file_preview_items
-                                                        .get_mut(state.file_preview_cursor)
+                                                let is_empty = updated_content.trim().is_empty();
+                                                
+                                                if is_empty && existing_note.is_some() {
+                                                    // Delete note if content cleared
+                                                    let _ = db.delete_note(&canonical_path);
+                                                    
+                                                    // Update has_note metadata
+                                                    if state.is_tag_selection_phase() {
+                                                        if let Some(item) = state
+                                                            .file_preview_items
+                                                            .get_mut(state.file_preview_cursor)
+                                                        {
+                                                            item.metadata.has_note = false;
+                                                        }
+                                                        if let Some(item) = state
+                                                            .file_preview_items_unfiltered
+                                                            .iter_mut()
+                                                            .find(|i| i.key == file_path.to_string_lossy())
+                                                        {
+                                                            item.metadata.has_note = false;
+                                                        }
+                                                    } else if let Some(item) = state
+                                                        .items
+                                                        .get_mut(state.cursor)
                                                     {
-                                                        item.metadata.has_note = true;
+                                                        item.metadata.has_note = false;
                                                     }
-                                                    if let Some(item) = state
-                                                        .file_preview_items_unfiltered
+                                                } else if !is_empty {
+                                                    // Save note only if content is not empty
+                                                    let note = if let Some(mut existing) = existing_note
+                                                    {
+                                                        existing.update_content(updated_content);
+                                                        existing
+                                                    } else {
+                                                        crate::db::NoteRecord::new(updated_content)
+                                                    };
+
+                                                    let _ = db.set_note(&canonical_path, note);
+
+                                                    // Update has_note metadata for the current item
+                                                    if state.is_tag_selection_phase() {
+                                                        if let Some(item) = state
+                                                            .file_preview_items
+                                                            .get_mut(state.file_preview_cursor)
+                                                        {
+                                                            item.metadata.has_note = true;
+                                                        }
+                                                        if let Some(item) = state
+                                                            .file_preview_items_unfiltered
                                                         .iter_mut()
                                                         .find(|i| {
                                                             i.key == file_path.display().to_string()
@@ -782,6 +807,12 @@ impl RatatuiFinder {
                                                         item.metadata.has_note = true;
                                                     }
                                                 }
+                                                }
+                                                // else: empty content and no existing note - don't create
+                                                
+                                                // Invalidate preview cache to show updated note
+                                                cached_preview_key = None;
+                                                cached_preview_mode = None;
                                             }
                                         }
                                     }

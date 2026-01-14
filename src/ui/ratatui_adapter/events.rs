@@ -102,6 +102,12 @@ fn handle_normal_mode(
             Err(_) => return EventResult::Ignored, // Unknown action
         };
 
+        // Check phase availability
+        if state.is_tag_selection_phase() && !action.available_in_tag_phase() {
+            // Action not available in tag phase, ignore
+            return EventResult::Ignored;
+        }
+
         // Special case: actions that should be handled inline without exiting
         if action == BrowseAction::ToggleNotePreview {
             state.toggle_preview_mode();
