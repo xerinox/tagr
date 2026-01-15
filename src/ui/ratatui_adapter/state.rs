@@ -6,10 +6,10 @@
 use crate::browse::ActiveFilter;
 use crate::ui::output::MessageLevel;
 use crate::ui::ratatui_adapter::widgets::{
-    ConfirmDialogState, KeyHint, RefineSearchState, TagTreeState, TextInputState,
+    ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
 };
 use crate::ui::traits::PreviewConfig;
-use crate::ui::types::{BrowsePhase, DisplayItem};
+use crate::ui::types::DisplayItem;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -27,6 +27,8 @@ pub enum Mode {
     Confirm,
     /// Refine search criteria overlay is visible
     RefineSearch,
+    /// File details modal is visible
+    Details,
 }
 
 /// Which pane has focus during `TagSelection` phase
@@ -122,9 +124,7 @@ pub struct AppState {
     pub confirm_state: Option<ConfirmDialogState>,
     /// Available tags for autocomplete (set by finder from config)
     pub available_tags: Vec<String>,
-    /// Current browse phase (`TagSelection` or `FileSelection`)
-    pub phase: BrowsePhase,
-    /// Tag tree state (for `TagSelection` phase)
+    /// Tag tree state (always present in 3-pane layout)
     pub tag_tree_state: Option<TagTreeState>,
     /// Tag schema for canonicalization (used in CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
@@ -156,6 +156,8 @@ pub struct AppState {
     pub preview_config: Option<PreviewConfig>,
     /// Current preview mode (file content or note)
     pub preview_mode: PreviewMode,
+    /// File details for the details modal
+    pub file_details: Option<FileDetails>,
 }
 
 impl AppState {
@@ -196,7 +198,6 @@ impl AppState {
             text_input_state: None,
             confirm_state: None,
             available_tags: Vec::new(),
-            phase: BrowsePhase::FileSelection, // Default to file selection
             tag_tree_state: None,
             tag_schema,
             database,
@@ -213,6 +214,7 @@ impl AppState {
             hints,
             preview_config,
             preview_mode: PreviewMode::File,
+            file_details: None,
         }
     }
 
@@ -372,12 +374,6 @@ impl AppState {
         }
         self.scroll_offset = 0;
         self.adjust_scroll();
-
-        // Filter tag tree to match query
-        if self.is_tag_selection_phase() {
-            self.filter_tag_tree();
-            self.sync_tag_tree_with_cursor();
-        }
     }
 
     /// Add a character to the query
@@ -628,24 +624,46 @@ impl AppState {
         self.confirm_state.as_ref()
     }
 
+    /// Enter file details mode
+    ///
+    /// # Arguments
+    /// * `details` - The file details to display
+    pub fn enter_details(&mut self, details: FileDetails) {
+        self.file_details = Some(details);
+        self.mode = Mode::Details;
+    }
+
+    /// Exit details mode
+    pub fn exit_details(&mut self) {
+        self.mode = Mode::Normal;
+        self.file_details = None;
+    }
+
+    /// Get immutable reference to file details
+    #[must_use]
+    pub const fn file_details(&self) -> Option<&FileDetails> {
+        self.file_details.as_ref()
+    }
+
     // ============================================================================
     // Tag Tree Navigation Methods (TagSelection phase)
     // ============================================================================
 
-    /// Check if we're in `TagSelection` phase
+    /// Check if tag tree is present (always true in 3-pane layout)
     #[must_use]
     pub const fn is_tag_selection_phase(&self) -> bool {
-        matches!(self.phase, BrowsePhase::TagSelection)
+        // True if we have a tag tree (3-pane mode)
+        // False for simple file-only mode (used in tests)
+        self.tag_tree_state.is_some()
     }
 
     /// Check if direct file selection is active
     ///
-    /// Returns true when in `TagSelection` phase with `FilePreview` pane focused,
+    /// Returns true when `FilePreview` pane has focus,
     /// indicating that file paths (not tags) will be returned on confirm.
     #[must_use]
     pub const fn is_direct_file_selection(&self) -> bool {
-        matches!(self.phase, BrowsePhase::TagSelection)
-            && matches!(self.focused_pane, FocusPane::FilePreview)
+        matches!(self.focused_pane, FocusPane::FilePreview)
     }
 
     /// Get the tags that are filtering the current file preview
@@ -934,16 +952,35 @@ impl AppState {
         }
     }
 
+    /// Sync active_filter from tag tree state (reverse of sync_tag_tree_from_filter)
+    ///
+    /// This makes the tag tree the source of truth and updates active_filter to match.
+    /// Should be called when tag tree is initialized or manually modified.
+    pub fn sync_filter_from_tag_tree(&mut self) {
+        if let Some(ref tree) = self.tag_tree_state {
+            // Update include tags from tag tree selections
+            self.active_filter.criteria.tags = tree.selected_tags.iter().cloned().collect();
+            // Update exclude tags from tag tree exclusions
+            self.active_filter.criteria.excludes = tree.excluded_tags.iter().cloned().collect();
+
+            // Set tag mode: Any (OR) when multiple tags selected, All (AND) for single tag
+            // This matches tagr's CLI default behavior (multiple -t flags use OR logic)
+            use crate::filters::TagMode;
+            self.active_filter.criteria.tag_mode = if self.active_filter.criteria.tags.len() > 1 {
+                TagMode::Any
+            } else {
+                TagMode::All
+            };
+        }
+    }
+
     /// Build CLI preview command from current active filter (for educational display)
     ///
     /// Shows canonical tag names to educate users on what actually gets stored.
     /// Also includes live file count based on current filter state.
     #[must_use]
     pub fn build_cli_preview(&self) -> Option<String> {
-        // Only show CLI preview during TagSelection phase
-        if self.phase != BrowsePhase::TagSelection {
-            return None;
-        }
+        // Always show CLI preview in 3-pane layout
 
         // If no filters are active, show default browse command
         if self.active_filter.is_empty() {
@@ -1068,20 +1105,6 @@ impl AppState {
                     tree.select_tag(&item.key);
                 }
             }
-        }
-    }
-
-    /// Filter tag tree based on current search query
-    fn filter_tag_tree(&mut self) {
-        if let Some(ref mut tree) = self.tag_tree_state {
-            // Get the keys of visible/filtered items
-            let visible_tags: Vec<String> = self
-                .filtered_indices
-                .iter()
-                .filter_map(|&idx| self.items.get(idx as usize).map(|item| item.key.clone()))
-                .collect();
-
-            tree.filter_visible_tags(&visible_tags);
         }
     }
 }

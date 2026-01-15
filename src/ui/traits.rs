@@ -1,7 +1,7 @@
 //! Core traits for UI abstraction layer
 
 use super::error::Result;
-use super::types::{BrowsePhase, DisplayItem, FinderResult, PreviewPosition};
+use super::types::{DisplayItem, FinderResult, PreviewPosition};
 
 /// Search criteria for refine search feature
 #[derive(Debug, Clone, Default)]
@@ -49,8 +49,6 @@ pub struct FinderConfig {
     pub preview_config: Option<PreviewConfig>,
     /// Custom keybinds ("key:action" format)
     pub bind: Vec<String>,
-    /// Current browse phase (affects which keybinds are shown in help)
-    pub phase: BrowsePhase,
     /// Available tags from database (for refine search)
     pub available_tags: Vec<String>,
     /// Current search criteria for refine search
@@ -72,19 +70,11 @@ impl FinderConfig {
             ansi: false,
             preview_config: None,
             bind: Vec::new(),
-            phase: BrowsePhase::FileSelection, // Default to file phase for most use cases
             available_tags: Vec::new(),
             search_criteria: None,
             tag_schema: None,
             database: None,
         }
-    }
-
-    /// Set the browse phase (affects which keybinds are shown in help)
-    #[must_use]
-    pub const fn with_phase(mut self, phase: BrowsePhase) -> Self {
-        self.phase = phase;
-        self
     }
 
     /// Set available tags for refine search

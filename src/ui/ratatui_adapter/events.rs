@@ -3,6 +3,7 @@
 //! Handles keyboard and mouse events, mapping them to application actions.
 
 use super::state::{AppState, Mode};
+use crate::filters::TagMode;
 use crate::keybinds::actions::BrowseAction;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::collections::HashMap;
@@ -112,6 +113,48 @@ fn handle_normal_mode(
         if action == BrowseAction::ToggleNotePreview {
             state.toggle_preview_mode();
             return EventResult::PreviewChanged;
+        }
+
+        // Special case: ShowDetails - display modal inline
+        if action == BrowseAction::ShowDetails {
+            // Get current file based on phase and focus
+            let file_path = if state.is_tag_selection_phase() {
+                // In 3-pane view, only show details if file preview pane has focus
+                if state.focused_pane == crate::ui::ratatui_adapter::state::FocusPane::FilePreview {
+                    state
+                        .file_preview_items
+                        .get(state.file_preview_cursor)
+                        .map(|item| std::path::PathBuf::from(&item.key))
+                } else {
+                    None // Tag tree has focus, no file to show
+                }
+            } else {
+                // In 2-pane view, get the current selected item
+                state.current_key().map(std::path::PathBuf::from)
+            };
+
+            if let Some(path) = file_path {
+                // Get tags and note from database
+                let tags = state
+                    .database
+                    .as_ref()
+                    .and_then(|db| db.get_tags(&path).ok())
+                    .flatten()
+                    .unwrap_or_default();
+
+                let note = state
+                    .database
+                    .as_ref()
+                    .and_then(|db| db.get_note(&path).ok())
+                    .flatten();
+
+                // Create FileDetails and enter details mode
+                use crate::ui::ratatui_adapter::widgets::FileDetails;
+                if let Ok(details) = FileDetails::from_path(&path, tags, note) {
+                    state.enter_details(details);
+                }
+            }
+            return EventResult::Continue;
         }
 
         // Special case: actions requiring special handling (terminal suspend, etc.)
@@ -300,6 +343,15 @@ fn handle_normal_mode(
                                 }
                             }
 
+                            // Update tag mode based on number of selected tags
+                            // Multiple tags -> Any (OR), single tag -> All (AND)
+                            state.active_filter.criteria.tag_mode =
+                                if state.active_filter.criteria.tags.len() > 1 {
+                                    TagMode::Any
+                                } else {
+                                    TagMode::All
+                                };
+
                             // Sync tag tree visual state from active_filter
                             state.sync_tag_tree_from_filter();
                             // Update file preview with new filter
@@ -341,6 +393,15 @@ fn handle_normal_mode(
                                     state.active_filter.toggle_exclude_tag(child);
                                 }
                             }
+
+                            // Update tag mode based on number of selected tags
+                            // Multiple tags -> Any (OR), single tag -> All (AND)
+                            state.active_filter.criteria.tag_mode =
+                                if state.active_filter.criteria.tags.len() > 1 {
+                                    TagMode::Any
+                                } else {
+                                    TagMode::All
+                                };
 
                             // Sync exclusion state
                             state.sync_tag_tree_exclusions();
@@ -703,6 +764,13 @@ fn handle_confirm_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
     }
 }
 
+/// Handle events in details mode
+fn handle_details_mode(state: &mut AppState, _key: KeyEvent) -> EventResult {
+    // Any key closes details modal
+    state.exit_details();
+    EventResult::Continue
+}
+
 /// Poll for events and handle them
 ///
 /// # Errors
@@ -724,6 +792,7 @@ pub fn poll_and_handle(
             Mode::RefineSearch => handle_refine_search_mode(state, key),
             Mode::Input => handle_input_mode(state, key),
             Mode::Confirm => handle_confirm_mode(state, key),
+            Mode::Details => handle_details_mode(state, key),
         },
         Event::Mouse(mouse) => handle_mouse(state, mouse),
         Event::Resize(_, _) => EventResult::Continue,

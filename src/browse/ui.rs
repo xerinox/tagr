@@ -134,6 +134,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                             // This branch shouldn't be reached with ratatui
                             continue;
                         }
+                        BrowseAction::ShowDetails => {
+                            // Details modal is handled internally by the TUI (Ctrl+L)
+                            // This branch shouldn't be reached with ratatui
+                            continue;
+                        }
                         BrowseAction::SelectAll | BrowseAction::ClearSelection => {
                             // These should be handled by skim directly via bindings
                             // If we get here, it's a configuration issue
@@ -282,16 +287,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
-        // Convert PhaseType to BrowsePhase for keybind filtering
-        let browse_phase = match &phase.phase_type {
-            PhaseType::TagSelection => crate::ui::BrowsePhase::TagSelection,
-            PhaseType::FileSelection { .. } => crate::ui::BrowsePhase::FileSelection,
-        };
-
-        let keybinds = phase
-            .settings
-            .keybind_config
-            .bindings_for_phase(browse_phase);
+        // Get all keybinds (always 3-pane layout now)
+        let keybinds = phase.settings.keybind_config.bindings();
 
         let search_criteria = self.session.search_criteria();
         let available_tags = self.session.available_tags().unwrap_or_default();
@@ -307,7 +304,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             .with_multi_select(true)
             .with_ansi(true)
             .with_binds(keybinds)
-            .with_phase(browse_phase)
             .with_available_tags(available_tags)
             .with_search_criteria(crate::ui::RefineSearchCriteria::new(
                 search_criteria.tags,

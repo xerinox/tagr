@@ -1,12 +1,9 @@
 //! Configuration for keybinds.
 
-use crate::ui::BrowsePhase;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use super::actions::BrowseAction;
 
 /// Errors that can occur during configuration loading.
 #[derive(Debug, thiserror::Error)]
@@ -372,52 +369,6 @@ impl KeybindConfig {
         bindings
     }
 
-    /// Convert keybind configuration to finder-compatible format, filtered by phase.
-    ///
-    /// Returns a vector of "key:action" strings that can be passed to the
-    /// finder. Only includes actions that are available in the specified phase.
-    ///
-    /// # Arguments
-    ///
-    /// * `phase` - The current browse phase (tag selection or file selection)
-    #[must_use]
-    pub fn bindings_for_phase(&self, phase: BrowsePhase) -> Vec<String> {
-        let mut bindings = Vec::new();
-
-        for (action_name, def) in &self.keybinds {
-            // Check if this action is available in the current phase
-            if let Ok(action) = action_name.parse::<BrowseAction>() {
-                let available = match phase {
-                    BrowsePhase::TagSelection => action.available_in_tag_phase(),
-                    BrowsePhase::FileSelection => action.available_in_file_phase(),
-                };
-                if !available {
-                    continue;
-                }
-            }
-
-            let keys = match def {
-                KeybindDef::Single(key) if key != "none" => vec![key.clone()],
-                KeybindDef::Multiple(keys) => {
-                    keys.iter().filter(|k| *k != "none").cloned().collect()
-                }
-                KeybindDef::Single(_) => continue,
-            };
-
-            for key in keys {
-                // Skip Tab and BTab to preserve multi-select behavior
-                if key == "tab" || key == "btab" {
-                    continue;
-                }
-
-                // Format: "key:action" - action is needed for ratatui handler
-                bindings.push(format!("{key}:{action_name}"));
-            }
-        }
-
-        bindings
-    }
-
     /// Get the action name mapped to a specific key string.
     ///
     /// Returns None if no action is mapped to this key.
@@ -640,6 +591,7 @@ confirm_delete = false
 
     #[test]
     fn test_valid_keybind_invalid_action() {
+        use super::super::actions::BrowseAction;
         use std::str::FromStr;
 
         // Valid keybind but action doesn't exist
@@ -725,11 +677,9 @@ confirm_delete = false
     }
 
     #[test]
-    fn test_refine_search_included_in_file_phase_bindings() {
-        use crate::ui::BrowsePhase;
-
+    fn test_refine_search_included_in_bindings() {
         let config = KeybindConfig::default();
-        let bindings = config.bindings_for_phase(BrowsePhase::FileSelection);
+        let bindings = config.bindings();
 
         // Check that refine_search keybinds are included
         let has_refine_search = bindings.iter().any(|b| b.contains("refine_search"));

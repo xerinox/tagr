@@ -344,47 +344,13 @@ impl ActionExecutor {
     }
 
     /// Execute the `ShowDetails` action.
-    fn execute_show_details(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let file_to_show = if let Some(file) = context.current_file {
-            file
-        } else if let Some(file) = context.selected_files.first() {
-            file
-        } else {
-            return Err(ExecutorError::NoSelection);
-        };
-
-        let metadata = std::fs::metadata(file_to_show)?;
-        let tags = context.db.get_tags(file_to_show)?.unwrap_or_default();
-
-        let mut details = vec![
-            format!("\n📄 File Details: {}", file_to_show.display()),
-            "─".repeat(60),
-            format!("Size: {}", format_file_size(metadata.len())),
-            format!("Modified: {}", format_modified_time(&metadata)),
-            format!(
-                "Tags: {}",
-                if tags.is_empty() {
-                    "(none)".to_string()
-                } else {
-                    tags.join(", ")
-                }
-            ),
-        ];
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            details.push(format!(
-                "Permissions: {:o}",
-                metadata.permissions().mode() & 0o777
-            ));
-        }
-
-        details.push("─".repeat(60));
-
-        let message = details.join("\n");
-        println!("{message}");
-
+    ///
+    /// Note: This is a stub implementation for backward compatibility.
+    /// ShowDetails is now handled inline by the TUI layer to avoid breaking
+    /// the terminal. Returns Continue to maintain API compatibility.
+    #[allow(clippy::unnecessary_wraps)]
+    fn execute_show_details(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+        // ShowDetails is handled inline by the TUI - see events.rs
         Ok(ActionResult::Continue)
     }
 
@@ -551,48 +517,6 @@ pub enum ExecutorError {
     /// Action execution failed
     #[error("Failed to execute action: {0}")]
     ExecutionFailed(String),
-}
-
-/// Format file size in human-readable format.
-#[allow(clippy::cast_precision_loss)]
-fn format_file_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} bytes")
-    }
-}
-
-/// Format modification time in human-readable format.
-fn format_modified_time(metadata: &std::fs::Metadata) -> String {
-    metadata.modified().map_or_else(
-        |_| "unknown".to_string(),
-        |time| {
-            time.elapsed().map_or_else(
-                |_| "unknown".to_string(),
-                |duration| {
-                    let secs = duration.as_secs();
-                    if secs < 60 {
-                        format!("{secs} seconds ago")
-                    } else if secs < 3600 {
-                        format!("{} minutes ago", secs / 60)
-                    } else if secs < 86400 {
-                        format!("{} hours ago", secs / 3600)
-                    } else {
-                        format!("{} days ago", secs / 86400)
-                    }
-                },
-            )
-        },
-    )
 }
 
 /// Display text in the minus pager with search support.

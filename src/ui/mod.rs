@@ -41,7 +41,7 @@
 //!
 //! ```no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem, BrowsePhase};
+//! use tagr::ui::{FuzzyFinder, FinderConfig, DisplayItem};
 //! use tagr::ui::ratatui_adapter::RatatuiFinder;
 //!
 //! let items = vec![
@@ -56,7 +56,6 @@
 //!     ansi: true,
 //!     preview_config: None,
 //!     bind: vec![],
-//!     phase: BrowsePhase::FileSelection,
 //!     available_tags: vec![],
 //!     search_criteria: None,
 //!     tag_schema: None,
@@ -170,6 +169,4 @@ pub use ratatui_adapter::{RatatuiFinder, RatatuiPreviewProvider};
 pub use traits::{
     FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText, RefineSearchCriteria,
 };
-pub use types::{
-    BrowsePhase, DisplayItem, FinderResult, ItemMetadata, PreviewPosition, RefinedSearchCriteria,
-};
+pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition, RefinedSearchCriteria};

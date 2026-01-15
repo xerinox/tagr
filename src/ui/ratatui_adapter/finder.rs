@@ -7,14 +7,14 @@ use super::state::{AppState, Mode};
 use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
 use super::widgets::{
-    ConfirmDialog, HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, RefineSearchOverlay,
+    ConfirmDialog, DetailsModal, HelpBar, HelpOverlay, KeyHint, PreviewPane, RefineSearchOverlay,
     SearchBar, StatusBar, TextInputModal,
 };
 use crate::commands::note::create_temp_note_file;
 use crate::keybinds::actions::BrowseAction;
 use crate::ui::error::Result;
 use crate::ui::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
-use crate::ui::types::{FinderResult, PreviewPosition};
+use crate::ui::types::FinderResult;
 use crossterm::{
     event::KeyEvent,
     execute,
@@ -319,6 +319,12 @@ impl RatatuiFinder {
                     frame.render_widget(confirm_dialog, frame.area());
                 }
             }
+            Mode::Details => {
+                if let Some(file_details) = state.file_details() {
+                    let details_modal = DetailsModal::new(file_details, theme);
+                    frame.render_widget(details_modal, frame.area());
+                }
+            }
             Mode::Normal => {}
         }
     }
@@ -333,134 +339,70 @@ impl RatatuiFinder {
         area: Rect,
         preview_content: Option<&StyledPreview>,
     ) {
-        use crate::ui::types::BrowsePhase;
+        // Always render 3-pane layout: tag tree | files | preview
+        // Split horizontally: tag tree (left 30%) | files (middle 35%) | preview (right 35%)
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(30), // Tag tree
+                Constraint::Percentage(35), // File list
+                Constraint::Percentage(35), // Preview
+            ])
+            .split(area);
 
-        // Special rendering for TagSelection phase - show tag tree + files + preview
-        if state.phase == BrowsePhase::TagSelection {
-            // Split horizontally: tag tree (left 30%) | files (middle 35%) | preview (right 35%)
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(30), // Tag tree
-                    Constraint::Percentage(35), // File list
-                    Constraint::Percentage(35), // Preview
-                ])
-                .split(area);
-
-            // Render tag tree on the left with focus indicator
-            if let Some(tag_tree_state) = &mut state.tag_tree_state {
-                let is_focused = state.focused_pane == super::state::FocusPane::TagTree;
-                let (border_style, title_style) = if is_focused {
-                    (theme.focused_border_style(), theme.focused_title_style())
-                } else {
-                    (theme.border_style(), theme.unfocused_title_style())
-                };
-
-                let tag_tree = super::widgets::TagTree::new().block(
-                    ratatui::widgets::Block::default()
-                        .borders(ratatui::widgets::Borders::ALL)
-                        .border_style(border_style)
-                        .title(ratatui::text::Span::styled(" Tags ", title_style)),
-                );
-                frame.render_stateful_widget(tag_tree, chunks[0], tag_tree_state);
-            }
-
-            // Render file list in the middle with focus indicator
-            let is_file_focused = state.focused_pane == super::state::FocusPane::FilePreview;
-            let (file_border_style, file_title_style) = if is_file_focused {
+        // Render tag tree on the left with focus indicator
+        if let Some(tag_tree_state) = &mut state.tag_tree_state {
+            let is_focused = state.focused_pane == super::state::FocusPane::TagTree;
+            let (border_style, title_style) = if is_focused {
                 (theme.focused_border_style(), theme.focused_title_style())
             } else {
                 (theme.border_style(), theme.unfocused_title_style())
             };
 
-            // Create a block for the file list
-            let file_block = ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .border_style(file_border_style)
-                .title(ratatui::text::Span::styled(" Files ", file_title_style));
-
-            let inner = file_block.inner(chunks[1]);
-            frame.render_widget(file_block, chunks[1]);
-
-            // Render file list directly using file_preview data from state
-            Self::render_file_preview_list(frame, state, theme, inner);
-
-            // Render preview pane on the right
-            let preview_block = ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .border_style(theme.border_style())
-                .title(" Preview ");
-
-            let preview_inner = preview_block.inner(chunks[2]);
-            frame.render_widget(preview_block, chunks[2]);
-
-            // Show preview if we have content and files to preview
-            if !state.file_preview_items.is_empty() && preview_content.is_some() {
-                let preview_pane =
-                    PreviewPane::new(preview_content, theme).scroll(state.preview_scroll);
-                frame.render_widget(preview_pane, preview_inner);
-            }
-            return;
+            let tag_tree = super::widgets::TagTree::new().block(
+                ratatui::widgets::Block::default()
+                    .borders(ratatui::widgets::Borders::ALL)
+                    .border_style(border_style)
+                    .title(ratatui::text::Span::styled(" Tags ", title_style)),
+            );
+            frame.render_stateful_widget(tag_tree, chunks[0], tag_tree_state);
         }
 
-        // Regular FileSelection phase rendering
-        let show_preview =
-            state.preview_config.as_ref().is_some_and(|c| c.enabled) && preview_content.is_some();
-
-        if !show_preview {
-            // Just render item list
-            let item_list = ItemList::new(state, theme);
-            frame.render_widget(item_list, area);
-            return;
-        }
-
-        let preview_config = state.preview_config.as_ref().unwrap();
-        let width_percent = u16::from(preview_config.width_percent);
-
-        // Split based on preview position
-        let (items_area, preview_area) = match preview_config.position {
-            PreviewPosition::Right => {
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Percentage(100 - width_percent),
-                        Constraint::Percentage(width_percent),
-                    ])
-                    .split(area);
-                (chunks[0], chunks[1])
-            }
-            PreviewPosition::Bottom | PreviewPosition::Top => {
-                let constraints = if preview_config.position == PreviewPosition::Top {
-                    [
-                        Constraint::Percentage(width_percent),
-                        Constraint::Percentage(100 - width_percent),
-                    ]
-                } else {
-                    [
-                        Constraint::Percentage(100 - width_percent),
-                        Constraint::Percentage(width_percent),
-                    ]
-                };
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(constraints)
-                    .split(area);
-
-                if preview_config.position == PreviewPosition::Top {
-                    (chunks[1], chunks[0])
-                } else {
-                    (chunks[0], chunks[1])
-                }
-            }
+        // Render file list in the middle with focus indicator
+        let is_file_focused = state.focused_pane == super::state::FocusPane::FilePreview;
+        let (file_border_style, file_title_style) = if is_file_focused {
+            (theme.focused_border_style(), theme.focused_title_style())
+        } else {
+            (theme.border_style(), theme.unfocused_title_style())
         };
 
-        // Render item list
-        let item_list = ItemList::new(state, theme);
-        frame.render_widget(item_list, items_area);
+        // Create a block for the file list
+        let file_block = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .border_style(file_border_style)
+            .title(ratatui::text::Span::styled(" Files ", file_title_style));
 
-        // Render preview pane
-        let preview_pane = PreviewPane::new(preview_content, theme).scroll(state.preview_scroll);
-        frame.render_widget(preview_pane, preview_area);
+        let inner = file_block.inner(chunks[1]);
+        frame.render_widget(file_block, chunks[1]);
+
+        // Render file list directly using file_preview data from state
+        Self::render_file_preview_list(frame, state, theme, inner);
+
+        // Render preview pane on the right
+        let preview_block = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .border_style(theme.border_style())
+            .title(" Preview ");
+
+        let preview_inner = preview_block.inner(chunks[2]);
+        frame.render_widget(preview_block, chunks[2]);
+
+        // Show preview if we have content and files to preview
+        if !state.file_preview_items.is_empty() && preview_content.is_some() {
+            let preview_pane =
+                PreviewPane::new(preview_content, theme).scroll(state.preview_scroll);
+            frame.render_widget(preview_pane, preview_inner);
+        }
     }
 
     /// Render file preview list (for `TagSelection` phase)
@@ -494,20 +436,17 @@ impl RatatuiFinder {
                     Span::raw(" "),
                 ];
 
-                // Green checkmark for selected items
+                // Green checkmark for selected items (outside of highlight, like tag tree)
                 if is_selected {
                     spans.push(Span::styled(
-                        "✓",
+                        "✓ ",
                         ratatui::style::Style::default().fg(Color::Green),
                     ));
-                    spans.push(Span::raw(" "));
                 } else {
                     spans.push(Span::raw("  "));
                 }
 
-                spans.push(Span::raw(" "));
-
-                // Add the display text
+                // Add the display text (only this gets highlighted)
                 let text_style = if is_cursor {
                     theme.selected_style()
                 } else {
@@ -531,12 +470,7 @@ impl RatatuiFinder {
                 }
 
                 let line = Line::from(spans);
-
-                if is_cursor {
-                    ListItem::new(line).style(theme.selected_style())
-                } else {
-                    ListItem::new(line)
-                }
+                ListItem::new(line)
             })
             .collect();
 
@@ -564,48 +498,75 @@ impl RatatuiFinder {
         // Set available tags for autocomplete in text input modals
         state.available_tags.clone_from(&config.available_tags);
 
-        // Set phase and initialize tag tree if in TagSelection phase
-        state.phase = config.phase;
-        if config.phase == crate::ui::types::BrowsePhase::TagSelection {
-            use super::widgets::TagTreeState;
-            let mut tag_tree_state = TagTreeState::new();
+        // Always initialize tag tree (3-pane layout)
+        use super::widgets::TagTreeState;
+        let mut tag_tree_state = TagTreeState::new();
 
-            // Build tag tree from items (extract tag names, file counts, and display info)
-            let tags: Vec<(String, usize)> = config
-                .items
-                .iter()
-                .filter_map(|item| {
-                    // Extract file count from metadata.index field
-                    item.metadata.index.map(|count| (item.key.clone(), count))
+        // Build tag tree from database (always available in 3-pane layout)
+        if let Some(database) = &config.database {
+            // Get all tags and compute file counts
+            let all_tags = database.list_all_tags().unwrap_or_default();
+            let tags_with_counts: Vec<(String, usize)> = all_tags
+                .into_iter()
+                .filter_map(|tag| {
+                    database
+                        .find_by_tag(&tag)
+                        .ok()
+                        .map(|files| (tag, files.len()))
                 })
                 .collect();
 
-            // Build a map of tag -> display text for alias information
-            let display_map: std::collections::HashMap<String, String> = config
-                .items
-                .iter()
-                .map(|item| (item.key.clone(), item.display.clone()))
-                .collect();
+            // Build display map from schema (for aliases)
+            let display_map: std::collections::HashMap<String, String> =
+                if let Some(schema) = &config.tag_schema {
+                    tags_with_counts
+                        .iter()
+                        .map(|(tag, _)| {
+                            let canonical = schema.canonicalize(tag);
+                            let display = if canonical != tag.as_str() {
+                                format!("{} ({})", tag, canonical)
+                            } else {
+                                tag.clone()
+                            };
+                            (tag.clone(), display)
+                        })
+                        .collect()
+                } else {
+                    tags_with_counts
+                        .iter()
+                        .map(|(tag, _)| (tag.clone(), tag.clone()))
+                        .collect()
+                };
 
-            tag_tree_state.build_from_tags_with_display(&tags, &display_map);
-            state.tag_tree_state = Some(tag_tree_state);
+            tag_tree_state.build_from_tags_with_display(&tags_with_counts, &display_map);
 
-            // Synchronize the initial cursor position
-            state.sync_cursor_with_tag_tree();
-
-            // Initialize file preview (empty at start)
-            state.update_file_preview();
-
-            // If search criteria with actual tag filters were provided, start in file pane
-            let has_tag_filters = config
-                .search_criteria
-                .as_ref()
-                .is_some_and(|c| !c.include_tags.is_empty() || !c.exclude_tags.is_empty());
-
-            if has_tag_filters {
-                use super::state::FocusPane;
-                state.focused_pane = FocusPane::FilePreview;
+            // Pre-select tags from search criteria (e.g., from -t flag)
+            if let Some(criteria) = &config.search_criteria {
+                for tag in &criteria.include_tags {
+                    tag_tree_state.selected_tags.insert(tag.clone());
+                }
             }
+        }
+        state.tag_tree_state = Some(tag_tree_state);
+
+        // Sync active_filter from tag tree selections (for CLI preview)
+        state.sync_filter_from_tag_tree();
+
+        // Synchronize the initial cursor position
+        state.sync_cursor_with_tag_tree();
+
+        // Initialize file preview (empty at start)
+        state.update_file_preview();
+
+        // If search criteria with actual tag filters were provided, start with file pane focused
+        let has_tag_filters = config
+            .search_criteria
+            .as_ref()
+            .is_some_and(|c| !c.include_tags.is_empty() || !c.exclude_tags.is_empty());
+
+        if has_tag_filters {
+            use super::state::FocusPane;
+            state.focused_pane = FocusPane::FilePreview;
         }
 
         let mut nucleo = Self::create_matcher(&config.items);
@@ -626,22 +587,11 @@ impl RatatuiFinder {
             if let Some(preview_config) = &config.preview_config
                 && preview_config.enabled
             {
-                use crate::ui::types::BrowsePhase;
-
-                // Get the file path to preview (phase-aware)
-                let preview_file_key = match state.phase {
-                    BrowsePhase::TagSelection => {
-                        // In tag selection, preview the file at file_preview_cursor
-                        state
-                            .file_preview_items
-                            .get(state.file_preview_cursor)
-                            .map(|item| item.key.as_str())
-                    }
-                    BrowsePhase::FileSelection => {
-                        // In file selection, use current_key
-                        state.current_key()
-                    }
-                };
+                // Always preview the file at file_preview_cursor (3-pane layout)
+                let preview_file_key = state
+                    .file_preview_items
+                    .get(state.file_preview_cursor)
+                    .map(|item| item.key.as_str());
 
                 if let Some(current_key) = preview_file_key {
                     // Regenerate preview if:
@@ -871,6 +821,25 @@ impl RatatuiFinder {
 
                     // In TagSelection phase, filter BOTH panes simultaneously
                     if state.is_tag_selection_phase() {
+                        // Filter tag tree (left pane) based on query
+                        if let Some(ref mut tag_tree_state) = state.tag_tree_state {
+                            if state.query.is_empty() {
+                                // No query - show all tags
+                                tag_tree_state.rebuild_visible_cache();
+                            } else {
+                                // Filter tags by fuzzy matching on name
+                                let matching_tags: Vec<String> = tag_tree_state
+                                    .all_tag_paths()
+                                    .into_iter()
+                                    .filter(|tag| {
+                                        // Simple substring match (case-insensitive)
+                                        tag.to_lowercase().contains(&state.query.to_lowercase())
+                                    })
+                                    .collect();
+                                tag_tree_state.filter_visible_tags(&matching_tags);
+                            }
+                        }
+
                         // Filter file preview items (right pane) from the unfiltered list
                         if !state.file_preview_items_unfiltered.is_empty() {
                             let mut temp_file_nucleo: Nucleo<u32> = Nucleo::new(
