@@ -227,22 +227,62 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     selected_ids,
                     values,
                 } => {
-                    // Execute action directly - confirmation already done in TUI modal
-                    // Convert selected_ids to file paths
-                    let files: Vec<PathBuf> = selected_ids.iter().map(PathBuf::from).collect();
-
-                    // Execute the action based on action_id
-                    let outcome = if values.is_empty() {
-                        // Confirmation-only action (e.g., delete_from_db)
-                        self.execute_confirmed_action(&action_id, &files)?
-                    } else {
-                        // Input action (e.g., add_tag, remove_tag)
-                        let input = values.join(" ");
-                        self.execute_action_with_input(&action_id, &files, &input)?
+                    // Convert action_id string to BrowseAction enum
+                    let action = match action_id.parse::<BrowseAction>() {
+                        Ok(a) => a,
+                        Err(_) => {
+                            return Err(BrowseError::UnexpectedState(format!(
+                                "Unknown action_id: {}",
+                                action_id
+                            )));
+                        }
                     };
 
-                    self.handle_action_outcome(outcome)?;
-                    self.session.refresh_current_phase()?;
+                    // Execute action through session (handles all action types)
+                    let outcome = self.session.execute_action(&action, &selected_ids)?;
+
+                    // Handle the outcome
+                    match outcome {
+                        ActionOutcome::Success { .. } | ActionOutcome::Partial { .. } => {
+                            self.handle_action_outcome(outcome)?;
+                            self.session.refresh_current_phase()?;
+                        }
+                        ActionOutcome::NeedsInput {
+                            prompt: _,
+                            action_id,
+                            context,
+                        } => {
+                            // Session wants more input - shouldn't happen for actions from TUI
+                            // since TUI already collected input
+                            if !values.is_empty() {
+                                // We have values from TUI, execute the nested action
+                                let files = context.files;
+                                let input = values.join(" ");
+                                let nested_outcome =
+                                    self.execute_action_with_input(&action_id, &files, &input)?;
+                                self.handle_action_outcome(nested_outcome)?;
+                                self.session.refresh_current_phase()?;
+                            } else {
+                                return Err(BrowseError::UnexpectedState(format!(
+                                    "Action {} requires input but none provided",
+                                    action_id
+                                )));
+                            }
+                        }
+                        ActionOutcome::NeedsConfirmation {
+                            action_id, context, ..
+                        } => {
+                            // Session wants confirmation - shouldn't happen since TUI already confirmed
+                            let files = context.files;
+                            let nested_outcome =
+                                self.execute_confirmed_action(&action_id, &files)?;
+                            self.handle_action_outcome(nested_outcome)?;
+                            self.session.refresh_current_phase()?;
+                        }
+                        ActionOutcome::Failed(_) | ActionOutcome::Cancelled => {
+                            self.handle_action_outcome(outcome)?;
+                        }
+                    }
                 }
                 BrowserResult::Cancel => {
                     // User pressed ESC

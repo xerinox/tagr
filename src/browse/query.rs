@@ -111,13 +111,13 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
         tags.sort_by(|a, b| a.name.cmp(&b.name));
 
         // Add notes-only virtual tag if there are files with notes but no tags
-        if let Ok(notes_only_files) = get_notes_only_files(db) {
-            if !notes_only_files.is_empty() {
-                tags.push(TagrItem::tag(
-                    crate::browse::models::NOTES_ONLY_TAG.to_string(),
-                    notes_only_files.len(),
-                ));
-            }
+        if let Ok(notes_only_files) = get_notes_only_files(db)
+            && !notes_only_files.is_empty()
+        {
+            tags.push(TagrItem::tag(
+                crate::browse::models::NOTES_ONLY_TAG.to_string(),
+                notes_only_files.len(),
+            ));
         }
 
         Ok(tags)
@@ -130,13 +130,13 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
         // Add notes-only virtual tag if there are files with notes but no tags
         if let Ok(mut tag_vec) = tags {
-            if let Ok(notes_only_files) = get_notes_only_files(db) {
-                if !notes_only_files.is_empty() {
-                    tag_vec.push(TagrItem::tag(
-                        crate::browse::models::NOTES_ONLY_TAG.to_string(),
-                        notes_only_files.len(),
-                    ));
-                }
+            if let Ok(notes_only_files) = get_notes_only_files(db)
+                && !notes_only_files.is_empty()
+            {
+                tag_vec.push(TagrItem::tag(
+                    crate::browse::models::NOTES_ONLY_TAG.to_string(),
+                    notes_only_files.len(),
+                ));
             }
             tags = Ok(tag_vec);
         }

@@ -211,10 +211,33 @@ impl RatatuiFinder {
     }
 
     /// Build full keybind list for help overlay
-    fn build_overlay_binds(_custom_binds: &KeybindMap) -> Vec<(String, String)> {
-        // Generate dynamically from keybind configuration
-        let config = crate::keybinds::config::KeybindConfig::load_or_default().unwrap_or_default();
-        crate::keybinds::help::generate_overlay_binds(&config)
+    fn build_overlay_binds(custom_binds: &KeybindMap) -> Vec<(String, String)> {
+        // Use the metadata registry to get proper action descriptions
+        use crate::keybinds::metadata::{ActionMetadata, ActionRegistry};
+
+        let mut binds: Vec<(String, String)> = custom_binds
+            .iter()
+            .filter_map(|(key, action)| {
+                // Get human-readable key format
+                super::events::key_to_string(key).and_then(|key_str| {
+                    // Get description from metadata registry
+                    ActionRegistry::get_by_id(action).map(|meta| {
+                        (
+                            ActionMetadata::format_key(&key_str),
+                            meta.short_name.to_string(),
+                        )
+                    })
+                })
+            })
+            .collect();
+
+        // Sort by key for consistent display
+        binds.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Add preview scroll hint (always available)
+        binds.push(("Shift+↑/↓".to_string(), "scroll preview".to_string()));
+
+        binds
     }
 
     /// Render the UI
@@ -615,21 +638,15 @@ impl RatatuiFinder {
             let result = poll_and_handle(&mut state, &custom_binds, Duration::from_millis(50))?;
 
             match result {
-                EventResult::Action(BrowseAction::EditNote) => {
+                EventResult::Action {
+                    action: BrowseAction::EditNote,
+                    context,
+                } => {
                     // Suspend TUI to edit note
                     Self::cleanup_terminal()?;
 
-                    // Get current file to edit
-                    let file_to_edit = if state.is_tag_selection_phase() {
-                        // In tag selection, use file at cursor in file preview pane
-                        state
-                            .file_preview_items
-                            .get(state.file_preview_cursor)
-                            .map(|item| std::path::PathBuf::from(&item.key))
-                    } else {
-                        // In file selection, use current item
-                        state.current_key().map(std::path::PathBuf::from)
-                    };
+                    // Use the captured context (selected file when action was triggered)
+                    let file_to_edit = context.first().map(std::path::PathBuf::from);
 
                     if let Some(file_path) = file_to_edit {
                         // Get canonical path
@@ -655,92 +672,84 @@ impl RatatuiFinder {
                                 let status =
                                     std::process::Command::new(&editor).arg(&temp_path).status();
 
-                                if let Ok(status) = status {
-                                    if status.success() {
-                                        // Read updated content
-                                        if let Ok(updated_content) =
-                                            std::fs::read_to_string(&temp_path)
-                                        {
-                                            // Save or delete note based on content
-                                            if let Some(db) = &state.database {
-                                                let is_empty = updated_content.trim().is_empty();
+                                if let Ok(status) = status
+                                    && status.success()
+                                {
+                                    // Read updated content
+                                    if let Ok(updated_content) = std::fs::read_to_string(&temp_path)
+                                    {
+                                        // Save or delete note based on content
+                                        if let Some(db) = &state.database {
+                                            let is_empty = updated_content.trim().is_empty();
 
-                                                if is_empty && existing_note.is_some() {
-                                                    // Delete note if content cleared
-                                                    let _ = db.delete_note(&canonical_path);
+                                            if is_empty && existing_note.is_some() {
+                                                // Delete note if content cleared
+                                                let _ = db.delete_note(&canonical_path);
 
-                                                    // Update has_note metadata
-                                                    if state.is_tag_selection_phase() {
-                                                        if let Some(item) = state
-                                                            .file_preview_items
-                                                            .get_mut(state.file_preview_cursor)
-                                                        {
-                                                            item.metadata.has_note = false;
-                                                        }
-                                                        if let Some(item) = state
-                                                            .file_preview_items_unfiltered
-                                                            .iter_mut()
-                                                            .find(|i| {
-                                                                i.key == file_path.to_string_lossy()
-                                                            })
-                                                        {
-                                                            item.metadata.has_note = false;
-                                                        }
-                                                    } else if let Some(item) =
-                                                        state.items.get_mut(state.cursor)
+                                                // Update has_note metadata
+                                                if state.is_tag_selection_phase() {
+                                                    if let Some(item) = state
+                                                        .file_preview_items
+                                                        .get_mut(state.file_preview_cursor)
                                                     {
                                                         item.metadata.has_note = false;
                                                     }
-                                                } else if !is_empty {
-                                                    // Save note only if content is not empty
-                                                    let note = if let Some(mut existing) =
-                                                        existing_note
+                                                    if let Some(item) = state
+                                                        .file_preview_items_unfiltered
+                                                        .iter_mut()
+                                                        .find(|i| {
+                                                            i.key == file_path.to_string_lossy()
+                                                        })
                                                     {
-                                                        existing.update_content(updated_content);
-                                                        existing
-                                                    } else {
-                                                        crate::db::NoteRecord::new(updated_content)
-                                                    };
-
-                                                    let _ = db.set_note(&canonical_path, note);
-
-                                                    // Update has_note metadata for the current item
-                                                    if state.is_tag_selection_phase() {
-                                                        if let Some(item) = state
-                                                            .file_preview_items
-                                                            .get_mut(state.file_preview_cursor)
-                                                        {
-                                                            item.metadata.has_note = true;
-                                                        }
-                                                        if let Some(item) = state
-                                                            .file_preview_items_unfiltered
-                                                            .iter_mut()
-                                                            .find(|i| {
-                                                                i.key
-                                                                    == file_path
-                                                                        .display()
-                                                                        .to_string()
-                                                            })
-                                                        {
-                                                            item.metadata.has_note = true;
-                                                        }
-                                                    } else if let Some(current_idx) =
-                                                        state.filtered_indices.get(state.cursor)
-                                                    {
-                                                        if let Some(item) = state
-                                                            .items
-                                                            .get_mut(*current_idx as usize)
-                                                        {
-                                                            item.metadata.has_note = true;
-                                                        }
+                                                        item.metadata.has_note = false;
                                                     }
+                                                } else if let Some(item) =
+                                                    state.items.get_mut(state.cursor)
+                                                {
+                                                    item.metadata.has_note = false;
                                                 }
-                                                // else: empty content and no existing note - don't create
+                                            } else if !is_empty {
+                                                // Save note only if content is not empty
+                                                let note = if let Some(mut existing) = existing_note
+                                                {
+                                                    existing.update_content(updated_content);
+                                                    existing
+                                                } else {
+                                                    crate::db::NoteRecord::new(updated_content)
+                                                };
 
-                                                // Invalidate preview cache to show updated note
-                                                cached_preview_key = None;
-                                                cached_preview_mode = None;
+                                                let _ = db.set_note(&canonical_path, note);
+
+                                                // Update has_note metadata for the current item
+                                                if state.is_tag_selection_phase() {
+                                                    if let Some(item) = state
+                                                        .file_preview_items
+                                                        .get_mut(state.file_preview_cursor)
+                                                    {
+                                                        item.metadata.has_note = true;
+                                                    }
+                                                    if let Some(item) = state
+                                                        .file_preview_items_unfiltered
+                                                        .iter_mut()
+                                                        .find(|i| {
+                                                            i.key == file_path.display().to_string()
+                                                        })
+                                                    {
+                                                        item.metadata.has_note = true;
+                                                    }
+                                                } else if let Some(current_idx) =
+                                                    state.filtered_indices.get(state.cursor)
+                                                    && let Some(item) =
+                                                        state.items.get_mut(*current_idx as usize)
+                                                {
+                                                    item.metadata.has_note = true;
+                                                }
                                             }
+                                            // else: empty content and no existing note - don't create
+
+                                            // Invalidate preview cache to show updated note
+                                            cached_preview_key = None;
+                                            cached_preview_mode = None;
                                         }
                                     }
                                 }
@@ -752,7 +761,10 @@ impl RatatuiFinder {
                     // Resume TUI
                     *terminal = Self::setup_terminal()?;
                 }
-                EventResult::Action(BrowseAction::RefineSearch) => {
+                EventResult::Action {
+                    action: BrowseAction::RefineSearch,
+                    context: _,
+                } => {
                     // Open the refine search overlay
                     let criteria = config.search_criteria.as_ref();
                     state.enter_refine_search(
@@ -775,9 +787,13 @@ impl RatatuiFinder {
                         ));
                     }
                 }
-                EventResult::Action(action) => {
-                    // Generic action handling - store action string for result
-                    state.confirm(Some(action.as_str().to_string()));
+                EventResult::Action { action, context } => {
+                    // Generic action handling - return immediately with context
+                    return Ok(FinderResult::with_action(
+                        context,
+                        action.as_str().to_string(),
+                        Vec::new(),
+                    ));
                 }
                 EventResult::Confirm => {
                     state.confirm(None);
@@ -862,10 +878,15 @@ impl RatatuiFinder {
                     cached_preview_mode = None;
                     cached_preview_key = None;
                 }
-                EventResult::InputSubmitted { action, values } => {
+                EventResult::InputSubmitted {
+                    action,
+                    values,
+                    context,
+                } => {
                     // The input modal was submitted - return to caller with action info
+                    // Use the stored context (selected files when modal was opened)
                     return Ok(FinderResult::with_action(
-                        state.selected_keys(),
+                        context,
                         action.as_str().to_string(),
                         values,
                     ));

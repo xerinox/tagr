@@ -15,7 +15,10 @@ pub enum EventResult {
     /// Continue running the event loop
     Continue,
     /// Exit with an action to execute (actions requiring special handling like edit_note)
-    Action(BrowseAction),
+    Action {
+        action: BrowseAction,
+        context: Vec<String>,
+    },
     /// Exit with confirmation (enter key)
     Confirm,
     /// Exit the finder as aborted
@@ -28,6 +31,7 @@ pub enum EventResult {
     InputSubmitted {
         action: BrowseAction,
         values: Vec<String>,
+        context: Vec<String>,
     },
     /// Text input cancelled
     InputCancelled,
@@ -47,7 +51,7 @@ pub enum EventResult {
 /// Keybind mapping from key events to action strings
 pub type KeybindMap = HashMap<KeyEvent, String>;
 
-/// Convert a key event to a string representation (for `final_key`)
+/// Convert a key event to a string representation (for `final_key` and help display)
 #[must_use]
 pub fn key_to_string(key: &KeyEvent) -> Option<String> {
     let base = match key.code {
@@ -103,10 +107,21 @@ fn handle_normal_mode(
             Err(_) => return EventResult::Ignored, // Unknown action
         };
 
-        // Check phase availability
-        if state.is_tag_selection_phase() && !action.available_in_tag_phase() {
-            // Action not available in tag phase, ignore
-            return EventResult::Ignored;
+        // Check phase and pane availability
+        // In 3-pane view: actions should work when file preview pane has focus
+        // even if technically in "tag selection phase"
+        if state.is_tag_selection_phase() {
+            // Check which pane has focus
+            let file_pane_focused =
+                state.focused_pane == crate::ui::ratatui_adapter::state::FocusPane::FilePreview;
+
+            // Allow action if:
+            // 1. File pane has focus (user is working with files), OR
+            // 2. Action is universally available (help, note editing, etc.)
+            if !file_pane_focused && !action.available_in_tag_phase() {
+                // Tag pane has focus and action is file-specific - ignore
+                return EventResult::Ignored;
+            }
         }
 
         // Special case: actions that should be handled inline without exiting
@@ -160,15 +175,33 @@ fn handle_normal_mode(
         // Special case: actions requiring special handling (terminal suspend, etc.)
         if action.requires_special_handling() {
             // Signal to caller to handle (e.g., suspend TUI for edit_note)
-            return EventResult::Action(action);
+            let context = state.selected_keys();
+            return EventResult::Action { action, context };
         }
 
         // Actions that require text input open the modal
         if action.requires_input() {
             let (title, _placeholder) = action.input_prompt();
 
-            // Get tags on selected file(s)
-            let file_tags = state.get_selected_items_tags();
+            // Capture selected file paths when opening modal
+            let selected_keys = state.selected_keys();
+
+            // Get tags from the captured selected files (via database lookup)
+            let file_tags: Vec<String> = selected_keys
+                .iter()
+                .filter_map(|path| {
+                    use std::path::PathBuf;
+                    let path_buf = PathBuf::from(path);
+                    state
+                        .database
+                        .as_ref()
+                        .and_then(|db| db.get_tags(&path_buf).ok())
+                        .flatten()
+                })
+                .flatten()
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
 
             // For remove_tag: show only tags on the file(s), no exclusions
             // For add_tag: show all available tags, exclude those already on file(s)
@@ -178,13 +211,14 @@ fn handle_normal_mode(
                 _ => (Vec::new(), Vec::new()),
             };
 
-            // Enter text input modal (still uses string action_id for state management)
+            // Enter text input modal with captured context
             state.enter_text_input(
                 title,
                 action.as_str().to_string(),
                 autocomplete_items,
                 excluded_tags,
                 true,
+                selected_keys,
             );
             return EventResult::Continue;
         }
@@ -200,7 +234,9 @@ fn handle_normal_mode(
             }
         }
 
-        return EventResult::Action(action);
+        // For immediate actions (no input/confirmation), capture context now
+        let context = state.selected_keys();
+        return EventResult::Action { action, context };
     }
 
     // Handle standard keybinds
@@ -661,8 +697,15 @@ fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
                 }
             };
 
-            let _ = state.exit_text_input();
-            EventResult::InputSubmitted { action, values }
+            // Get context (selected files) from input state
+            let input_state_data = state.exit_text_input();
+            let context = input_state_data.map_or_else(Vec::new, |s| s.context);
+
+            EventResult::InputSubmitted {
+                action,
+                values,
+                context,
+            }
         }
 
         // Accept autocomplete suggestion
@@ -894,7 +937,13 @@ mod tests {
             KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
             &binds,
         );
-        assert_eq!(result, EventResult::Action(BrowseAction::OpenInEditor));
+        assert_eq!(
+            result,
+            EventResult::Action {
+                action: BrowseAction::OpenInEditor,
+                context: vec!["item0".to_string()]
+            }
+        );
     }
 
     #[test]

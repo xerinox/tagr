@@ -315,27 +315,12 @@ impl<'a> BrowseSession<'a> {
         action: &BrowseAction,
         selected_ids: &[String],
     ) -> Result<ActionOutcome> {
-        // Actions only available in file phase
-        if !matches!(
-            self.current_phase.phase_type,
-            PhaseType::FileSelection { .. }
-        ) {
-            return Err(BrowseError::ActionNotAvailable);
-        }
+        // NOTE: Phase check removed - in 3-pane view, phases don't exist.
+        // Pane-focused filtering happens at UI layer (events.rs).
+        // Session layer trusts that UI only calls this for valid actions.
 
-        let selected_files: Vec<PathBuf> = self
-            .current_phase
-            .items
-            .iter()
-            .filter(|item| selected_ids.contains(&item.id))
-            .filter_map(|item| {
-                if let crate::browse::models::ItemMetadata::File(file_meta) = &item.metadata {
-                    Some(file_meta.path.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        // Convert selected_ids directly to PathBufs (they are file paths from context)
+        let selected_files: Vec<PathBuf> = selected_ids.iter().map(PathBuf::from).collect();
 
         match action {
             BrowseAction::AddTag => Ok(ActionOutcome::NeedsInput {
@@ -748,16 +733,8 @@ mod tests {
         assert!(matches!(result, AcceptResult::Cancelled));
     }
 
-    #[test]
-    fn test_action_not_available_in_tag_phase() {
-        let db = TestDb::new("test_action_tag_phase");
-        let config = BrowseConfig::default();
-        let session = BrowseSession::new(db.db(), config).unwrap();
-
-        let result = session.execute_action(&BrowseAction::AddTag, &[]);
-
-        assert!(matches!(result, Err(BrowseError::ActionNotAvailable)));
-    }
+    // NOTE: test_action_not_available_in_tag_phase removed - phases don't exist in 3-pane view
+    // Pane-focused filtering happens at UI layer, session layer trusts the UI
 
     #[test]
     fn test_update_search_params() {

@@ -31,13 +31,13 @@ pub fn generate_help_text(config: &KeybindConfig) -> String {
     output.push_str("  ←/→           Move cursor in query (when searching)\n");
 
     // Refine search is configurable
-    if let Some(meta) = ActionRegistry::get_by_id("refine_search") {
-        if !config.is_disabled("refine_search") {
-            let keys = meta.primary_key_human(config);
-            output.push_str(&format!("  {:<14}{}\n", keys, meta.description));
-        }
+    if let Some(meta) = ActionRegistry::get_by_id("refine_search")
+        && !config.is_disabled("refine_search")
+    {
+        let keys = meta.primary_key_human(config);
+        output.push_str(&format!("  {:<14}{}\n", keys, meta.description));
     }
-    output.push_str("\n");
+    output.push('\n');
 
     // Generate sections for each category
     for category in [
@@ -62,7 +62,7 @@ pub fn generate_help_text(config: &KeybindConfig) -> String {
             let keys = meta.primary_key_human(config);
             output.push_str(&format!("  {:<14}{}\n", keys, meta.description));
         }
-        output.push_str("\n");
+        output.push('\n');
     }
 
     output.push_str("Press any key to close this help screen\n");

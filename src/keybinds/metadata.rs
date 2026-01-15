@@ -112,7 +112,7 @@ impl ActionRegistry {
     /// Get all registered actions
     #[must_use]
     pub const fn all() -> &'static [ActionMetadata] {
-        &ALL_ACTIONS
+        ALL_ACTIONS
     }
 
     /// Get metadata for a specific action

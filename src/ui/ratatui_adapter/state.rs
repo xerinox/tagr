@@ -539,6 +539,7 @@ impl AppState {
     /// * `autocomplete_items` - Items to use for fuzzy autocomplete
     /// * `excluded_tags` - Tags already on the file(s), excluded from suggestions
     /// * `multi_value` - Whether to accept multiple space-separated values
+    /// * `context` - Selected file paths when modal was opened
     pub fn enter_text_input(
         &mut self,
         prompt: impl Into<String>,
@@ -546,12 +547,14 @@ impl AppState {
         autocomplete_items: Vec<String>,
         excluded_tags: Vec<String>,
         multi_value: bool,
+        context: Vec<String>,
     ) {
         self.text_input_state = Some(
             TextInputState::new(prompt, action_id)
                 .with_autocomplete(autocomplete_items)
                 .with_excluded_tags(excluded_tags)
-                .with_multi_value(multi_value),
+                .with_multi_value(multi_value)
+                .with_context(context),
         );
         self.mode = Mode::Input;
     }

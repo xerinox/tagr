@@ -49,8 +49,8 @@ impl FileDetails {
         let modified = if let Ok(time) = metadata.modified() {
             if let Ok(duration) = time.duration_since(std::time::UNIX_EPOCH) {
                 let timestamp = duration.as_secs() as i64;
-                let dt = chrono::DateTime::from_timestamp(timestamp, 0)
-                    .unwrap_or_else(|| chrono::Utc::now());
+                let dt =
+                    chrono::DateTime::from_timestamp(timestamp, 0).unwrap_or_else(chrono::Utc::now);
                 dt.format("%Y-%m-%d %H:%M:%S").to_string()
             } else {
                 "Unknown".to_string()
@@ -123,15 +123,12 @@ impl<'a> DetailsModal<'a> {
 
     /// Build content lines for the modal
     fn build_content(&self) -> Vec<Line<'static>> {
-        let mut lines = Vec::new();
-
-        // File path header
-        lines.push(Line::from(vec![Span::styled(
+        let mut lines = vec![Line::from(vec![Span::styled(
             self.details.path.display().to_string(),
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
-        )]));
+        )])];
         lines.push(Line::from("─".repeat(70)));
         lines.push(Line::default());
 
