@@ -6,6 +6,8 @@
 pub mod actions;
 pub mod config;
 pub mod executor;
+pub mod help;
+pub mod metadata;
 pub mod prompts;
 
 pub use actions::{ActionResult, BrowseAction};

@@ -192,16 +192,8 @@ fn default_keybinds() -> HashMap<String, KeybindDef> {
 
     // View Options
     keybinds.insert(
-        "toggle_tag_display".to_string(),
-        KeybindDef::Single("ctrl-i".to_string()),
-    );
-    keybinds.insert(
         "show_details".to_string(),
         KeybindDef::Single("ctrl-l".to_string()),
-    );
-    keybinds.insert(
-        "filter_extension".to_string(),
-        KeybindDef::Single("ctrl-f".to_string()),
     );
 
     // Note Management
@@ -212,36 +204,6 @@ fn default_keybinds() -> HashMap<String, KeybindDef> {
     keybinds.insert(
         "toggle_note_preview".to_string(),
         KeybindDef::Single("alt-n".to_string()),
-    );
-
-    // Navigation
-    keybinds.insert(
-        "select_all".to_string(),
-        KeybindDef::Single("ctrl-a".to_string()),
-    );
-    keybinds.insert(
-        "clear_selection".to_string(),
-        KeybindDef::Single("ctrl-x".to_string()),
-    );
-
-    // Search & Filter
-    keybinds.insert(
-        "quick_search".to_string(),
-        KeybindDef::Single("ctrl-s".to_string()),
-    );
-    keybinds.insert(
-        "goto_file".to_string(),
-        KeybindDef::Single("ctrl-g".to_string()),
-    );
-
-    // History & Sessions
-    keybinds.insert(
-        "show_history".to_string(),
-        KeybindDef::Single("ctrl-h".to_string()),
-    );
-    keybinds.insert(
-        "bookmark_selection".to_string(),
-        KeybindDef::Single("ctrl-b".to_string()),
     );
 
     // Search Refinement

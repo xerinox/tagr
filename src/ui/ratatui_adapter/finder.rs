@@ -211,39 +211,10 @@ impl RatatuiFinder {
     }
 
     /// Build full keybind list for help overlay
-    fn build_overlay_binds(custom_binds: &KeybindMap) -> Vec<(String, String)> {
-        let mut binds: Vec<(String, String)> = custom_binds
-            .iter()
-            .filter_map(|(key, action)| {
-                super::events::key_to_string(key)
-                    .map(|key_str| (key_str, Self::format_action_name(action)))
-            })
-            .collect();
-
-        // Sort by key for consistent display
-        binds.sort_by(|a, b| a.0.cmp(&b.0));
-
-        // Add preview scroll hint (always available)
-        binds.push(("Shift+↑/↓".to_string(), "scroll preview".to_string()));
-
-        binds
-    }
-
-    /// Format action name for display in help overlay
-    fn format_action_name(action: &str) -> String {
-        match action {
-            "add_tag" => "add tag(s)".to_string(),
-            "remove_tag" => "remove tag(s)".to_string(),
-            "delete_from_db" => "delete from database".to_string(),
-            "open_file" => "open file".to_string(),
-            "edit_file" => "edit file".to_string(),
-            "copy_files" => "copy files".to_string(),
-            "refine_search" => "refine search criteria".to_string(),
-            "show_help" => "show help".to_string(),
-            "select_all" => "select all".to_string(),
-            "clear_selection" => "clear selection".to_string(),
-            other => other.replace('_', " "),
-        }
+    fn build_overlay_binds(_custom_binds: &KeybindMap) -> Vec<(String, String)> {
+        // Generate dynamically from keybind configuration
+        let config = crate::keybinds::config::KeybindConfig::load_or_default().unwrap_or_default();
+        crate::keybinds::help::generate_overlay_binds(&config)
     }
 
     /// Render the UI

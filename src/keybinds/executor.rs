@@ -57,13 +57,10 @@ impl ActionExecutor {
             BrowseAction::OpenInEditor => Self::execute_open_in_editor(context),
             BrowseAction::CopyPath => Self::execute_copy_path(context),
             BrowseAction::CopyFiles => Self::execute_copy_files(context),
-            BrowseAction::ToggleTagDisplay => Self::execute_toggle_tag_display(context),
             BrowseAction::ShowDetails => Self::execute_show_details(context),
-            BrowseAction::FilterExtension => Self::execute_filter_extension(context),
             BrowseAction::EditNote => Self::execute_edit_note(context),
             BrowseAction::ToggleNotePreview => Self::execute_toggle_note_preview(context),
-            BrowseAction::SelectAll => Self::execute_select_all(context),
-            BrowseAction::ClearSelection => Self::execute_clear_selection(context),
+            BrowseAction::RefineSearch => Ok(ActionResult::Continue), // Handled in TUI
             BrowseAction::ShowHelp => Self::execute_show_help(context),
             _ => Ok(ActionResult::Continue),
         }
@@ -335,14 +332,6 @@ impl ActionExecutor {
     ///
     /// **Note**: This is a stub implementation. The actual toggle functionality
     /// will be handled by the UI layer. Returns `Result` for API consistency
-    /// with other action handlers.
-    #[allow(clippy::unnecessary_wraps)]
-    fn execute_toggle_tag_display(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        Ok(ActionResult::Message(
-            "Tag display toggling will be implemented in UI layer".to_string(),
-        ))
-    }
-
     /// Execute the `ShowDetails` action.
     ///
     /// Note: This is a stub implementation for backward compatibility.
@@ -354,90 +343,13 @@ impl ActionExecutor {
         Ok(ActionResult::Continue)
     }
 
-    /// Execute the `FilterExtension` action.
-    fn execute_filter_extension(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let extension = prompt_for_input("Filter by extension (e.g., 'txt', '.rs'): ")?;
-
-        if extension.trim().is_empty() {
-            return Ok(ActionResult::Message("Filter cancelled".to_string()));
-        }
-
-        let ext = extension.trim().trim_start_matches('.');
-        Ok(ActionResult::Message(format!(
-            "Extension filtering ({ext}) will be handled by browse UI layer"
-        )))
-    }
-
-    /// Execute the `SelectAll` action.
-    ///
-    /// **Note**: This is a stub implementation. Selection state is managed
-    /// by the TUI layer. Returns `Result` for API consistency.
-    #[allow(clippy::unnecessary_wraps)]
-    fn execute_select_all(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        Ok(ActionResult::Message(
-            "Select all will be handled by TUI layer".to_string(),
-        ))
-    }
-
-    /// Execute the `ClearSelection` action.
-    ///
-    /// **Note**: This is a stub implementation. Selection state is managed
-    /// by the TUI layer. Returns `Result` for API consistency.
-    #[allow(clippy::unnecessary_wraps)]
-    fn execute_clear_selection(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        Ok(ActionResult::Message(
-            "Clear selection will be handled by TUI layer".to_string(),
-        ))
-    }
-
     /// Execute the `ShowHelp` action.
     fn execute_show_help(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let help_text = r"
-╔═══════════════════════════════════════════════════════════╗
-║                  Tagr Browse Mode Keybinds                ║
-╚═══════════════════════════════════════════════════════════╝
+        // Generate help text dynamically from keybind configuration
+        let config = crate::keybinds::config::KeybindConfig::load_or_default().unwrap_or_default();
+        let help_text = crate::keybinds::help::generate_help_text(&config);
 
-TAG MANAGEMENT:
-  Ctrl+T    Add tags to selected files
-  Ctrl+R    Remove tags from selected files
-  Ctrl+E    Edit tags in $EDITOR
-
-FILE OPERATIONS:
-  Ctrl+O    Open in default application
-  Ctrl+V    Open in $EDITOR
-  Ctrl+Y    Copy file paths to clipboard
-  Ctrl+P    Copy files to directory
-  Ctrl+D    Delete from database
-
-VIEW & NAVIGATION:
-  Ctrl+I    Toggle tag display mode
-  Ctrl+L    Show file details
-  Ctrl+F    Filter by extension
-  Ctrl+A    Select all files
-  Ctrl+X    Clear selection
-
-SEARCH & FILTER:
-  Ctrl+S    Quick tag search
-  Ctrl+G    Go to file
-
-HISTORY & SESSIONS:
-  Ctrl+H    Show recent selections
-  Ctrl+B    Bookmark selection
-
-SYSTEM:
-  F1        Show this help (press 'q' to return)
-  Enter     Exit with selection
-  ESC       Cancel and abort
-
-BASIC NAVIGATION:
-  TAB       Toggle file selection
-  Up/Down   Navigate files
-  /         Start search query
-
-Press 'q' to return to browse mode
-        ";
-
-        match show_in_pager(help_text) {
+        match show_in_pager(&help_text) {
             Ok(()) => {
                 // Give terminal a moment to stabilize after pager exits
                 std::thread::sleep(std::time::Duration::from_millis(50));

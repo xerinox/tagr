@@ -25,32 +25,13 @@ pub enum BrowseAction {
     /// Delete file(s) from database - Ctrl+D
     DeleteFromDb,
 
-    /// Toggle tag display mode - Ctrl+I
-    ToggleTagDisplay,
     /// Show detailed file information - Ctrl+L
     ShowDetails,
-    /// Filter by file extension - Ctrl+F
-    FilterExtension,
 
     /// Edit note for selected file - Ctrl+N
     EditNote,
     /// Toggle between file and note preview - Alt+N
     ToggleNotePreview,
-
-    /// Select all visible files - Ctrl+A
-    SelectAll,
-    /// Clear current selection - Ctrl+X
-    ClearSelection,
-
-    /// Quick tag search - Ctrl+S
-    QuickTagSearch,
-    /// Go to specific file - Ctrl+G
-    GoToFile,
-
-    /// Show recent selections - Ctrl+H
-    ShowHistory,
-    /// Bookmark current selection - Ctrl+B
-    BookmarkSelection,
 
     /// Refine search criteria - Ctrl+/
     RefineSearch,
@@ -96,17 +77,9 @@ impl FromStr for BrowseAction {
             "copy_path" => Ok(Self::CopyPath),
             "copy_files" => Ok(Self::CopyFiles),
             "delete_from_db" => Ok(Self::DeleteFromDb),
-            "toggle_tag_display" => Ok(Self::ToggleTagDisplay),
             "show_details" => Ok(Self::ShowDetails),
-            "filter_extension" => Ok(Self::FilterExtension),
             "edit_note" => Ok(Self::EditNote),
             "toggle_note_preview" => Ok(Self::ToggleNotePreview),
-            "select_all" => Ok(Self::SelectAll),
-            "clear_selection" => Ok(Self::ClearSelection),
-            "quick_search" => Ok(Self::QuickTagSearch),
-            "goto_file" => Ok(Self::GoToFile),
-            "show_history" => Ok(Self::ShowHistory),
-            "bookmark_selection" => Ok(Self::BookmarkSelection),
             "refine_search" => Ok(Self::RefineSearch),
             "show_help" => Ok(Self::ShowHelp),
             _ => Err(ParseActionError::new(s)),
@@ -181,17 +154,9 @@ impl BrowseAction {
             Self::CopyPath => "Copy file paths to clipboard",
             Self::CopyFiles => "Copy files to directory",
             Self::DeleteFromDb => "Delete from database",
-            Self::ToggleTagDisplay => "Toggle tag display mode",
             Self::ShowDetails => "Show file details",
-            Self::FilterExtension => "Filter by extension",
             Self::EditNote => "Edit note for selected file",
             Self::ToggleNotePreview => "Toggle file/note preview",
-            Self::SelectAll => "Select all files",
-            Self::ClearSelection => "Clear selection",
-            Self::QuickTagSearch => "Quick tag search",
-            Self::GoToFile => "Go to file",
-            Self::ShowHistory => "Show recent selections",
-            Self::BookmarkSelection => "Bookmark selection",
             Self::RefineSearch => "Refine search criteria",
             Self::ShowHelp => "Show help",
             Self::Cancel => "Cancel",
@@ -269,17 +234,9 @@ impl BrowseAction {
             Self::CopyPath => "copy_path",
             Self::CopyFiles => "copy_files",
             Self::DeleteFromDb => "delete_from_db",
-            Self::ToggleTagDisplay => "toggle_tag_display",
             Self::ShowDetails => "show_details",
-            Self::FilterExtension => "filter_extension",
             Self::EditNote => "edit_note",
             Self::ToggleNotePreview => "toggle_note_preview",
-            Self::SelectAll => "select_all",
-            Self::ClearSelection => "clear_selection",
-            Self::QuickTagSearch => "quick_search",
-            Self::GoToFile => "goto_file",
-            Self::ShowHistory => "show_history",
-            Self::BookmarkSelection => "bookmark_selection",
             Self::RefineSearch => "refine_search",
             Self::ShowHelp => "show_help",
             Self::Cancel => "cancel",
@@ -300,9 +257,12 @@ mod tests {
 
     #[test]
     fn test_phase_availability() {
-        // Tag phase: only help and cancel
+        // Tag phase: only help, cancel, note editing, preview toggle, show details
         assert!(BrowseAction::ShowHelp.available_in_tag_phase());
         assert!(BrowseAction::Cancel.available_in_tag_phase());
+        assert!(BrowseAction::EditNote.available_in_tag_phase());
+        assert!(BrowseAction::ToggleNotePreview.available_in_tag_phase());
+        assert!(BrowseAction::ShowDetails.available_in_tag_phase());
         assert!(!BrowseAction::AddTag.available_in_tag_phase());
         assert!(!BrowseAction::DeleteFromDb.available_in_tag_phase());
         assert!(!BrowseAction::CopyPath.available_in_tag_phase());

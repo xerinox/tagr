@@ -139,15 +139,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                             // This branch shouldn't be reached with ratatui
                             continue;
                         }
-                        BrowseAction::SelectAll | BrowseAction::ClearSelection => {
-                            // These should be handled by skim directly via bindings
-                            // If we get here, it's a configuration issue
-                            eprintln!(
-                                "Warning: {} should be handled by UI bindings",
-                                action.description()
-                            );
-                            continue;
-                        }
                         BrowseAction::RefineSearch => {
                             // Refine search is handled via BrowserResult::RefineSearch
                             // The TUI overlay handles the user interaction
