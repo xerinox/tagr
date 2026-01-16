@@ -452,7 +452,7 @@ mod tests {
         filter.add_virtual_tag("size:>1MB".to_string());
 
         let display = format!("{filter}");
-        eprintln!("Display output: {}", display);
+        eprintln!("Display output: {display}");
         assert!(display.contains("-t rust"));
         assert!(display.contains("-p *.rs"));
         assert!(display.contains("-v \"size:>1MB\"") || display.contains("-v size:>1MB"));

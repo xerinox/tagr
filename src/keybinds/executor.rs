@@ -335,10 +335,10 @@ impl ActionExecutor {
     /// Execute the `ShowDetails` action.
     ///
     /// Note: This is a stub implementation for backward compatibility.
-    /// ShowDetails is now handled inline by the TUI layer to avoid breaking
+    /// `ShowDetails` is now handled inline by the TUI layer to avoid breaking
     /// the terminal. Returns Continue to maintain API compatibility.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_show_details(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    const fn execute_show_details(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         // ShowDetails is handled inline by the TUI - see events.rs
         Ok(ActionResult::Continue)
     }

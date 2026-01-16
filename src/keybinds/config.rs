@@ -349,14 +349,14 @@ impl KeybindConfig {
         None
     }
 
-    /// Convert keybind configuration to a KeyEvent -> action name map.
+    /// Convert keybind configuration to a `KeyEvent` -> action name map.
     ///
     /// This is primarily for testing and validation. In production, use
     /// `bindings()` or `bindings_for_phase()` to get the key:action strings.
     ///
     /// # Returns
     ///
-    /// HashMap mapping KeyEvent to action name strings.
+    /// `HashMap` mapping `KeyEvent` to action name strings.
     #[cfg(test)]
     pub(crate) fn to_keybind_map(
         &self,
@@ -510,8 +510,7 @@ confirm_delete = false
         let action = matching_actions[0].1;
         assert!(
             action == "add_tag" || action == "remove_tag",
-            "Expected action to be add_tag or remove_tag, got {}",
-            action
+            "Expected action to be add_tag or remove_tag, got {action}"
         );
     }
 
@@ -537,9 +536,7 @@ confirm_delete = false
             // Invalid keys should return None (gracefully handled)
             assert!(
                 result.is_none(),
-                "Expected '{}' to be invalid, but got {:?}",
-                key_str,
-                result
+                "Expected '{key_str}' to be invalid, but got {result:?}"
             );
         }
 
@@ -602,8 +599,7 @@ confirm_delete = false
             let key2 = parse_key_string_for_test(v2);
             assert_eq!(
                 key1, key2,
-                "Expected '{}' and '{}' to parse to same key",
-                v1, v2
+                "Expected '{v1}' and '{v2}' to parse to same key"
             );
         }
     }
@@ -631,8 +627,7 @@ confirm_delete = false
             let result = parse_key_string_for_test(key_str);
             assert!(
                 result.is_some(),
-                "Expected '{}' to parse successfully",
-                key_str
+                "Expected '{key_str}' to parse successfully"
             );
             assert_eq!(result.unwrap().code, expected_code);
         }
@@ -647,8 +642,7 @@ confirm_delete = false
         let has_refine_search = bindings.iter().any(|b| b.contains("refine_search"));
         assert!(
             has_refine_search,
-            "Expected refine_search in bindings: {:?}",
-            bindings
+            "Expected refine_search in bindings: {bindings:?}"
         );
 
         // Check both keybinds are present
@@ -656,8 +650,7 @@ confirm_delete = false
         let has_f2 = bindings.iter().any(|b| b == "f2:refine_search");
         assert!(
             has_ctrl_slash || has_f2,
-            "Expected ctrl-/ or f2 keybind for refine_search: {:?}",
-            bindings
+            "Expected ctrl-/ or f2 keybind for refine_search: {bindings:?}"
         );
     }
 }

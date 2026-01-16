@@ -43,7 +43,7 @@ pub use state::{AppState, Mode};
 pub use styled_preview::{StyledPreview, StyledPreviewGenerator};
 pub use theme::Theme;
 
-/// Parse a key string into a KeyEvent for testing
+/// Parse a key string into a `KeyEvent` for testing
 ///
 /// This is exposed for testing keybind configurations.
 ///

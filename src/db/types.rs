@@ -203,7 +203,7 @@ impl NoteRecord {
         }
     }
 
-    /// Update the content and bump the updated_at timestamp
+    /// Update the content and bump the `updated_at` timestamp
     pub fn update_content(&mut self, content: String) {
         self.content = content;
         self.metadata.updated_at = chrono::Utc::now().timestamp();

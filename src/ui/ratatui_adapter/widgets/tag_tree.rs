@@ -193,8 +193,7 @@ impl TagTreeState {
         let notes_only_count = tags
             .iter()
             .find(|(tag, _)| tag == crate::browse::models::NOTES_ONLY_TAG)
-            .map(|(_, count)| *count)
-            .unwrap_or(0);
+            .map_or(0, |(_, count)| *count);
 
         // First pass: identify all actual tags and their hierarchy
         for (tag, count) in tags {

@@ -11,7 +11,7 @@ use ratatui::{
 use std::path::{Path, PathBuf};
 
 /// File details to display in the modal
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDetails {
     /// File path
     pub path: PathBuf,
@@ -187,11 +187,15 @@ impl<'a> DetailsModal<'a> {
 
             // Note metadata
             let created_dt = chrono::DateTime::from_timestamp(note.metadata.created_at, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
+                .map_or_else(
+                    || "Unknown".to_string(),
+                    |dt| dt.format("%Y-%m-%d %H:%M").to_string(),
+                );
             let updated_dt = chrono::DateTime::from_timestamp(note.metadata.updated_at, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
+                .map_or_else(
+                    || "Unknown".to_string(),
+                    |dt| dt.format("%Y-%m-%d %H:%M").to_string(),
+                );
 
             lines.push(Line::from(vec![
                 Span::styled("Created: ", Style::default().fg(Color::DarkGray)),

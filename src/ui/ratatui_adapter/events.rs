@@ -14,7 +14,7 @@ use std::time::Duration;
 pub enum EventResult {
     /// Continue running the event loop
     Continue,
-    /// Exit with an action to execute (actions requiring special handling like edit_note)
+    /// Exit with an action to execute (actions requiring special handling like `edit_note`)
     Action {
         action: BrowseAction,
         context: Vec<String>,
@@ -689,12 +689,11 @@ fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
             }
 
             // Parse action string to enum
-            let action = match action_str.parse::<BrowseAction>() {
-                Ok(a) => a,
-                Err(_) => {
-                    state.cancel_text_input();
-                    return EventResult::Ignored; // Unknown action
-                }
+            let action = if let Ok(a) = action_str.parse::<BrowseAction>() {
+                a
+            } else {
+                state.cancel_text_input();
+                return EventResult::Ignored; // Unknown action
             };
 
             // Get context (selected files) from input state
@@ -785,12 +784,11 @@ fn handle_confirm_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
         (KeyCode::Enter | KeyCode::Char('y' | 'Y'), _) => {
             if let Some(confirm_state) = state.exit_confirm() {
                 // Parse action string to enum
-                let action = match confirm_state.action_id.parse::<BrowseAction>() {
-                    Ok(a) => a,
-                    Err(_) => {
-                        state.cancel_confirm();
-                        return EventResult::Ignored; // Unknown action
-                    }
+                let action = if let Ok(a) = confirm_state.action_id.parse::<BrowseAction>() {
+                    a
+                } else {
+                    state.cancel_confirm();
+                    return EventResult::Ignored; // Unknown action
                 };
 
                 EventResult::ConfirmSubmitted {

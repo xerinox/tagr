@@ -9,7 +9,7 @@ pub struct ActionMetadata {
     /// Action enum variant
     pub action: BrowseAction,
 
-    /// Internal action identifier (e.g., "add_tag")
+    /// Internal action identifier (e.g., "`add_tag`")
     pub id: &'static str,
 
     /// Default keybind(s) in internal format (e.g., "ctrl-t")

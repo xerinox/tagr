@@ -219,9 +219,8 @@ fn format_image_metadata(metadata: &ImageMetadata) -> String {
 fn format_timestamp(timestamp: i64) -> String {
     use chrono::{DateTime, Local, TimeZone};
 
-    Local
-        .timestamp_opt(timestamp, 0)
-        .single()
-        .map(|dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    Local.timestamp_opt(timestamp, 0).single().map_or_else(
+        || "unknown".to_string(),
+        |dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+    )
 }

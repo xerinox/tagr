@@ -724,7 +724,7 @@ impl Database {
     /// List all files that have notes
     ///
     /// # Returns
-    /// Vector of (file_path, note) tuples
+    /// Vector of (`file_path`, note) tuples
     ///
     /// # Errors
     ///
@@ -732,7 +732,7 @@ impl Database {
     pub fn list_all_notes(&self) -> Result<Vec<(PathBuf, NoteRecord)>, DbError> {
         let mut results = Vec::new();
 
-        for item in self.notes.iter() {
+        for item in &self.notes {
             let (key, value) = item?;
             let (path, _): (PathBuf, usize) =
                 bincode::decode_from_slice(&key, bincode::config::standard())?;
@@ -753,7 +753,7 @@ impl Database {
     /// * `query` - Search query (searches in note content)
     ///
     /// # Returns
-    /// Vector of (file_path, note) tuples matching the query
+    /// Vector of (`file_path`, note) tuples matching the query
     ///
     /// # Errors
     ///
@@ -762,7 +762,7 @@ impl Database {
         let query_lower = query.to_lowercase();
         let mut results = Vec::new();
 
-        for item in self.notes.iter() {
+        for item in &self.notes {
             let (key, value) = item?;
             let (path, _): (PathBuf, usize) =
                 bincode::decode_from_slice(&key, bincode::config::standard())?;
@@ -1018,7 +1018,7 @@ mod tests {
         db.set_note(file.path(), note1).unwrap();
 
         // Update note
-        db.set_note(file.path(), note2.clone()).unwrap();
+        db.set_note(file.path(), note2).unwrap();
 
         // Verify update
         let retrieved = db.get_note(file.path()).unwrap().unwrap();
@@ -1166,16 +1166,16 @@ mod tests {
         let note = NoteRecord {
             content: "Test content".to_string(),
             metadata: NoteMeta {
-                created_at: 1234567890,
-                updated_at: 1234567890,
+                created_at: 1_234_567_890,
+                updated_at: 1_234_567_890,
             },
         };
 
-        db.set_note(file.path(), note.clone()).unwrap();
+        db.set_note(file.path(), note).unwrap();
         let retrieved = db.get_note(file.path()).unwrap().unwrap();
 
-        assert_eq!(retrieved.metadata.created_at, 1234567890);
-        assert_eq!(retrieved.metadata.updated_at, 1234567890);
+        assert_eq!(retrieved.metadata.created_at, 1_234_567_890);
+        assert_eq!(retrieved.metadata.updated_at, 1_234_567_890);
     }
 
     #[test]

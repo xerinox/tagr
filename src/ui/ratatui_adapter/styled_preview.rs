@@ -83,8 +83,10 @@ impl StyledPreview {
         let created = Local
             .timestamp_opt(note_record.metadata.created_at, 0)
             .single()
-            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+            .map_or_else(
+                || "unknown".to_string(),
+                |dt| dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            );
         lines.push(Line::from(vec![
             Span::styled("Created: ", dim_style),
             Span::raw(created),
@@ -93,8 +95,10 @@ impl StyledPreview {
         let updated = Local
             .timestamp_opt(note_record.metadata.updated_at, 0)
             .single()
-            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+            .map_or_else(
+                || "unknown".to_string(),
+                |dt| dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            );
         lines.push(Line::from(vec![
             Span::styled("Updated: ", dim_style),
             Span::raw(updated),

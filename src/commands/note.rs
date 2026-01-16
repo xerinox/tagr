@@ -167,10 +167,10 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
 
         // Get existing note or create new one
         let existing_note = db.get_note(&canonical_path)?;
-        let initial_content = existing_note
-            .as_ref()
-            .map(|n| n.content.clone())
-            .unwrap_or_else(|| config.notes.default_template.clone());
+        let initial_content = existing_note.as_ref().map_or_else(
+            || config.notes.default_template.clone(),
+            |n| n.content.clone(),
+        );
 
         // Create temp file with initial content
         let temp_path = create_temp_note_file(&initial_content)?;
@@ -274,8 +274,8 @@ fn execute_show(
 
         let note = db.get_note(&canonical_path)?;
 
-        match note {
-            Some(note) => match args.format {
+        if let Some(note) = note {
+            match args.format {
                 OutputFormat::Text => {
                     if args.verbose {
                         println!(
@@ -303,13 +303,12 @@ fn execute_show(
                 OutputFormat::Quiet => {
                     println!("{}", output::format_path(&canonical_path, path_format));
                 }
-            },
-            None => {
-                if args.format != OutputFormat::Quiet {
-                    eprintln!("No note for {}", file.display());
-                }
-                return Err(NoteError::NotFound(file.display().to_string()));
             }
+        } else {
+            if args.format != OutputFormat::Quiet {
+                eprintln!("No note for {}", file.display());
+            }
+            return Err(NoteError::NotFound(file.display().to_string()));
         }
     }
 
@@ -507,21 +506,19 @@ pub fn create_temp_note_file(content: &str) -> Result<PathBuf, NoteError> {
 fn format_timestamp(timestamp: i64) -> String {
     use chrono::{DateTime, Local, TimeZone};
 
-    Local
-        .timestamp_opt(timestamp, 0)
-        .single()
-        .map(|dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    Local.timestamp_opt(timestamp, 0).single().map_or_else(
+        || "unknown".to_string(),
+        |dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+    )
 }
 
 /// Format a timestamp for note entry headers (shorter format without seconds)
 fn format_note_timestamp(timestamp: i64) -> String {
     use chrono::{DateTime, Local, TimeZone};
-    Local
-        .timestamp_opt(timestamp, 0)
-        .single()
-        .map(|dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M").to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    Local.timestamp_opt(timestamp, 0).single().map_or_else(
+        || "unknown".to_string(),
+        |dt: DateTime<Local>| dt.format("%Y-%m-%d %H:%M").to_string(),
+    )
 }
 
 /// Append a new timestamped entry to existing note content
@@ -531,13 +528,10 @@ fn append_note_entry(existing: &str, new_content: &str) -> String {
 
     if existing.trim().is_empty() {
         // First entry - no leading separator
-        format!("### {}\n\n{}", formatted_time, new_content)
+        format!("### {formatted_time}\n\n{new_content}")
     } else {
         // Append to existing - add horizontal rule and heading
-        format!(
-            "{}\n\n---\n### {}\n\n{}",
-            existing, formatted_time, new_content
-        )
+        format!("{existing}\n\n---\n### {formatted_time}\n\n{new_content}")
     }
 }
 
@@ -620,7 +614,7 @@ mod tests {
 
     #[test]
     fn test_format_timestamp() {
-        let timestamp = 1234567890_i64;
+        let timestamp = 1_234_567_890_i64;
         let formatted = format_timestamp(timestamp);
 
         assert!(!formatted.is_empty());
@@ -657,7 +651,7 @@ mod tests {
 
     #[test]
     fn test_format_note_timestamp() {
-        let timestamp = 1705243800_i64; // 2024-01-14 10:30:00
+        let timestamp = 1_705_243_800_i64; // 2024-01-14 10:30:00
         let formatted = format_note_timestamp(timestamp);
         // Should not contain seconds
         assert!(!formatted.contains(":00"));

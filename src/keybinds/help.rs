@@ -35,7 +35,8 @@ pub fn generate_help_text(config: &KeybindConfig) -> String {
         && !config.is_disabled("refine_search")
     {
         let keys = meta.primary_key_human(config);
-        output.push_str(&format!("  {:<14}{}\n", keys, meta.description));
+        use std::fmt::Write;
+        writeln!(output, "  {:<14}{}", keys, meta.description).unwrap();
     }
     output.push('\n');
 
@@ -56,11 +57,12 @@ pub fn generate_help_text(config: &KeybindConfig) -> String {
         }
 
         // Category header
-        output.push_str(&format!("{}:\n", category_name(category)));
+        use std::fmt::Write;
+        writeln!(output, "{}:", category_name(category)).unwrap();
 
         for meta in actions_enabled {
             let keys = meta.primary_key_human(config);
-            output.push_str(&format!("  {:<14}{}\n", keys, meta.description));
+            writeln!(output, "  {:<14}{}", keys, meta.description).unwrap();
         }
         output.push('\n');
     }

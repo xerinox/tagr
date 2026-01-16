@@ -232,8 +232,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         Ok(a) => a,
                         Err(_) => {
                             return Err(BrowseError::UnexpectedState(format!(
-                                "Unknown action_id: {}",
-                                action_id
+                                "Unknown action_id: {action_id}"
                             )));
                         }
                     };
@@ -254,20 +253,18 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         } => {
                             // Session wants more input - shouldn't happen for actions from TUI
                             // since TUI already collected input
-                            if !values.is_empty() {
-                                // We have values from TUI, execute the nested action
-                                let files = context.files;
-                                let input = values.join(" ");
-                                let nested_outcome =
-                                    self.execute_action_with_input(&action_id, &files, &input)?;
-                                self.handle_action_outcome(nested_outcome)?;
-                                self.session.refresh_current_phase()?;
-                            } else {
+                            if values.is_empty() {
                                 return Err(BrowseError::UnexpectedState(format!(
-                                    "Action {} requires input but none provided",
-                                    action_id
+                                    "Action {action_id} requires input but none provided"
                                 )));
                             }
+                            // We have values from TUI, execute the nested action
+                            let files = context.files;
+                            let input = values.join(" ");
+                            let nested_outcome =
+                                self.execute_action_with_input(&action_id, &files, &input)?;
+                            self.handle_action_outcome(nested_outcome)?;
+                            self.session.refresh_current_phase()?;
                         }
                         ActionOutcome::NeedsConfirmation {
                             action_id, context, ..

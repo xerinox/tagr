@@ -955,9 +955,9 @@ impl AppState {
         }
     }
 
-    /// Sync active_filter from tag tree state (reverse of sync_tag_tree_from_filter)
+    /// Sync `active_filter` from tag tree state (reverse of `sync_tag_tree_from_filter`)
     ///
-    /// This makes the tag tree the source of truth and updates active_filter to match.
+    /// This makes the tag tree the source of truth and updates `active_filter` to match.
     /// Should be called when tag tree is initialized or manually modified.
     pub fn sync_filter_from_tag_tree(&mut self) {
         if let Some(ref tree) = self.tag_tree_state {

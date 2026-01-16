@@ -517,10 +517,10 @@ impl RatatuiFinder {
                         .iter()
                         .map(|(tag, _)| {
                             let canonical = schema.canonicalize(tag);
-                            let display = if canonical != tag.as_str() {
-                                format!("{} ({})", tag, canonical)
-                            } else {
+                            let display = if canonical == tag.as_str() {
                                 tag.clone()
+                            } else {
+                                format!("{tag} ({canonical})")
                             };
                             (tag.clone(), display)
                         })
@@ -617,8 +617,9 @@ impl RatatuiFinder {
                                             },
                                         )
                                     })
-                                    .map(|note| StyledPreview::note(&note))
-                                    .unwrap_or_else(StyledPreview::no_note);
+                                    .map_or_else(StyledPreview::no_note, |note| {
+                                        StyledPreview::note(&note)
+                                    });
                                 Some(note_preview)
                             }
                         };
