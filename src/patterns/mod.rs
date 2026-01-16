@@ -169,8 +169,7 @@ mod tests {
         builder.add_tag_token("feature/*");
         let err = builder
             .build(crate::cli::SearchMode::All, crate::cli::SearchMode::All)
-            .err()
-            .expect("should error");
+            .expect_err("should error");
         match err {
             PatternError::MixedPatternMisuse { .. } => {}
             _ => panic!("Expected MixedPatternMisuse error for glob-like tag"),

@@ -40,6 +40,25 @@ position = "right"
 # Width percentage 0-100 (default: 50)
 width_percent = 50
 
+# Notes configuration
+[notes]
+# Storage mode: "integrated" (database) or "files" (future: external markdown files)
+# Currently only "integrated" is supported
+storage = "integrated"
+
+# Editor command for editing notes
+# If not set, falls back to $EDITOR environment variable, then "vim"
+# editor = "nvim"
+# editor = "code --wait"
+
+# Maximum note size in kilobytes (default: 100)
+# Notes exceeding this size will trigger a warning
+max_note_size_kb = 100
+
+# Default template for new notes (optional)
+# Use this to pre-populate new notes with a template
+# default_template = ""
+
 # Virtual tags configuration
 [virtual_tags]
 # Enable/disable virtual tags globally

@@ -24,7 +24,7 @@ fn test_parse_plaintext_ok() {
 fn test_parse_plaintext_bad_line() {
     let input = "onlyfile\n"; // missing tags
     let err = parse_plaintext(input).unwrap_err();
-    assert!(format!("{}", err).contains("Invalid format"));
+    assert!(format!("{err}").contains("Invalid format"));
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn test_parse_csv_custom_delimiter() {
 fn test_parse_csv_bad_missing_file() {
     let input = ",tag1,tag2";
     let err = parse_csv(input, ',').unwrap_err();
-    assert!(format!("{}", err).contains("Invalid CSV"));
+    assert!(format!("{err}").contains("Invalid CSV"));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn test_parse_json_ok() {
 fn test_parse_json_bad_with_csv_hint() {
     let input = "/a/b.txt,tag1,tag2\n"; // CSV-looking content
     let err = parse_json(input).unwrap_err();
-    let msg = format!("{}", err);
+    let msg = format!("{err}");
     assert!(msg.contains("Invalid JSON"));
     assert!(msg.contains("Hint: The file appears to be CSV"));
 }

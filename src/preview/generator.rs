@@ -290,8 +290,10 @@ mod tests {
         let temp = TempFile::create("test.txt").unwrap();
         fs::write(temp.path(), "Line 1\nLine 2\nLine 3\n").unwrap();
 
-        let mut config = PreviewConfig::default();
-        config.syntax_highlighting = false;
+        let config = PreviewConfig {
+            syntax_highlighting: false,
+            ..Default::default()
+        };
         let generator = PreviewGenerator::new(config);
         let preview = generator.generate(temp.path()).unwrap();
 
@@ -320,9 +322,11 @@ mod tests {
             .join("\n");
         fs::write(temp.path(), content).unwrap();
 
-        let mut config = PreviewConfig::default();
-        config.max_lines = 10;
-        config.syntax_highlighting = false;
+        let config = PreviewConfig {
+            max_lines: 10,
+            syntax_highlighting: false,
+            ..Default::default()
+        };
         let generator = PreviewGenerator::new(config);
         let preview = generator.generate(temp.path()).unwrap();
 
@@ -371,8 +375,10 @@ mod tests {
         let temp = TempFile::create("test.rs").unwrap();
         fs::write(temp.path(), "fn main() {\n    println!(\"Hello\");\n}\n").unwrap();
 
-        let mut config = PreviewConfig::default();
-        config.syntax_highlighting = true;
+        let config = PreviewConfig {
+            syntax_highlighting: true,
+            ..Default::default()
+        };
         let generator = PreviewGenerator::new(config);
         let preview = generator.generate(temp.path()).unwrap();
 
@@ -402,8 +408,10 @@ mod tests {
         // Write invalid UTF-8
         fs::write(temp.path(), [0xFF, 0xFE, 0xFD]).unwrap();
 
-        let mut config = PreviewConfig::default();
-        config.syntax_highlighting = false; // Disable to ensure we test the fallback path
+        let config = PreviewConfig {
+            syntax_highlighting: false, // Disable to ensure we test the fallback path
+            ..Default::default()
+        };
         let generator = PreviewGenerator::new(config);
         let preview = generator.generate(temp.path()).unwrap();
 

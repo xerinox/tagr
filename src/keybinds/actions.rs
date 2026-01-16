@@ -25,27 +25,13 @@ pub enum BrowseAction {
     /// Delete file(s) from database - Ctrl+D
     DeleteFromDb,
 
-    /// Toggle tag display mode - Ctrl+I
-    ToggleTagDisplay,
     /// Show detailed file information - Ctrl+L
     ShowDetails,
-    /// Filter by file extension - Ctrl+F
-    FilterExtension,
 
-    /// Select all visible files - Ctrl+A
-    SelectAll,
-    /// Clear current selection - Ctrl+X
-    ClearSelection,
-
-    /// Quick tag search - Ctrl+S
-    QuickTagSearch,
-    /// Go to specific file - Ctrl+G
-    GoToFile,
-
-    /// Show recent selections - Ctrl+H
-    ShowHistory,
-    /// Bookmark current selection - Ctrl+B
-    BookmarkSelection,
+    /// Edit note for selected file - Ctrl+N
+    EditNote,
+    /// Toggle between file and note preview - Alt+N
+    ToggleNotePreview,
 
     /// Refine search criteria - Ctrl+/
     RefineSearch,
@@ -91,15 +77,9 @@ impl FromStr for BrowseAction {
             "copy_path" => Ok(Self::CopyPath),
             "copy_files" => Ok(Self::CopyFiles),
             "delete_from_db" => Ok(Self::DeleteFromDb),
-            "toggle_tag_display" => Ok(Self::ToggleTagDisplay),
             "show_details" => Ok(Self::ShowDetails),
-            "filter_extension" => Ok(Self::FilterExtension),
-            "select_all" => Ok(Self::SelectAll),
-            "clear_selection" => Ok(Self::ClearSelection),
-            "quick_search" => Ok(Self::QuickTagSearch),
-            "goto_file" => Ok(Self::GoToFile),
-            "show_history" => Ok(Self::ShowHistory),
-            "bookmark_selection" => Ok(Self::BookmarkSelection),
+            "edit_note" => Ok(Self::EditNote),
+            "toggle_note_preview" => Ok(Self::ToggleNotePreview),
             "refine_search" => Ok(Self::RefineSearch),
             "show_help" => Ok(Self::ShowHelp),
             _ => Err(ParseActionError::new(s)),
@@ -132,16 +112,24 @@ impl BrowseAction {
                 | Self::CopyPath
                 | Self::CopyFiles
                 | Self::DeleteFromDb
+                | Self::EditNote
         )
     }
 
     /// Returns whether this action is available in tag selection phase.
     ///
     /// Tag phase is for selecting which tags to filter by. Only navigation
-    /// and universal actions (help, cancel) are available.
+    /// and universal actions (help, cancel, note editing, preview toggle, show details) are available.
     #[must_use]
     pub const fn available_in_tag_phase(&self) -> bool {
-        matches!(self, Self::ShowHelp | Self::Cancel)
+        matches!(
+            self,
+            Self::ShowHelp
+                | Self::Cancel
+                | Self::EditNote
+                | Self::ToggleNotePreview
+                | Self::ShowDetails
+        )
     }
 
     /// Returns whether this action is available in file selection phase.
@@ -166,15 +154,9 @@ impl BrowseAction {
             Self::CopyPath => "Copy file paths to clipboard",
             Self::CopyFiles => "Copy files to directory",
             Self::DeleteFromDb => "Delete from database",
-            Self::ToggleTagDisplay => "Toggle tag display mode",
             Self::ShowDetails => "Show file details",
-            Self::FilterExtension => "Filter by extension",
-            Self::SelectAll => "Select all files",
-            Self::ClearSelection => "Clear selection",
-            Self::QuickTagSearch => "Quick tag search",
-            Self::GoToFile => "Go to file",
-            Self::ShowHistory => "Show recent selections",
-            Self::BookmarkSelection => "Bookmark selection",
+            Self::EditNote => "Edit note for selected file",
+            Self::ToggleNotePreview => "Toggle file/note preview",
             Self::RefineSearch => "Refine search criteria",
             Self::ShowHelp => "Show help",
             Self::Cancel => "Cancel",
@@ -193,6 +175,73 @@ impl BrowseAction {
             _ => self.description().to_string(),
         }
     }
+
+    /// Returns whether this action requires text input before executing.
+    #[must_use]
+    pub const fn requires_input(&self) -> bool {
+        matches!(self, Self::AddTag | Self::RemoveTag)
+    }
+
+    /// Returns whether this action requires user confirmation before executing.
+    #[must_use]
+    pub const fn requires_confirmation(&self) -> bool {
+        matches!(self, Self::DeleteFromDb)
+    }
+
+    /// Returns whether this action requires special handling (e.g., terminal suspend).
+    #[must_use]
+    pub const fn requires_special_handling(&self) -> bool {
+        matches!(self, Self::EditNote | Self::RefineSearch)
+    }
+
+    /// Returns the prompt title and placeholder for input-requiring actions.
+    #[must_use]
+    pub fn input_prompt(&self) -> (String, String) {
+        match self {
+            Self::AddTag => (
+                "Add Tags".to_string(),
+                "Enter tags (space-separated)".to_string(),
+            ),
+            Self::RemoveTag => (
+                "Remove Tags".to_string(),
+                "Enter tags to remove".to_string(),
+            ),
+            _ => ("Input".to_string(), "Enter value".to_string()),
+        }
+    }
+
+    /// Returns the confirmation prompt for confirmation-requiring actions.
+    #[must_use]
+    pub fn confirmation_prompt(&self) -> (String, String) {
+        match self {
+            Self::DeleteFromDb => (
+                "Confirm Deletion".to_string(),
+                "Are you sure you want to remove this file from the database?".to_string(),
+            ),
+            _ => ("Confirm Action".to_string(), "Are you sure?".to_string()),
+        }
+    }
+
+    /// Returns the string identifier for this action (for backward compatibility).
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::AddTag => "add_tag",
+            Self::RemoveTag => "remove_tag",
+            Self::EditTags => "edit_tags",
+            Self::OpenInDefault => "open_default",
+            Self::OpenInEditor => "open_editor",
+            Self::CopyPath => "copy_path",
+            Self::CopyFiles => "copy_files",
+            Self::DeleteFromDb => "delete_from_db",
+            Self::ShowDetails => "show_details",
+            Self::EditNote => "edit_note",
+            Self::ToggleNotePreview => "toggle_note_preview",
+            Self::RefineSearch => "refine_search",
+            Self::ShowHelp => "show_help",
+            Self::Cancel => "cancel",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -208,9 +257,12 @@ mod tests {
 
     #[test]
     fn test_phase_availability() {
-        // Tag phase: only help and cancel
+        // Tag phase: only help, cancel, note editing, preview toggle, show details
         assert!(BrowseAction::ShowHelp.available_in_tag_phase());
         assert!(BrowseAction::Cancel.available_in_tag_phase());
+        assert!(BrowseAction::EditNote.available_in_tag_phase());
+        assert!(BrowseAction::ToggleNotePreview.available_in_tag_phase());
+        assert!(BrowseAction::ShowDetails.available_in_tag_phase());
         assert!(!BrowseAction::AddTag.available_in_tag_phase());
         assert!(!BrowseAction::DeleteFromDb.available_in_tag_phase());
         assert!(!BrowseAction::CopyPath.available_in_tag_phase());
@@ -244,5 +296,34 @@ mod tests {
             BrowseAction::AddTag.description_with_editor("nvim"),
             "Add tags to selected files"
         );
+    }
+
+    #[test]
+    fn test_requires_input() {
+        assert!(BrowseAction::AddTag.requires_input());
+        assert!(BrowseAction::RemoveTag.requires_input());
+        assert!(!BrowseAction::DeleteFromDb.requires_input());
+        assert!(!BrowseAction::ShowHelp.requires_input());
+    }
+
+    #[test]
+    fn test_requires_confirmation() {
+        assert!(BrowseAction::DeleteFromDb.requires_confirmation());
+        assert!(!BrowseAction::AddTag.requires_confirmation());
+        assert!(!BrowseAction::ShowHelp.requires_confirmation());
+    }
+
+    #[test]
+    fn test_requires_special_handling() {
+        assert!(BrowseAction::EditNote.requires_special_handling());
+        assert!(BrowseAction::RefineSearch.requires_special_handling());
+        assert!(!BrowseAction::AddTag.requires_special_handling());
+    }
+
+    #[test]
+    fn test_as_str() {
+        assert_eq!(BrowseAction::AddTag.as_str(), "add_tag");
+        assert_eq!(BrowseAction::EditNote.as_str(), "edit_note");
+        assert_eq!(BrowseAction::RefineSearch.as_str(), "refine_search");
     }
 }

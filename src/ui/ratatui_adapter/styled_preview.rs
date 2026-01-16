@@ -69,6 +69,141 @@ impl StyledPreview {
             title: String::from(" Binary File "),
         }
     }
+
+    /// Create a preview for a note with syntax highlighting
+    #[must_use]
+    pub fn note(note_record: &crate::db::NoteRecord) -> Self {
+        use chrono::{Local, TimeZone};
+
+        let dim_style = Style::default().fg(Color::DarkGray);
+
+        let mut lines = Vec::new();
+
+        // Metadata section
+        let created = Local
+            .timestamp_opt(note_record.metadata.created_at, 0)
+            .single()
+            .map_or_else(
+                || "unknown".to_string(),
+                |dt| dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            );
+        lines.push(Line::from(vec![
+            Span::styled("Created: ", dim_style),
+            Span::raw(created),
+        ]));
+
+        let updated = Local
+            .timestamp_opt(note_record.metadata.updated_at, 0)
+            .single()
+            .map_or_else(
+                || "unknown".to_string(),
+                |dt| dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            );
+        lines.push(Line::from(vec![
+            Span::styled("Updated: ", dim_style),
+            Span::raw(updated),
+        ]));
+
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("─".repeat(60), dim_style));
+        lines.push(Line::raw(""));
+
+        // Note content with markdown syntax highlighting
+        #[cfg(feature = "syntax-highlighting")]
+        let content_lines = Self::highlight_markdown(&note_record.content);
+
+        #[cfg(not(feature = "syntax-highlighting"))]
+        let content_lines: Vec<Line<'static>> = note_record
+            .content
+            .lines()
+            .map(|line| Self::style_note_line(line))
+            .collect();
+
+        let total_lines = content_lines.len();
+        lines.extend(content_lines);
+
+        Self {
+            lines,
+            truncated: false,
+            total_lines: total_lines + 8, // +8 for header lines
+            title: String::from(" Note "),
+        }
+    }
+
+    /// Highlight note content as markdown using syntect
+    #[cfg(feature = "syntax-highlighting")]
+    fn highlight_markdown(content: &str) -> Vec<Line<'static>> {
+        use syntect::easy::HighlightLines;
+        use syntect::highlighting::ThemeSet;
+        use syntect::parsing::SyntaxSet;
+
+        let syntax_set = SyntaxSet::load_defaults_newlines();
+        let theme_set = ThemeSet::load_defaults();
+
+        let syntax = syntax_set
+            .find_syntax_by_extension("md")
+            .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
+
+        let theme = &theme_set.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
+        content
+            .lines()
+            .map(|line| {
+                highlighter.highlight_line(line, &syntax_set).map_or_else(
+                    |_| Line::raw(line.to_string()),
+                    |ranges| {
+                        let spans: Vec<Span<'static>> = ranges
+                            .iter()
+                            .map(|(style, text)| {
+                                Span::styled(text.to_string(), syntect_to_ratatui(style))
+                            })
+                            .collect();
+                        Line::from(spans)
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Style a note content line (fallback when syntax highlighting disabled)
+    #[cfg(not(feature = "syntax-highlighting"))]
+    fn style_note_line(line: &str) -> Line<'static> {
+        // Match pattern: [Note added YYYY-MM-DD HH:MM]
+        if line.starts_with("[Note added ") && line.ends_with(']') {
+            let header_style = Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD);
+            Line::styled(line.to_string(), header_style)
+        } else {
+            let content_style = Style::default().fg(Color::White);
+            Line::styled(line.to_string(), content_style)
+        }
+    }
+
+    /// Create a preview indicating no note exists
+    #[must_use]
+    pub fn no_note() -> Self {
+        let dim_style = Style::default().fg(Color::DarkGray);
+        let hint_style = Style::default().fg(Color::Yellow);
+
+        let lines = vec![
+            Line::styled("No note attached to this file", dim_style),
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled("Press ", dim_style),
+                Span::styled("Ctrl+N", hint_style.add_modifier(Modifier::BOLD)),
+                Span::styled(" to create a note", dim_style),
+            ]),
+        ];
+
+        Self {
+            lines,
+            truncated: false,
+            total_lines: 3,
+            title: String::from(" No Note "),
+        }
+    }
 }
 
 /// Generator for styled previews using native ratatui styles

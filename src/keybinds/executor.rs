@@ -4,6 +4,7 @@
 //! and delegates business logic to `browse::actions`.
 
 use crate::browse::{actions, models::ActionOutcome};
+use crate::commands::note::create_temp_note_file;
 use crate::db::Database;
 use crate::keybinds::prompts::{PromptError, prompt_for_confirmation, prompt_for_input};
 use crate::keybinds::{ActionResult, BrowseAction};
@@ -56,11 +57,10 @@ impl ActionExecutor {
             BrowseAction::OpenInEditor => Self::execute_open_in_editor(context),
             BrowseAction::CopyPath => Self::execute_copy_path(context),
             BrowseAction::CopyFiles => Self::execute_copy_files(context),
-            BrowseAction::ToggleTagDisplay => Self::execute_toggle_tag_display(context),
             BrowseAction::ShowDetails => Self::execute_show_details(context),
-            BrowseAction::FilterExtension => Self::execute_filter_extension(context),
-            BrowseAction::SelectAll => Self::execute_select_all(context),
-            BrowseAction::ClearSelection => Self::execute_clear_selection(context),
+            BrowseAction::EditNote => Self::execute_edit_note(context),
+            BrowseAction::ToggleNotePreview => Self::execute_toggle_note_preview(context),
+            BrowseAction::RefineSearch => Ok(ActionResult::Continue), // Handled in TUI
             BrowseAction::ShowHelp => Self::execute_show_help(context),
             _ => Ok(ActionResult::Continue),
         }
@@ -256,21 +256,9 @@ impl ActionExecutor {
         Ok(outcome.into())
     }
 
-    /// Execute the `ToggleTagDisplay` action.
-    ///
-    /// **Note**: This is a stub implementation. The actual toggle functionality
-    /// will be handled by the UI layer. Returns `Result` for API consistency
-    /// with other action handlers.
-    #[allow(clippy::unnecessary_wraps)]
-    fn execute_toggle_tag_display(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        Ok(ActionResult::Message(
-            "Tag display toggling will be implemented in UI layer".to_string(),
-        ))
-    }
-
-    /// Execute the `ShowDetails` action.
-    fn execute_show_details(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let file_to_show = if let Some(file) = context.current_file {
+    /// Execute the `EditNote` action.
+    fn execute_edit_note(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+        let file_to_edit = if let Some(file) = context.current_file {
             file
         } else if let Some(file) = context.selected_files.first() {
             file
@@ -278,125 +266,90 @@ impl ActionExecutor {
             return Err(ExecutorError::NoSelection);
         };
 
-        let metadata = std::fs::metadata(file_to_show)?;
-        let tags = context.db.get_tags(file_to_show)?.unwrap_or_default();
+        // Get editor from environment
+        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
-        let mut details = vec![
-            format!("\n📄 File Details: {}", file_to_show.display()),
-            "─".repeat(60),
-            format!("Size: {}", format_file_size(metadata.len())),
-            format!("Modified: {}", format_modified_time(&metadata)),
-            format!(
-                "Tags: {}",
-                if tags.is_empty() {
-                    "(none)".to_string()
-                } else {
-                    tags.join(", ")
-                }
-            ),
-        ];
+        // Get existing note or create new one
+        let existing_note = context.db.get_note(file_to_edit)?;
+        let initial_content = existing_note
+            .as_ref()
+            .map(|n| n.content.clone())
+            .unwrap_or_default();
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            details.push(format!(
-                "Permissions: {:o}",
-                metadata.permissions().mode() & 0o777
-            ));
+        // Create temp file with initial content
+        let temp_path = create_temp_note_file(&initial_content)
+            .map_err(|e| ExecutorError::ExecutionFailed(e.to_string()))?;
+
+        // Open editor
+        let status = std::process::Command::new(&editor)
+            .arg(&temp_path)
+            .status()
+            .map_err(|e| ExecutorError::ExecutionFailed(format!("Failed to launch editor: {e}")))?;
+
+        if !status.success() {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(ExecutorError::ExecutionFailed(format!(
+                "Editor exited with status: {status}"
+            )));
         }
 
-        details.push("─".repeat(60));
+        // Read updated content
+        let updated_content = std::fs::read_to_string(&temp_path)?;
+        let _ = std::fs::remove_file(&temp_path);
 
-        let message = details.join("\n");
-        println!("{message}");
+        // Save note
+        let note = if let Some(mut existing) = existing_note {
+            existing.update_content(updated_content);
+            existing
+        } else {
+            crate::db::NoteRecord::new(updated_content)
+        };
 
-        Ok(ActionResult::Continue)
-    }
+        context.db.set_note(file_to_edit, note)?;
 
-    /// Execute the `FilterExtension` action.
-    fn execute_filter_extension(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let extension = prompt_for_input("Filter by extension (e.g., 'txt', '.rs'): ")?;
-
-        if extension.trim().is_empty() {
-            return Ok(ActionResult::Message("Filter cancelled".to_string()));
-        }
-
-        let ext = extension.trim().trim_start_matches('.');
         Ok(ActionResult::Message(format!(
-            "Extension filtering ({ext}) will be handled by browse UI layer"
+            "✓ Updated note for {}",
+            file_to_edit.display()
         )))
     }
 
-    /// Execute the `SelectAll` action.
+    /// Execute the `ToggleNotePreview` action.
     ///
-    /// **Note**: This is a stub implementation. Selection state is managed
-    /// by the TUI layer. Returns `Result` for API consistency.
+    /// **Note**: This action is handled by the TUI layer since it controls
+    /// preview state. This executor just returns a signal to toggle the preview.
+    /// The actual preview rendering is done in the preview system.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_select_all(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+    fn execute_toggle_note_preview(
+        _context: &ActionContext,
+    ) -> Result<ActionResult, ExecutorError> {
+        // TUI layer will intercept this and toggle preview mode
         Ok(ActionResult::Message(
-            "Select all will be handled by TUI layer".to_string(),
+            "Preview mode toggled (handled by TUI layer)".to_string(),
         ))
     }
 
-    /// Execute the `ClearSelection` action.
+    /// Execute the `ToggleTagDisplay` action.
     ///
-    /// **Note**: This is a stub implementation. Selection state is managed
-    /// by the TUI layer. Returns `Result` for API consistency.
+    /// **Note**: This is a stub implementation. The actual toggle functionality
+    /// will be handled by the UI layer. Returns `Result` for API consistency
+    /// Execute the `ShowDetails` action.
+    ///
+    /// Note: This is a stub implementation for backward compatibility.
+    /// `ShowDetails` is now handled inline by the TUI layer to avoid breaking
+    /// the terminal. Returns Continue to maintain API compatibility.
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_clear_selection(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        Ok(ActionResult::Message(
-            "Clear selection will be handled by TUI layer".to_string(),
-        ))
+    const fn execute_show_details(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+        // ShowDetails is handled inline by the TUI - see events.rs
+        Ok(ActionResult::Continue)
     }
 
     /// Execute the `ShowHelp` action.
     fn execute_show_help(_context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let help_text = r"
-╔═══════════════════════════════════════════════════════════╗
-║                  Tagr Browse Mode Keybinds                ║
-╚═══════════════════════════════════════════════════════════╝
+        // Generate help text dynamically from keybind configuration
+        let config = crate::keybinds::config::KeybindConfig::load_or_default().unwrap_or_default();
+        let help_text = crate::keybinds::help::generate_help_text(&config);
 
-TAG MANAGEMENT:
-  Ctrl+T    Add tags to selected files
-  Ctrl+R    Remove tags from selected files
-  Ctrl+E    Edit tags in $EDITOR
-
-FILE OPERATIONS:
-  Ctrl+O    Open in default application
-  Ctrl+V    Open in $EDITOR
-  Ctrl+Y    Copy file paths to clipboard
-  Ctrl+P    Copy files to directory
-  Ctrl+D    Delete from database
-
-VIEW & NAVIGATION:
-  Ctrl+I    Toggle tag display mode
-  Ctrl+L    Show file details
-  Ctrl+F    Filter by extension
-  Ctrl+A    Select all files
-  Ctrl+X    Clear selection
-
-SEARCH & FILTER:
-  Ctrl+S    Quick tag search
-  Ctrl+G    Go to file
-
-HISTORY & SESSIONS:
-  Ctrl+H    Show recent selections
-  Ctrl+B    Bookmark selection
-
-SYSTEM:
-  F1        Show this help (press 'q' to return)
-  Enter     Exit with selection
-  ESC       Cancel and abort
-
-BASIC NAVIGATION:
-  TAB       Toggle file selection
-  Up/Down   Navigate files
-  /         Start search query
-
-Press 'q' to return to browse mode
-        ";
-
-        match show_in_pager(help_text) {
+        match show_in_pager(&help_text) {
             Ok(()) => {
                 // Give terminal a moment to stabilize after pager exits
                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -476,48 +429,6 @@ pub enum ExecutorError {
     /// Action execution failed
     #[error("Failed to execute action: {0}")]
     ExecutionFailed(String),
-}
-
-/// Format file size in human-readable format.
-#[allow(clippy::cast_precision_loss)]
-fn format_file_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} bytes")
-    }
-}
-
-/// Format modification time in human-readable format.
-fn format_modified_time(metadata: &std::fs::Metadata) -> String {
-    metadata.modified().map_or_else(
-        |_| "unknown".to_string(),
-        |time| {
-            time.elapsed().map_or_else(
-                |_| "unknown".to_string(),
-                |duration| {
-                    let secs = duration.as_secs();
-                    if secs < 60 {
-                        format!("{secs} seconds ago")
-                    } else if secs < 3600 {
-                        format!("{} minutes ago", secs / 60)
-                    } else if secs < 86400 {
-                        format!("{} hours ago", secs / 3600)
-                    } else {
-                        format!("{} days ago", secs / 86400)
-                    }
-                },
-            )
-        },
-    )
 }
 
 /// Display text in the minus pager with search support.

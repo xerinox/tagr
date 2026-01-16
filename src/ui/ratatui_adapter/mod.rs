@@ -42,3 +42,18 @@ pub use finder::RatatuiPreviewProvider;
 pub use state::{AppState, Mode};
 pub use styled_preview::{StyledPreview, StyledPreviewGenerator};
 pub use theme::Theme;
+
+/// Parse a key string into a `KeyEvent` for testing
+///
+/// This is exposed for testing keybind configurations.
+///
+/// # Examples
+/// ```
+/// use tagr::ui::ratatui_adapter::parse_key_string_for_test;
+/// let key = parse_key_string_for_test("ctrl-t");
+/// assert!(key.is_some());
+/// ```
+#[cfg(test)]
+pub(crate) fn parse_key_string_for_test(s: &str) -> Option<crossterm::event::KeyEvent> {
+    RatatuiFinder::parse_key_string(s)
+}

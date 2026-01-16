@@ -7,12 +7,14 @@ use super::state::{AppState, Mode};
 use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
 use super::widgets::{
-    ConfirmDialog, HelpBar, HelpOverlay, ItemList, KeyHint, PreviewPane, RefineSearchOverlay,
+    ConfirmDialog, DetailsModal, HelpBar, HelpOverlay, KeyHint, PreviewPane, RefineSearchOverlay,
     SearchBar, StatusBar, TextInputModal,
 };
+use crate::commands::note::create_temp_note_file;
+use crate::keybinds::actions::BrowseAction;
 use crate::ui::error::Result;
 use crate::ui::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
-use crate::ui::types::{FinderResult, PreviewPosition};
+use crate::ui::types::FinderResult;
 use crossterm::{
     event::KeyEvent,
     execute,
@@ -116,7 +118,13 @@ impl RatatuiFinder {
     }
 
     /// Parse a key string like "ctrl-t" into a `KeyEvent`
-    fn parse_key_string(s: &str) -> Option<KeyEvent> {
+    ///
+    /// # Examples
+    /// ```ignore
+    /// let key = RatatuiFinder::parse_key_string("ctrl-t");
+    /// assert!(key.is_some());
+    /// ```
+    pub(crate) fn parse_key_string(s: &str) -> Option<KeyEvent> {
         use crossterm::event::{KeyCode, KeyModifiers};
 
         let parts: Vec<&str> = s.split('-').collect();
@@ -204,11 +212,22 @@ impl RatatuiFinder {
 
     /// Build full keybind list for help overlay
     fn build_overlay_binds(custom_binds: &KeybindMap) -> Vec<(String, String)> {
+        // Use the metadata registry to get proper action descriptions
+        use crate::keybinds::metadata::{ActionMetadata, ActionRegistry};
+
         let mut binds: Vec<(String, String)> = custom_binds
             .iter()
             .filter_map(|(key, action)| {
-                super::events::key_to_string(key)
-                    .map(|key_str| (key_str, Self::format_action_name(action)))
+                // Get human-readable key format
+                super::events::key_to_string(key).and_then(|key_str| {
+                    // Get description from metadata registry
+                    ActionRegistry::get_by_id(action).map(|meta| {
+                        (
+                            ActionMetadata::format_key(&key_str),
+                            meta.short_name.to_string(),
+                        )
+                    })
+                })
             })
             .collect();
 
@@ -219,23 +238,6 @@ impl RatatuiFinder {
         binds.push(("Shift+↑/↓".to_string(), "scroll preview".to_string()));
 
         binds
-    }
-
-    /// Format action name for display in help overlay
-    fn format_action_name(action: &str) -> String {
-        match action {
-            "add_tag" => "add tag(s)".to_string(),
-            "remove_tag" => "remove tag(s)".to_string(),
-            "delete_from_db" => "delete from database".to_string(),
-            "open_file" => "open file".to_string(),
-            "edit_file" => "edit file".to_string(),
-            "copy_files" => "copy files".to_string(),
-            "refine_search" => "refine search criteria".to_string(),
-            "show_help" => "show help".to_string(),
-            "select_all" => "select all".to_string(),
-            "clear_selection" => "clear selection".to_string(),
-            other => other.replace('_', " "),
-        }
     }
 
     /// Render the UI
@@ -271,7 +273,8 @@ impl RatatuiFinder {
         // Render status bar with optional CLI preview
         let messages: Vec<_> = state.active_messages();
         let cli_preview = state.build_cli_preview();
-        let status_bar = StatusBar::new(&messages, theme).with_cli_preview(cli_preview.as_deref());
+        let status_bar = StatusBar::new(&messages, theme, state.preview_mode)
+            .with_cli_preview(cli_preview.as_deref());
         frame.render_widget(status_bar, main_layout[2]);
 
         // Render help bar
@@ -310,6 +313,12 @@ impl RatatuiFinder {
                     frame.render_widget(confirm_dialog, frame.area());
                 }
             }
+            Mode::Details => {
+                if let Some(file_details) = state.file_details() {
+                    let details_modal = DetailsModal::new(file_details, theme);
+                    frame.render_widget(details_modal, frame.area());
+                }
+            }
             Mode::Normal => {}
         }
     }
@@ -324,144 +333,70 @@ impl RatatuiFinder {
         area: Rect,
         preview_content: Option<&StyledPreview>,
     ) {
-        use crate::ui::types::BrowsePhase;
+        // Always render 3-pane layout: tag tree | files | preview
+        // Split horizontally: tag tree (left 30%) | files (middle 35%) | preview (right 35%)
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(30), // Tag tree
+                Constraint::Percentage(35), // File list
+                Constraint::Percentage(35), // Preview
+            ])
+            .split(area);
 
-        // Special rendering for TagSelection phase - show tag tree + files + preview
-        if state.phase == BrowsePhase::TagSelection {
-            // Split horizontally: tag tree (left 30%) | files (middle 35%) | preview (right 35%)
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(30), // Tag tree
-                    Constraint::Percentage(35), // File list
-                    Constraint::Percentage(35), // Preview
-                ])
-                .split(area);
-
-            // Render tag tree on the left with focus indicator
-            if let Some(tag_tree_state) = &mut state.tag_tree_state {
-                let is_focused = state.focused_pane == super::state::FocusPane::TagTree;
-                let (border_style, title_style) = if is_focused {
-                    (theme.focused_border_style(), theme.focused_title_style())
-                } else {
-                    (theme.border_style(), theme.unfocused_title_style())
-                };
-
-                let tag_tree = super::widgets::TagTree::new().block(
-                    ratatui::widgets::Block::default()
-                        .borders(ratatui::widgets::Borders::ALL)
-                        .border_style(border_style)
-                        .title(ratatui::text::Span::styled(" Tags ", title_style)),
-                );
-                frame.render_stateful_widget(tag_tree, chunks[0], tag_tree_state);
-            }
-
-            // Render file list in the middle with focus indicator
-            let is_file_focused = state.focused_pane == super::state::FocusPane::FilePreview;
-            let (file_border_style, file_title_style) = if is_file_focused {
+        // Render tag tree on the left with focus indicator
+        if let Some(tag_tree_state) = &mut state.tag_tree_state {
+            let is_focused = state.focused_pane == super::state::FocusPane::TagTree;
+            let (border_style, title_style) = if is_focused {
                 (theme.focused_border_style(), theme.focused_title_style())
             } else {
                 (theme.border_style(), theme.unfocused_title_style())
             };
 
-            // Create a block for the file list
-            let file_block = ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .border_style(file_border_style)
-                .title(ratatui::text::Span::styled(" Files ", file_title_style));
-
-            let inner = file_block.inner(chunks[1]);
-            frame.render_widget(file_block, chunks[1]);
-
-            // Render file list directly using file_preview data from state
-            Self::render_file_preview_list(frame, state, theme, inner);
-
-            // Render preview pane on the right
-            let preview_block = ratatui::widgets::Block::default()
-                .borders(ratatui::widgets::Borders::ALL)
-                .border_style(theme.border_style())
-                .title(" Preview ");
-
-            let preview_inner = preview_block.inner(chunks[2]);
-            frame.render_widget(preview_block, chunks[2]);
-
-            // Only show file content when FilePreview pane is focused
-            if is_file_focused && !state.file_preview_items.is_empty() {
-                // Get current file path from file preview
-                if let Some(current_file) = state.file_preview_items.get(state.file_preview_cursor)
-                {
-                    // Generate preview using styled_generator
-                    if let Some(generator) = &self.styled_generator
-                        && let Ok(file_preview) =
-                            generator.generate(std::path::Path::new(&current_file.key))
-                    {
-                        let preview_pane = PreviewPane::new(Some(&file_preview), theme)
-                            .scroll(state.preview_scroll);
-                        frame.render_widget(preview_pane, preview_inner);
-                    }
-                }
-            }
-            return;
+            let tag_tree = super::widgets::TagTree::new().block(
+                ratatui::widgets::Block::default()
+                    .borders(ratatui::widgets::Borders::ALL)
+                    .border_style(border_style)
+                    .title(ratatui::text::Span::styled(" Tags ", title_style)),
+            );
+            frame.render_stateful_widget(tag_tree, chunks[0], tag_tree_state);
         }
 
-        // Regular FileSelection phase rendering
-        let show_preview =
-            state.preview_config.as_ref().is_some_and(|c| c.enabled) && preview_content.is_some();
-
-        if !show_preview {
-            // Just render item list
-            let item_list = ItemList::new(state, theme);
-            frame.render_widget(item_list, area);
-            return;
-        }
-
-        let preview_config = state.preview_config.as_ref().unwrap();
-        let width_percent = u16::from(preview_config.width_percent);
-
-        // Split based on preview position
-        let (items_area, preview_area) = match preview_config.position {
-            PreviewPosition::Right => {
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Percentage(100 - width_percent),
-                        Constraint::Percentage(width_percent),
-                    ])
-                    .split(area);
-                (chunks[0], chunks[1])
-            }
-            PreviewPosition::Bottom | PreviewPosition::Top => {
-                let constraints = if preview_config.position == PreviewPosition::Top {
-                    [
-                        Constraint::Percentage(width_percent),
-                        Constraint::Percentage(100 - width_percent),
-                    ]
-                } else {
-                    [
-                        Constraint::Percentage(100 - width_percent),
-                        Constraint::Percentage(width_percent),
-                    ]
-                };
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(constraints)
-                    .split(area);
-
-                if preview_config.position == PreviewPosition::Top {
-                    (chunks[1], chunks[0])
-                } else {
-                    (chunks[0], chunks[1])
-                }
-            }
+        // Render file list in the middle with focus indicator
+        let is_file_focused = state.focused_pane == super::state::FocusPane::FilePreview;
+        let (file_border_style, file_title_style) = if is_file_focused {
+            (theme.focused_border_style(), theme.focused_title_style())
+        } else {
+            (theme.border_style(), theme.unfocused_title_style())
         };
 
-        // Render item list
-        let item_list = ItemList::new(state, theme);
-        frame.render_widget(item_list, items_area);
+        // Create a block for the file list
+        let file_block = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .border_style(file_border_style)
+            .title(ratatui::text::Span::styled(" Files ", file_title_style));
 
-        // Render preview pane
-        let preview_pane = PreviewPane::new(preview_content, theme).scroll(state.preview_scroll);
-        frame.render_widget(preview_pane, preview_area);
+        let inner = file_block.inner(chunks[1]);
+        frame.render_widget(file_block, chunks[1]);
+
+        // Render file list directly using file_preview data from state
+        Self::render_file_preview_list(frame, state, theme, inner);
+
+        // Render preview pane on the right
+        let preview_block = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .border_style(theme.border_style())
+            .title(" Preview ");
+
+        let preview_inner = preview_block.inner(chunks[2]);
+        frame.render_widget(preview_block, chunks[2]);
+
+        // Show preview if we have content and files to preview
+        if !state.file_preview_items.is_empty() && preview_content.is_some() {
+            let preview_pane =
+                PreviewPane::new(preview_content, theme).scroll(state.preview_scroll);
+            frame.render_widget(preview_pane, preview_inner);
+        }
     }
 
     /// Render file preview list (for `TagSelection` phase)
@@ -495,20 +430,17 @@ impl RatatuiFinder {
                     Span::raw(" "),
                 ];
 
-                // Green checkmark for selected items
+                // Green checkmark for selected items (outside of highlight, like tag tree)
                 if is_selected {
                     spans.push(Span::styled(
-                        "✓",
+                        "✓ ",
                         ratatui::style::Style::default().fg(Color::Green),
                     ));
-                    spans.push(Span::raw(" "));
                 } else {
                     spans.push(Span::raw("  "));
                 }
 
-                spans.push(Span::raw(" "));
-
-                // Add the display text
+                // Add the display text (only this gets highlighted)
                 let text_style = if is_cursor {
                     theme.selected_style()
                 } else {
@@ -522,13 +454,17 @@ impl RatatuiFinder {
                     .unwrap_or(&item.key);
                 spans.push(Span::styled(display.to_string(), text_style));
 
-                let line = Line::from(spans);
-
-                if is_cursor {
-                    ListItem::new(line).style(theme.selected_style())
-                } else {
-                    ListItem::new(line)
+                // Add right-aligned note indicator if file has a note
+                if item.metadata.has_note {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(
+                        "",
+                        ratatui::style::Style::default().fg(Color::Cyan).dim(),
+                    ));
                 }
+
+                let line = Line::from(spans);
+                ListItem::new(line)
             })
             .collect();
 
@@ -556,48 +492,75 @@ impl RatatuiFinder {
         // Set available tags for autocomplete in text input modals
         state.available_tags.clone_from(&config.available_tags);
 
-        // Set phase and initialize tag tree if in TagSelection phase
-        state.phase = config.phase;
-        if config.phase == crate::ui::types::BrowsePhase::TagSelection {
-            use super::widgets::TagTreeState;
-            let mut tag_tree_state = TagTreeState::new();
+        // Always initialize tag tree (3-pane layout)
+        use super::widgets::TagTreeState;
+        let mut tag_tree_state = TagTreeState::new();
 
-            // Build tag tree from items (extract tag names, file counts, and display info)
-            let tags: Vec<(String, usize)> = config
-                .items
-                .iter()
-                .filter_map(|item| {
-                    // Extract file count from metadata.index field
-                    item.metadata.index.map(|count| (item.key.clone(), count))
+        // Build tag tree from database (always available in 3-pane layout)
+        if let Some(database) = &config.database {
+            // Get all tags and compute file counts
+            let all_tags = database.list_all_tags().unwrap_or_default();
+            let tags_with_counts: Vec<(String, usize)> = all_tags
+                .into_iter()
+                .filter_map(|tag| {
+                    database
+                        .find_by_tag(&tag)
+                        .ok()
+                        .map(|files| (tag, files.len()))
                 })
                 .collect();
 
-            // Build a map of tag -> display text for alias information
-            let display_map: std::collections::HashMap<String, String> = config
-                .items
-                .iter()
-                .map(|item| (item.key.clone(), item.display.clone()))
-                .collect();
+            // Build display map from schema (for aliases)
+            let display_map: std::collections::HashMap<String, String> =
+                if let Some(schema) = &config.tag_schema {
+                    tags_with_counts
+                        .iter()
+                        .map(|(tag, _)| {
+                            let canonical = schema.canonicalize(tag);
+                            let display = if canonical == tag.as_str() {
+                                tag.clone()
+                            } else {
+                                format!("{tag} ({canonical})")
+                            };
+                            (tag.clone(), display)
+                        })
+                        .collect()
+                } else {
+                    tags_with_counts
+                        .iter()
+                        .map(|(tag, _)| (tag.clone(), tag.clone()))
+                        .collect()
+                };
 
-            tag_tree_state.build_from_tags_with_display(&tags, &display_map);
-            state.tag_tree_state = Some(tag_tree_state);
+            tag_tree_state.build_from_tags_with_display(&tags_with_counts, &display_map);
 
-            // Synchronize the initial cursor position
-            state.sync_cursor_with_tag_tree();
-
-            // Initialize file preview (empty at start)
-            state.update_file_preview();
-
-            // If search criteria with actual tag filters were provided, start in file pane
-            let has_tag_filters = config
-                .search_criteria
-                .as_ref()
-                .is_some_and(|c| !c.include_tags.is_empty() || !c.exclude_tags.is_empty());
-
-            if has_tag_filters {
-                use super::state::FocusPane;
-                state.focused_pane = FocusPane::FilePreview;
+            // Pre-select tags from search criteria (e.g., from -t flag)
+            if let Some(criteria) = &config.search_criteria {
+                for tag in &criteria.include_tags {
+                    tag_tree_state.selected_tags.insert(tag.clone());
+                }
             }
+        }
+        state.tag_tree_state = Some(tag_tree_state);
+
+        // Sync active_filter from tag tree selections (for CLI preview)
+        state.sync_filter_from_tag_tree();
+
+        // Synchronize the initial cursor position
+        state.sync_cursor_with_tag_tree();
+
+        // Initialize file preview (empty at start)
+        state.update_file_preview();
+
+        // If search criteria with actual tag filters were provided, start with file pane focused
+        let has_tag_filters = config
+            .search_criteria
+            .as_ref()
+            .is_some_and(|c| !c.include_tags.is_empty() || !c.exclude_tags.is_empty());
+
+        if has_tag_filters {
+            use super::state::FocusPane;
+            state.focused_pane = FocusPane::FilePreview;
         }
 
         let mut nucleo = Self::create_matcher(&config.items);
@@ -611,20 +574,59 @@ impl RatatuiFinder {
 
         let mut cached_preview: Option<StyledPreview> = None;
         let mut cached_preview_key: Option<String> = None;
+        let mut cached_preview_mode: Option<crate::ui::ratatui_adapter::state::PreviewMode> = None;
 
         loop {
             // Update preview if needed - prefer styled_generator (native ratatui) over preview_provider (ANSI)
             if let Some(preview_config) = &config.preview_config
                 && preview_config.enabled
-                && let Some(current_key) = state
-                    .current_key()
-                    .filter(|&k| cached_preview_key.as_deref() != Some(k))
             {
-                // Use styled_generator for native ratatui styling
-                if let Some(generator) = &self.styled_generator {
-                    cached_preview = generator.generate(Path::new(current_key)).ok();
+                // Always preview the file at file_preview_cursor (3-pane layout)
+                let preview_file_key = state
+                    .file_preview_items
+                    .get(state.file_preview_cursor)
+                    .map(|item| item.key.as_str());
+
+                if let Some(current_key) = preview_file_key {
+                    // Regenerate preview if:
+                    // 1. File changed (cached_preview_key != current_key), OR
+                    // 2. Preview mode changed (cached_preview_mode != state.preview_mode)
+                    let should_regenerate = cached_preview_key.as_deref() != Some(current_key)
+                        || cached_preview_mode != Some(state.preview_mode);
+
+                    if should_regenerate {
+                        // Generate preview based on preview mode
+                        use crate::ui::ratatui_adapter::state::PreviewMode;
+                        cached_preview = match state.preview_mode {
+                            PreviewMode::File => {
+                                // Use styled_generator for native ratatui styling
+                                self.styled_generator.as_ref().and_then(|generator| {
+                                    generator.generate(Path::new(current_key)).ok()
+                                })
+                            }
+                            PreviewMode::Note => {
+                                // Generate note preview from database
+                                // Notes are stored with canonical paths, so canonicalize before lookup
+                                let note_preview = state
+                                    .database
+                                    .as_ref()
+                                    .and_then(|db| {
+                                        Path::new(current_key).canonicalize().ok().and_then(
+                                            |canonical_path| {
+                                                db.get_note(&canonical_path).ok().flatten()
+                                            },
+                                        )
+                                    })
+                                    .map_or_else(StyledPreview::no_note, |note| {
+                                        StyledPreview::note(&note)
+                                    });
+                                Some(note_preview)
+                            }
+                        };
+                        cached_preview_key = Some(current_key.to_string());
+                        cached_preview_mode = Some(state.preview_mode);
+                    }
                 }
-                cached_preview_key = Some(current_key.to_string());
             }
 
             // Render
@@ -637,7 +639,133 @@ impl RatatuiFinder {
             let result = poll_and_handle(&mut state, &custom_binds, Duration::from_millis(50))?;
 
             match result {
-                EventResult::Confirm(Some(ref key)) if key == "refine_search" => {
+                EventResult::Action {
+                    action: BrowseAction::EditNote,
+                    context,
+                } => {
+                    // Suspend TUI to edit note
+                    Self::cleanup_terminal()?;
+
+                    // Use the captured context (selected file when action was triggered)
+                    let file_to_edit = context.first().map(std::path::PathBuf::from);
+
+                    if let Some(file_path) = file_to_edit {
+                        // Get canonical path
+                        if let Ok(canonical_path) = file_path.canonicalize() {
+                            // Get editor from environment
+                            let editor =
+                                std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+
+                            // Get existing note or create new one
+                            let existing_note = state
+                                .database
+                                .as_ref()
+                                .and_then(|db| db.get_note(&canonical_path).ok().flatten());
+
+                            let initial_content = existing_note
+                                .as_ref()
+                                .map(|n| n.content.clone())
+                                .unwrap_or_default();
+
+                            // Create temp file
+                            if let Ok(temp_path) = create_temp_note_file(&initial_content) {
+                                // Open editor
+                                let status =
+                                    std::process::Command::new(&editor).arg(&temp_path).status();
+
+                                if let Ok(status) = status
+                                    && status.success()
+                                {
+                                    // Read updated content
+                                    if let Ok(updated_content) = std::fs::read_to_string(&temp_path)
+                                    {
+                                        // Save or delete note based on content
+                                        if let Some(db) = &state.database {
+                                            let is_empty = updated_content.trim().is_empty();
+
+                                            if is_empty && existing_note.is_some() {
+                                                // Delete note if content cleared
+                                                let _ = db.delete_note(&canonical_path);
+
+                                                // Update has_note metadata
+                                                if state.is_tag_selection_phase() {
+                                                    if let Some(item) = state
+                                                        .file_preview_items
+                                                        .get_mut(state.file_preview_cursor)
+                                                    {
+                                                        item.metadata.has_note = false;
+                                                    }
+                                                    if let Some(item) = state
+                                                        .file_preview_items_unfiltered
+                                                        .iter_mut()
+                                                        .find(|i| {
+                                                            i.key == file_path.to_string_lossy()
+                                                        })
+                                                    {
+                                                        item.metadata.has_note = false;
+                                                    }
+                                                } else if let Some(item) =
+                                                    state.items.get_mut(state.cursor)
+                                                {
+                                                    item.metadata.has_note = false;
+                                                }
+                                            } else if !is_empty {
+                                                // Save note only if content is not empty
+                                                let note = if let Some(mut existing) = existing_note
+                                                {
+                                                    existing.update_content(updated_content);
+                                                    existing
+                                                } else {
+                                                    crate::db::NoteRecord::new(updated_content)
+                                                };
+
+                                                let _ = db.set_note(&canonical_path, note);
+
+                                                // Update has_note metadata for the current item
+                                                if state.is_tag_selection_phase() {
+                                                    if let Some(item) = state
+                                                        .file_preview_items
+                                                        .get_mut(state.file_preview_cursor)
+                                                    {
+                                                        item.metadata.has_note = true;
+                                                    }
+                                                    if let Some(item) = state
+                                                        .file_preview_items_unfiltered
+                                                        .iter_mut()
+                                                        .find(|i| {
+                                                            i.key == file_path.display().to_string()
+                                                        })
+                                                    {
+                                                        item.metadata.has_note = true;
+                                                    }
+                                                } else if let Some(current_idx) =
+                                                    state.filtered_indices.get(state.cursor)
+                                                    && let Some(item) =
+                                                        state.items.get_mut(*current_idx as usize)
+                                                {
+                                                    item.metadata.has_note = true;
+                                                }
+                                            }
+                                            // else: empty content and no existing note - don't create
+
+                                            // Invalidate preview cache to show updated note
+                                            cached_preview_key = None;
+                                            cached_preview_mode = None;
+                                        }
+                                    }
+                                }
+                                let _ = std::fs::remove_file(&temp_path);
+                            }
+                        }
+                    }
+
+                    // Resume TUI
+                    *terminal = Self::setup_terminal()?;
+                }
+                EventResult::Action {
+                    action: BrowseAction::RefineSearch,
+                    context: _,
+                } => {
                     // Open the refine search overlay
                     let criteria = config.search_criteria.as_ref();
                     state.enter_refine_search(
@@ -648,7 +776,7 @@ impl RatatuiFinder {
                         config.available_tags.clone(),
                     );
                 }
-                EventResult::Confirm(Some(ref key)) if key == "refine_search_done" => {
+                EventResult::RefineSearchDone => {
                     // Apply the refined search criteria - return with special action
                     if let Some(refine_state) = state.exit_refine_search() {
                         // Build a result that signals refine search was applied
@@ -660,8 +788,16 @@ impl RatatuiFinder {
                         ));
                     }
                 }
-                EventResult::Confirm(key) => {
-                    state.confirm(key);
+                EventResult::Action { action, context } => {
+                    // Generic action handling - return immediately with context
+                    return Ok(FinderResult::with_action(
+                        context,
+                        action.as_str().to_string(),
+                        Vec::new(),
+                    ));
+                }
+                EventResult::Confirm => {
+                    state.confirm(None);
                 }
                 EventResult::Abort => {
                     state.abort();
@@ -673,6 +809,25 @@ impl RatatuiFinder {
 
                     // In TagSelection phase, filter BOTH panes simultaneously
                     if state.is_tag_selection_phase() {
+                        // Filter tag tree (left pane) based on query
+                        if let Some(ref mut tag_tree_state) = state.tag_tree_state {
+                            if state.query.is_empty() {
+                                // No query - show all tags
+                                tag_tree_state.rebuild_visible_cache();
+                            } else {
+                                // Filter tags by fuzzy matching on name
+                                let matching_tags: Vec<String> = tag_tree_state
+                                    .all_tag_paths()
+                                    .into_iter()
+                                    .filter(|tag| {
+                                        // Simple substring match (case-insensitive)
+                                        tag.to_lowercase().contains(&state.query.to_lowercase())
+                                    })
+                                    .collect();
+                                tag_tree_state.filter_visible_tags(&matching_tags);
+                            }
+                        }
+
                         // Filter file preview items (right pane) from the unfiltered list
                         if !state.file_preview_items_unfiltered.is_empty() {
                             let mut temp_file_nucleo: Nucleo<u32> = Nucleo::new(
@@ -719,20 +874,30 @@ impl RatatuiFinder {
                     // Reset preview cache when query changes
                     cached_preview_key = None;
                 }
-                EventResult::InputSubmitted { action_id, values } => {
+                EventResult::PreviewChanged => {
+                    // Preview mode toggled - invalidate cache to force regeneration
+                    cached_preview_mode = None;
+                    cached_preview_key = None;
+                }
+                EventResult::InputSubmitted {
+                    action,
+                    values,
+                    context,
+                } => {
                     // The input modal was submitted - return to caller with action info
+                    // Use the stored context (selected files when modal was opened)
                     return Ok(FinderResult::with_action(
-                        state.selected_keys(),
-                        action_id,
+                        context,
+                        action.as_str().to_string(),
                         values,
                     ));
                 }
-                EventResult::ConfirmSubmitted { action_id, context } => {
+                EventResult::ConfirmSubmitted { action, context } => {
                     // Confirmation dialog was confirmed - return to caller with action info
                     // The context contains the file paths that were selected for the action
                     return Ok(FinderResult::with_action(
                         context,
-                        action_id,
+                        action.as_str().to_string(),
                         Vec::new(), // No additional values for confirmation-only actions
                     ));
                 }

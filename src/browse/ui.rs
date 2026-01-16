@@ -134,13 +134,9 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                             // This branch shouldn't be reached with ratatui
                             continue;
                         }
-                        BrowseAction::SelectAll | BrowseAction::ClearSelection => {
-                            // These should be handled by skim directly via bindings
-                            // If we get here, it's a configuration issue
-                            eprintln!(
-                                "Warning: {} should be handled by UI bindings",
-                                action.description()
-                            );
+                        BrowseAction::ShowDetails => {
+                            // Details modal is handled internally by the TUI (Ctrl+L)
+                            // This branch shouldn't be reached with ratatui
                             continue;
                         }
                         BrowseAction::RefineSearch => {
@@ -231,22 +227,59 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     selected_ids,
                     values,
                 } => {
-                    // Execute action directly - confirmation already done in TUI modal
-                    // Convert selected_ids to file paths
-                    let files: Vec<PathBuf> = selected_ids.iter().map(PathBuf::from).collect();
-
-                    // Execute the action based on action_id
-                    let outcome = if values.is_empty() {
-                        // Confirmation-only action (e.g., delete_from_db)
-                        self.execute_confirmed_action(&action_id, &files)?
-                    } else {
-                        // Input action (e.g., add_tag, remove_tag)
-                        let input = values.join(" ");
-                        self.execute_action_with_input(&action_id, &files, &input)?
+                    // Convert action_id string to BrowseAction enum
+                    let action = match action_id.parse::<BrowseAction>() {
+                        Ok(a) => a,
+                        Err(_) => {
+                            return Err(BrowseError::UnexpectedState(format!(
+                                "Unknown action_id: {action_id}"
+                            )));
+                        }
                     };
 
-                    self.handle_action_outcome(outcome)?;
-                    self.session.refresh_current_phase()?;
+                    // Execute action through session (handles all action types)
+                    let outcome = self.session.execute_action(&action, &selected_ids)?;
+
+                    // Handle the outcome
+                    match outcome {
+                        ActionOutcome::Success { .. } | ActionOutcome::Partial { .. } => {
+                            self.handle_action_outcome(outcome)?;
+                            self.session.refresh_current_phase()?;
+                        }
+                        ActionOutcome::NeedsInput {
+                            prompt: _,
+                            action_id,
+                            context,
+                        } => {
+                            // Session wants more input - shouldn't happen for actions from TUI
+                            // since TUI already collected input
+                            if values.is_empty() {
+                                return Err(BrowseError::UnexpectedState(format!(
+                                    "Action {action_id} requires input but none provided"
+                                )));
+                            }
+                            // We have values from TUI, execute the nested action
+                            let files = context.files;
+                            let input = values.join(" ");
+                            let nested_outcome =
+                                self.execute_action_with_input(&action_id, &files, &input)?;
+                            self.handle_action_outcome(nested_outcome)?;
+                            self.session.refresh_current_phase()?;
+                        }
+                        ActionOutcome::NeedsConfirmation {
+                            action_id, context, ..
+                        } => {
+                            // Session wants confirmation - shouldn't happen since TUI already confirmed
+                            let files = context.files;
+                            let nested_outcome =
+                                self.execute_confirmed_action(&action_id, &files)?;
+                            self.handle_action_outcome(nested_outcome)?;
+                            self.session.refresh_current_phase()?;
+                        }
+                        ActionOutcome::Failed(_) | ActionOutcome::Cancelled => {
+                            self.handle_action_outcome(outcome)?;
+                        }
+                    }
                 }
                 BrowserResult::Cancel => {
                     // User pressed ESC
@@ -282,16 +315,8 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             }
         };
 
-        // Convert PhaseType to BrowsePhase for keybind filtering
-        let browse_phase = match &phase.phase_type {
-            PhaseType::TagSelection => crate::ui::BrowsePhase::TagSelection,
-            PhaseType::FileSelection { .. } => crate::ui::BrowsePhase::FileSelection,
-        };
-
-        let keybinds = phase
-            .settings
-            .keybind_config
-            .bindings_for_phase(browse_phase);
+        // Get all keybinds (always 3-pane layout now)
+        let keybinds = phase.settings.keybind_config.bindings();
 
         let search_criteria = self.session.search_criteria();
         let available_tags = self.session.available_tags().unwrap_or_default();
@@ -307,7 +332,6 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             .with_multi_select(true)
             .with_ansi(true)
             .with_binds(keybinds)
-            .with_phase(browse_phase)
             .with_available_tags(available_tags)
             .with_search_criteria(crate::ui::RefineSearchCriteria::new(
                 search_criteria.tags,
@@ -421,6 +445,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     index: Some(tag_meta.file_count), // Store file_count for tag tree
                     tags: vec![],
                     exists: true,
+                    has_note: false, // Tags don't have notes
                 };
 
                 DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
@@ -442,10 +467,19 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
                 let display = format!("{path_display}{tags_display}");
 
+                // Check if file has a note
+                let has_note = file_meta
+                    .path
+                    .canonicalize()
+                    .ok()
+                    .and_then(|canonical| self.session.db().get_note(&canonical).ok().flatten())
+                    .is_some();
+
                 let metadata = crate::ui::ItemMetadata {
                     index: Some(index),
                     tags: file_meta.tags.clone(),
                     exists: file_meta.cached.exists,
+                    has_note,
                 };
 
                 DisplayItem::with_metadata(item.id.clone(), display, path_str, metadata)

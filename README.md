@@ -4,6 +4,7 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 
 ## Features
 
+- **File notes with markdown** - Attach rich text documentation to files with append-style timestamps NEW in v0.10.0
 - **Tag hierarchies and aliases** - Organize tags with parent:child relationships and create tag synonyms
 - **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
 - **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
@@ -133,6 +134,9 @@ tagr browse -t config -x "cat {}"
 | ↑↓ or Ctrl+J/K | Navigate |
 | TAB | Select/deselect (multi-select) |
 | Space | Expand/collapse tree nodes (tag phase) |
+| Ctrl+N | Edit note for selected file  |
+| Alt+N | Toggle file/note preview |
+| Ctrl+L | Show file details modal (metadata + tags + note) |
 | Enter | Confirm and proceed |
 | ESC | Cancel |
 | Type | Filter via fuzzy matching |
@@ -591,6 +595,151 @@ regex_tag = false
 regex_file = false
 virtual_tags = []
 virtual_mode = "all"
+```
+
+## File Notes
+
+Attach markdown notes to files for documentation, context, and chronological updates - without cluttering your tags.
+
+### Why Use Notes?
+
+- **Document file context** - Record why a file exists, what it does, or design decisions
+- **Track changes over time** - Append timestamped entries as files evolve
+- **Separate concerns** - Tags for organization, notes for documentation
+- **Markdown support** - Write rich content with **bold**, *italic*, `code`, headers, lists, etc.
+- **TUI integration** - View and edit notes without leaving the browser
+
+### Quick Start
+
+```bash
+# Edit note in $EDITOR
+tagr note edit config.toml
+
+# Append timestamped entry (quick workflow)
+tagr note add config.toml "Updated timeout settings"
+
+# Show note content
+tagr note show config.toml
+
+# Search across all notes
+tagr note search "TODO"
+
+# List all files with notes
+tagr note list
+```
+
+### Append-Style Workflow
+
+Quickly add timestamped entries without opening an editor:
+
+```bash
+# First entry creates note with timestamp heading
+tagr note add refactor.rs "Started breaking into smaller modules"
+# Output:
+# ### 2026-01-14 10:30
+# 
+# Started breaking into smaller modules
+
+# Subsequent entries append with separator
+tagr note add refactor.rs "Completed refactor, all tests passing"
+# Output:
+# ### 2026-01-14 10:30
+# 
+# Started breaking into smaller modules
+# 
+# ---
+# ### 2026-01-14 15:45
+# 
+# Completed refactor, all tests passing
+```
+
+Timestamp format uses markdown H3 headings (`### YYYY-MM-DD HH:MM`) with horizontal rule separators (`---`) for clean chronological organization.
+
+### Full Editor Control
+
+For complex edits, reorganization, or formatting:
+
+```bash
+# Open full note in $EDITOR
+tagr note edit refactor.rs
+
+# Override editor for this command
+tagr note edit README.md --editor nvim
+```
+
+You have complete control - reorganize entries, delete outdated content, or use any markdown format you prefer.
+
+### Searching Notes
+
+```bash
+# Find files with notes containing "TODO"
+tagr note search "TODO"
+
+# Show matching content snippets
+tagr note search "refactor" --show-content
+
+# Pipe-friendly output for scripts
+tagr note search "bug" --format quiet | xargs -I {} echo "File: {}"
+
+# JSON output for structured parsing
+tagr note search "urgent" --format json
+```
+
+### Managing Notes
+
+```bash
+# List all files with notes
+tagr note list
+
+# Show metadata (created/updated timestamps)
+tagr note list --verbose
+
+# Delete notes
+tagr note delete old-file.txt
+
+# Batch delete with confirmation
+tagr note delete file1.txt file2.txt --yes
+
+# Preview deletion without applying
+tagr note delete *.tmp --dry-run
+```
+
+### TUI Integration
+
+In browse mode (`tagr browse`):
+
+- **Ctrl+N** - Edit note for selected file (suspends TUI, launches $EDITOR)
+- **Alt+N** - Toggle between file preview and note preview
+- **📝 icon** - Indicates files that have notes
+- **" Notes Only"** - Special tag category for files with notes but no tags
+- **Markdown highlighting** - Notes rendered with full syntax highlighting
+
+Files with notes but no tags appear in a special **" Notes Only"** category at the top of the tag tree, making them easily discoverable.
+
+### Notes Philosophy
+
+**Notes are for documentation, not task management:**
+- Simple timestamped markdown entries
+- No priority, status, or due dates
+- Chronicle file evolution without losing context
+- Full user control via $EDITOR
+- Composable with Unix tools (`grep`, `awk`, etc.)
+
+**Storage:**
+- Integrated database storage (default)
+- Reliable, atomic operations alongside tags
+- Future: Optional file-backed mode for git-tracked notes
+
+### Configuration
+
+Configure note behavior in `~/.config/tagr/config.toml`:
+
+```toml
+[notes]
+storage = "integrated"        # Database storage (default)
+editor = "nvim"               # Override $EDITOR
+max_note_size_kb = 100       # Size limit warning
+default_template = ""        # Pre-populate new notes
 ```
 
 ## Virtual Tags

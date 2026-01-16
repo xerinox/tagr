@@ -288,8 +288,7 @@ mod tests {
                 quiet: true,
             },
         )
-        .err()
-        .expect("should error");
+        .expect_err("should error");
         match err {
             TagrError::InvalidInput(msg) => {
                 assert!(msg.contains("Glob-like file pattern"));
@@ -371,8 +370,7 @@ mod tests {
                 quiet: true,
             },
         )
-        .err()
-        .expect("should error");
+        .expect_err("should error");
         match err {
             TagrError::PatternError(_) => {}
             _ => panic!("Expected PatternError for glob-like tag token"),

@@ -11,6 +11,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+/// Special virtual tag identifier for files with notes but no tags
+///
+/// This appears as a category in the tag tree to help users discover files
+/// that have notes but no tags associated with them.
+pub const NOTES_ONLY_TAG: &str = "@notes-only";
+
 // ============================================================================
 // Core Domain Types
 // ============================================================================

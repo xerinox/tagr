@@ -13,6 +13,49 @@ use crate::db::{Database, DbError};
 use crate::search::FilterExt; // Import trait for in-memory filtering
 use std::collections::{HashMap, HashSet};
 
+/// Query files that have notes but no tags (notes-only files)
+///
+/// Returns files as `TagrItem` instances. These are files tracked in the database
+/// because they have notes, but have an empty tags list.
+///
+/// # Arguments
+/// * `db` - Database to query
+///
+/// # Returns
+/// Vector of `TagrItem` instances for files with notes but no tags
+///
+/// # Errors
+/// Returns `DbError` if database operations fail
+pub fn get_notes_only_files(db: &Database) -> Result<Vec<TagrItem>, DbError> {
+    let all_notes = db.list_all_notes()?;
+
+    let items: Result<Vec<TagrItem>, DbError> = all_notes
+        .into_iter()
+        .filter_map(|(path, _note)| {
+            // Get tags for this file
+            match db.get_tags(&path) {
+                Ok(Some(tags)) if tags.is_empty() => {
+                    // File has note but no tags - include it
+                    let mut cache = crate::browse::models::MetadataCache::new();
+                    let pair = crate::Pair {
+                        file: path,
+                        tags: vec![],
+                    };
+                    Some(Ok(TagrItem::from(PairWithCache {
+                        pair,
+                        cache: &mut cache,
+                    })))
+                }
+                Ok(Some(_)) => None,    // Has tags - exclude
+                Ok(None) => None,       // Not in files tree - exclude
+                Err(e) => Some(Err(e)), // Propagate error
+            }
+        })
+        .collect();
+
+    items
+}
+
 /// Query all available tags from the database with file counts
 ///
 /// Returns tags as `TagrItem` instances with metadata including the number
@@ -66,13 +109,37 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
             .collect();
 
         tags.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // Add notes-only virtual tag if there are files with notes but no tags
+        if let Ok(notes_only_files) = get_notes_only_files(db)
+            && !notes_only_files.is_empty()
+        {
+            tags.push(TagrItem::tag(
+                crate::browse::models::NOTES_ONLY_TAG.to_string(),
+                notes_only_files.len(),
+            ));
+        }
+
         Ok(tags)
     } else {
         // No schema - use original behavior
-        let tags: Result<Vec<TagrItem>, DbError> = tag_names
+        let mut tags: Result<Vec<TagrItem>, DbError> = tag_names
             .into_iter()
             .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
             .collect();
+
+        // Add notes-only virtual tag if there are files with notes but no tags
+        if let Ok(mut tag_vec) = tags {
+            if let Ok(notes_only_files) = get_notes_only_files(db)
+                && !notes_only_files.is_empty()
+            {
+                tag_vec.push(TagrItem::tag(
+                    crate::browse::models::NOTES_ONLY_TAG.to_string(),
+                    notes_only_files.len(),
+                ));
+            }
+            tags = Ok(tag_vec);
+        }
 
         tags
     }
@@ -424,5 +491,62 @@ mod tests {
 
         let files = get_matching_files(db, &params).unwrap();
         assert_eq!(files.len(), 0);
+    }
+
+    #[test]
+    fn test_get_notes_only_files() {
+        use crate::db::NoteMeta;
+        use crate::db::NoteRecord;
+
+        let test_db = TestDb::new("test_notes_only");
+        let db = test_db.db();
+        db.clear().unwrap();
+
+        let file1 = TempFile::create("file1.txt").unwrap();
+        let file2 = TempFile::create("file2.txt").unwrap();
+        let file3 = TempFile::create("file3.txt").unwrap();
+
+        // File with tags and note - should be excluded
+        db.insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
+            .unwrap();
+        db.set_note(
+            file1.path(),
+            NoteRecord {
+                content: "Note 1".into(),
+                metadata: NoteMeta {
+                    created_at: 0,
+                    updated_at: 0,
+                },
+            },
+        )
+        .unwrap();
+
+        // File with note but no tags - should be included
+        db.set_note(
+            file2.path(),
+            NoteRecord {
+                content: "Note 2".into(),
+                metadata: NoteMeta {
+                    created_at: 0,
+                    updated_at: 0,
+                },
+            },
+        )
+        .unwrap();
+
+        // File with tags but no note - should be excluded
+        db.insert_pair(&Pair::new(
+            file3.path().to_path_buf(),
+            vec!["python".into()],
+        ))
+        .unwrap();
+
+        let notes_only = get_notes_only_files(db).unwrap();
+
+        // Only file2 should be included
+        assert_eq!(notes_only.len(), 1);
+        let file = &notes_only[0];
+        assert_eq!(file.name, "file2.txt");
+        assert_eq!(file.file_tags(), Some(&[][..]));
     }
 }

@@ -3,19 +3,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Current phase of the browse workflow
-///
-/// Used to filter which keybinds are shown in help overlays
-/// and which actions are available.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BrowsePhase {
-    /// Tag selection phase - limited actions (navigation only)
-    TagSelection,
-    /// File selection phase - full actions available
-    #[default]
-    FileSelection,
-}
-
 /// Position of preview pane
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -97,6 +84,8 @@ pub struct ItemMetadata {
     pub tags: Vec<String>,
     /// Whether the item exists (e.g., file exists on disk)
     pub exists: bool,
+    /// Whether the item has a note attached
+    pub has_note: bool,
     /// Optional index for ordering
     pub index: Option<usize>,
 }

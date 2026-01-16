@@ -631,6 +631,9 @@ fn main() -> Result<()> {
             Commands::List { variant, .. } => {
                 commands::list(&db, *variant, path_format, quiet)?;
             }
+            Commands::Note { command, .. } => {
+                command.execute(&db, &config, path_format)?;
+            }
             Commands::Filter { command } => {
                 // Filter management doesn't need database access
                 commands::filter(command, quiet)?;

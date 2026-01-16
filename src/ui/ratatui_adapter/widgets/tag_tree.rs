@@ -180,6 +180,7 @@ impl TagTreeState {
     /// Build tree from flat tag list with file counts
     ///
     /// Takes tags like `["rust", "lang:rust", "lang:python"]` and builds a tree:
+    /// -  Notes Only (inferred - files with notes but no tags)
     /// - lang (inferred parent)
     ///   ├── rust
     ///   └── python
@@ -188,8 +189,18 @@ impl TagTreeState {
         let mut hierarchy_map: HashMap<String, Vec<(String, usize, bool)>> = HashMap::new();
         let mut actual_tags: HashSet<String> = HashSet::new();
 
+        // Check for notes-only tag and extract its count
+        let notes_only_count = tags
+            .iter()
+            .find(|(tag, _)| tag == crate::browse::models::NOTES_ONLY_TAG)
+            .map_or(0, |(_, count)| *count);
+
         // First pass: identify all actual tags and their hierarchy
         for (tag, count) in tags {
+            // Skip notes-only virtual tag - we'll add it separately at the top
+            if tag == crate::browse::models::NOTES_ONLY_TAG {
+                continue;
+            }
             actual_tags.insert(tag.clone());
 
             if tag.contains(':') {
@@ -223,7 +234,21 @@ impl TagTreeState {
         }
 
         // Build tree recursively
-        self.roots = Self::build_level(&hierarchy_map, &actual_tags, "", 0);
+        let mut roots = Self::build_level(&hierarchy_map, &actual_tags, "", 0);
+
+        // Add notes-only category at the beginning if there are files with notes but no tags
+        if notes_only_count > 0 {
+            let notes_only_node = TagTreeNode::new(
+                " Notes Only".to_string(),
+                crate::browse::models::NOTES_ONLY_TAG.to_string(),
+                notes_only_count,
+                true, // Treat as actual tag for selection purposes
+                0,
+            );
+            roots.insert(0, notes_only_node);
+        }
+
+        self.roots = roots;
         self.rebuild_visible_cache();
     }
 
@@ -314,10 +339,29 @@ impl TagTreeState {
     }
 
     /// Rebuild the visible nodes cache
-    fn rebuild_visible_cache(&mut self) {
+    /// Rebuild the visible node cache (after filtering or expansion changes)
+    pub fn rebuild_visible_cache(&mut self) {
         self.visible_nodes.clear();
         for root in &self.roots {
             root.collect_visible(&mut self.visible_nodes);
+        }
+    }
+
+    /// Get all tag paths in the tree (for filtering)
+    #[must_use]
+    pub fn all_tag_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for root in &self.roots {
+            Self::collect_all_paths(root, &mut paths);
+        }
+        paths
+    }
+
+    /// Recursively collect all tag paths from a node
+    fn collect_all_paths(node: &TagTreeNode, output: &mut Vec<String>) {
+        output.push(node.full_path.clone());
+        for child in &node.children {
+            Self::collect_all_paths(child, output);
         }
     }
 
@@ -703,8 +747,14 @@ impl StatefulWidget for TagTree<'_> {
                 }
             }
 
-            // Tag name
-            let name_style = if is_selected {
+            // Tag name - combine styles when both highlighted and selected
+            let name_style = if is_selected && is_tag_selected {
+                // Combine highlight and selected styles for better visibility
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_selected {
                 self.highlight_style
             } else if is_tag_selected {
                 self.selected_style

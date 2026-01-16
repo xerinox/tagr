@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_filter_ext_simple_match() {
-        let files = vec![
+        let files = [
             MockFile::new("file1.rs", vec!["rust", "backend"]),
             MockFile::new("file2.js", vec!["javascript", "frontend"]),
             MockFile::new("file3.rs", vec!["rust", "tests"]),
@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_filter_ext_exclude() {
-        let files = vec![
+        let files = [
             MockFile::new("file1.rs", vec!["rust", "backend"]),
             MockFile::new("file2.rs", vec!["rust", "tests"]),
         ];
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_filter_ext_hierarchical_prefix() {
-        let files = vec![
+        let files = [
             MockFile::new("file1.rs", vec!["lang:rust"]),
             MockFile::new("file2.py", vec!["lang:python"]),
             MockFile::new("file3.js", vec!["javascript"]),
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_filter_ext_hierarchical_specificity() {
-        let files = vec![
+        let files = [
             MockFile::new("file1.rs", vec!["lang:rust"]),
             MockFile::new("file2.py", vec!["lang:python"]),
         ];
@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_filter_ext_all_mode() {
-        let files = vec![
+        let files = [
             MockFile::new("file1.rs", vec!["lang:rust", "project:backend"]),
             MockFile::new("file2.rs", vec!["lang:rust"]),
             MockFile::new("file3.rs", vec!["project:backend"]),
@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_filter_ext_no_criteria() {
-        let files = vec![
+        let files = [
             MockFile::new("file1.rs", vec!["rust"]),
             MockFile::new("file2.js", vec!["javascript"]),
         ];

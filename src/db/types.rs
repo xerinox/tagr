@@ -147,6 +147,69 @@ impl std::ops::Deref for PathString {
     }
 }
 
+/// Metadata for a note
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    bincode::Encode,
+    bincode::Decode,
+)]
+pub struct NoteMeta {
+    /// Unix timestamp when note was created
+    pub created_at: i64,
+    /// Unix timestamp when note was last updated
+    pub updated_at: i64,
+}
+
+impl Default for NoteMeta {
+    fn default() -> Self {
+        let now = chrono::Utc::now().timestamp();
+        Self {
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+/// A note attached to a file
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    bincode::Encode,
+    bincode::Decode,
+)]
+pub struct NoteRecord {
+    /// Markdown content of the note (free-form markdown with optional timestamped entries)
+    pub content: String,
+    /// Note metadata (timestamps only)
+    pub metadata: NoteMeta,
+}
+
+impl NoteRecord {
+    /// Create a new note with the given content
+    #[must_use]
+    pub fn new(content: String) -> Self {
+        Self {
+            content,
+            metadata: NoteMeta::default(),
+        }
+    }
+
+    /// Update the content and bump the `updated_at` timestamp
+    pub fn update_content(&mut self, content: String) {
+        self.content = content;
+        self.metadata.updated_at = chrono::Utc::now().timestamp();
+    }
+}
+
 #[cfg(test)]
 #[path = "types_tests.rs"]
 mod types_tests;

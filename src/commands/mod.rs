@@ -9,6 +9,7 @@ pub mod bulk;
 pub mod cleanup;
 pub mod filter;
 pub mod list;
+pub mod note;
 pub mod search;
 pub mod tag;
 pub mod tags;

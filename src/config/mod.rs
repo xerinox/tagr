@@ -137,6 +137,66 @@ impl From<&PreviewConfig> for crate::ui::PreviewConfig {
     }
 }
 
+/// Notes configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NotesConfig {
+    /// Storage mode (currently only "integrated" is supported)
+    #[serde(default = "default_storage_mode")]
+    pub storage: String,
+
+    /// Editor command to use for editing notes
+    /// Falls back to $EDITOR environment variable if not set
+    #[serde(default)]
+    pub editor: Option<String>,
+
+    /// Maximum note size in kilobytes
+    #[serde(default = "default_max_note_size_kb")]
+    pub max_note_size_kb: u32,
+
+    /// Default template for new notes
+    #[serde(default)]
+    pub default_template: String,
+}
+
+impl Default for NotesConfig {
+    fn default() -> Self {
+        Self {
+            storage: default_storage_mode(),
+            editor: None,
+            max_note_size_kb: default_max_note_size_kb(),
+            default_template: String::new(),
+        }
+    }
+}
+
+fn default_storage_mode() -> String {
+    "integrated".to_string()
+}
+
+const fn default_max_note_size_kb() -> u32 {
+    100
+}
+
+impl NotesConfig {
+    /// Get the editor command to use, with fallback logic:
+    /// 1. Use configured editor if set
+    /// 2. Fall back to $EDITOR environment variable
+    /// 3. Fall back to "vim" as last resort
+    #[must_use]
+    pub fn get_editor(&self) -> String {
+        self.editor
+            .clone()
+            .or_else(|| std::env::var("EDITOR").ok())
+            .unwrap_or_else(|| "vim".to_string())
+    }
+
+    /// Check if a note size exceeds the configured limit
+    #[must_use]
+    pub const fn exceeds_size_limit(&self, size_bytes: u64) -> bool {
+        size_bytes > (self.max_note_size_kb as u64 * 1024)
+    }
+}
+
 /// Application configuration structure
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TagrConfig {
@@ -163,6 +223,10 @@ pub struct TagrConfig {
     /// Preview pane configuration
     #[serde(default)]
     pub preview: PreviewConfig,
+
+    /// Notes configuration
+    #[serde(default)]
+    pub notes: NotesConfig,
 }
 
 impl TagrConfig {
@@ -452,5 +516,54 @@ mod tests {
             config.get_default_database(),
             Some(&"default_db".to_string())
         );
+    }
+
+    #[test]
+    fn test_notes_config_default() {
+        let config = NotesConfig::default();
+        assert_eq!(config.storage, "integrated");
+        assert_eq!(config.max_note_size_kb, 100);
+        assert_eq!(config.default_template, "");
+        assert!(config.editor.is_none());
+    }
+
+    #[test]
+    fn test_notes_config_get_editor() {
+        // Test with configured editor
+        let config = NotesConfig {
+            editor: Some("nvim".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.get_editor(), "nvim");
+
+        // Test with no configured editor (falls back to $EDITOR or vim)
+        let config = NotesConfig::default();
+        let editor = config.get_editor();
+        // Will be either $EDITOR value or "vim"
+        assert!(!editor.is_empty());
+    }
+
+    #[test]
+    fn test_notes_config_size_limit() {
+        let config = NotesConfig::default(); // 100KB limit
+
+        // 50KB should be fine
+        assert!(!config.exceeds_size_limit(50 * 1024));
+
+        // 100KB should be fine (exactly at limit)
+        assert!(!config.exceeds_size_limit(100 * 1024));
+
+        // 101KB should exceed
+        assert!(config.exceeds_size_limit(101 * 1024));
+
+        // 1MB should exceed
+        assert!(config.exceeds_size_limit(1024 * 1024));
+    }
+
+    #[test]
+    fn test_tagr_config_with_notes() {
+        let config = TagrConfig::default();
+        assert_eq!(config.notes.storage, "integrated");
+        assert_eq!(config.notes.max_note_size_kb, 100);
     }
 }

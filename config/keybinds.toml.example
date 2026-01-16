@@ -1,40 +1,79 @@
 # Tagr Keybind Configuration
-# Syntax: action = "key" or action = ["key1", "key2"]
+# Syntax: action = "key" or action = ["key1", "key2"] for multiple bindings
 # Disable a keybind: action = "none"
+#
+# Key Format:
+#   - Single keys: "a", "1", "/"
+#   - With modifiers: "ctrl-t", "alt-n", "shift-f1"
+#   - Special keys: "f1"-"f12", "enter", "esc", "tab", "bspace", "del"
+#                   "up", "down", "left", "right", "home", "end"
+#                   "pgup", "pgdn"
+#   - Modifiers: ctrl/control, alt, shift
+#
+# COMPLETE LIST OF ALL AVAILABLE ACTIONS:
 
 [keybinds]
+# ========================================
 # Tag Management
-add_tag = "ctrl-t"          # Add tags to selected files
-remove_tag = "ctrl-r"       # Remove tags from selected files
-edit_tags = "ctrl-e"        # Edit tags in $EDITOR
+# ========================================
+add_tag = "ctrl-t"              # Add tags to selected files (opens input modal)
+remove_tag = "ctrl-r"           # Remove tags from selected files (opens input modal)
+edit_tags = "ctrl-e"            # Edit tags in $EDITOR (batch edit)
 
+# ========================================
 # File Operations
-open_default = "ctrl-o"     # Open in default application (xdg-open/open)
-open_editor = "ctrl-v"      # Open in $EDITOR
-copy_path = "ctrl-y"        # Copy file paths to clipboard
-copy_files = "ctrl-p"       # Copy files to directory
-delete_from_db = "ctrl-d"   # Delete from database
+# ========================================
+open_default = "ctrl-o"         # Open in default application (xdg-open/open)
+open_editor = "ctrl-v"          # Open in $EDITOR
+copy_path = "ctrl-y"            # Copy file paths to clipboard
+copy_files = "ctrl-p"           # Copy files to directory
+delete_from_db = "ctrl-d"       # Delete from database (requires confirmation)
 
-# View Options
-toggle_tag_display = "ctrl-i"  # Toggle tag display mode
-show_details = "ctrl-l"        # Show file details
-filter_extension = "ctrl-f"    # Filter by extension
+# ========================================
+# View & Display Options
+# ========================================
+toggle_tag_display = "ctrl-i"   # Toggle tag display mode (inline/below/count/hidden)
+show_details = "ctrl-l"         # Show detailed file information
+filter_extension = "ctrl-f"     # Filter by file extension
 
-# Navigation
-select_all = "ctrl-a"       # Select all files
-clear_selection = "ctrl-x"  # Clear selection
+# ========================================
+# Note Management
+# ========================================
+edit_note = "ctrl-n"            # Edit note for selected file (suspends TUI)
+toggle_note_preview = "alt-n"   # Toggle between file and note preview
+
+# ========================================
+# Selection & Navigation
+# ========================================
+select_all = "ctrl-a"           # Select all visible files
+clear_selection = "ctrl-x"      # Clear current selection
 # Note: Space key expands/collapses tag tree nodes (built-in, not configurable)
+# Note: TAB key toggles individual file selection (built-in, not configurable)
 
+# ========================================
 # Search & Filter
-quick_search = "ctrl-s"     # Quick tag search
-goto_file = "ctrl-g"        # Go to file
+# ========================================
+quick_search = "ctrl-s"         # Quick tag search (NOT YET IMPLEMENTED)
+goto_file = "ctrl-g"            # Go to specific file (NOT YET IMPLEMENTED)
+refine_search = "f2"            # Refine search criteria (overlay)
 
-# History & Sessions
-show_history = "ctrl-h"     # Show recent selections
-bookmark_selection = "ctrl-b"  # Bookmark selection
+# ========================================
+# History & Bookmarks (NOT YET IMPLEMENTED)
+# ========================================
+show_history = "ctrl-h"         # Show recent selections
+bookmark_selection = "ctrl-b"   # Bookmark current selection
 
-# System
-show_help = "f1"            # Show help (can also use ["f1", "ctrl-?"])
+# ========================================
+# System & Help
+# ========================================
+show_help = "f1"                # Show help overlay
+# cancel = "esc"                # Cancel/abort (built-in, don't override)
+
+# ========================================
+# Examples of Multiple Keybinds
+# ========================================
+# show_help = ["f1", "ctrl-?"]  # Multiple keys for same action
+# add_tag = "none"              # Disable a keybind completely
 
 [editor]
 # Editor command for tag editing and file opening

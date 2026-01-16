@@ -1,12 +1,9 @@
 //! Configuration for keybinds.
 
-use crate::ui::BrowsePhase;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use super::actions::BrowseAction;
 
 /// Errors that can occur during configuration loading.
 #[derive(Debug, thiserror::Error)]
@@ -195,46 +192,18 @@ fn default_keybinds() -> HashMap<String, KeybindDef> {
 
     // View Options
     keybinds.insert(
-        "toggle_tag_display".to_string(),
-        KeybindDef::Single("ctrl-i".to_string()),
-    );
-    keybinds.insert(
         "show_details".to_string(),
         KeybindDef::Single("ctrl-l".to_string()),
     );
-    keybinds.insert(
-        "filter_extension".to_string(),
-        KeybindDef::Single("ctrl-f".to_string()),
-    );
 
-    // Navigation
+    // Note Management
     keybinds.insert(
-        "select_all".to_string(),
-        KeybindDef::Single("ctrl-a".to_string()),
+        "edit_note".to_string(),
+        KeybindDef::Single("ctrl-n".to_string()),
     );
     keybinds.insert(
-        "clear_selection".to_string(),
-        KeybindDef::Single("ctrl-x".to_string()),
-    );
-
-    // Search & Filter
-    keybinds.insert(
-        "quick_search".to_string(),
-        KeybindDef::Single("ctrl-s".to_string()),
-    );
-    keybinds.insert(
-        "goto_file".to_string(),
-        KeybindDef::Single("ctrl-g".to_string()),
-    );
-
-    // History & Sessions
-    keybinds.insert(
-        "show_history".to_string(),
-        KeybindDef::Single("ctrl-h".to_string()),
-    );
-    keybinds.insert(
-        "bookmark_selection".to_string(),
-        KeybindDef::Single("ctrl-b".to_string()),
+        "toggle_note_preview".to_string(),
+        KeybindDef::Single("alt-n".to_string()),
     );
 
     // Search Refinement
@@ -362,52 +331,6 @@ impl KeybindConfig {
         bindings
     }
 
-    /// Convert keybind configuration to finder-compatible format, filtered by phase.
-    ///
-    /// Returns a vector of "key:action" strings that can be passed to the
-    /// finder. Only includes actions that are available in the specified phase.
-    ///
-    /// # Arguments
-    ///
-    /// * `phase` - The current browse phase (tag selection or file selection)
-    #[must_use]
-    pub fn bindings_for_phase(&self, phase: BrowsePhase) -> Vec<String> {
-        let mut bindings = Vec::new();
-
-        for (action_name, def) in &self.keybinds {
-            // Check if this action is available in the current phase
-            if let Ok(action) = action_name.parse::<BrowseAction>() {
-                let available = match phase {
-                    BrowsePhase::TagSelection => action.available_in_tag_phase(),
-                    BrowsePhase::FileSelection => action.available_in_file_phase(),
-                };
-                if !available {
-                    continue;
-                }
-            }
-
-            let keys = match def {
-                KeybindDef::Single(key) if key != "none" => vec![key.clone()],
-                KeybindDef::Multiple(keys) => {
-                    keys.iter().filter(|k| *k != "none").cloned().collect()
-                }
-                KeybindDef::Single(_) => continue,
-            };
-
-            for key in keys {
-                // Skip Tab and BTab to preserve multi-select behavior
-                if key == "tab" || key == "btab" {
-                    continue;
-                }
-
-                // Format: "key:action" - action is needed for ratatui handler
-                bindings.push(format!("{key}:{action_name}"));
-            }
-        }
-
-        bindings
-    }
-
     /// Get the action name mapped to a specific key string.
     ///
     /// Returns None if no action is mapped to this key.
@@ -424,6 +347,42 @@ impl KeybindConfig {
             }
         }
         None
+    }
+
+    /// Convert keybind configuration to a `KeyEvent` -> action name map.
+    ///
+    /// This is primarily for testing and validation. In production, use
+    /// `bindings()` or `bindings_for_phase()` to get the key:action strings.
+    ///
+    /// # Returns
+    ///
+    /// `HashMap` mapping `KeyEvent` to action name strings.
+    #[cfg(test)]
+    pub(crate) fn to_keybind_map(
+        &self,
+    ) -> std::collections::HashMap<crossterm::event::KeyEvent, String> {
+        use crate::ui::ratatui_adapter::parse_key_string_for_test;
+        use std::collections::HashMap;
+
+        let mut map = HashMap::new();
+
+        for (action, def) in &self.keybinds {
+            let keys = match def {
+                KeybindDef::Single(key) if key != "none" => vec![key.clone()],
+                KeybindDef::Multiple(keys) => {
+                    keys.iter().filter(|k| *k != "none").cloned().collect()
+                }
+                KeybindDef::Single(_) => continue,
+            };
+
+            for key_str in keys {
+                if let Some(key_event) = parse_key_string_for_test(&key_str) {
+                    map.insert(key_event, action.clone());
+                }
+            }
+        }
+
+        map
     }
 }
 
@@ -524,18 +483,166 @@ confirm_delete = false
     }
 
     #[test]
-    fn test_refine_search_included_in_file_phase_bindings() {
-        use crate::ui::BrowsePhase;
+    fn test_duplicate_keybind_detection() {
+        use crate::ui::ratatui_adapter::parse_key_string_for_test;
 
+        let toml = r#"
+            [keybinds]
+            add_tag = "ctrl-t"
+            remove_tag = "ctrl-t"  # Duplicate!
+        "#;
+
+        let config: KeybindConfig = toml::from_str(toml).unwrap();
+        let bindings = config.to_keybind_map();
+
+        // Parse the key
+        let key = parse_key_string_for_test("ctrl-t");
+        assert!(key.is_some());
+
+        // Count how many actions map to this key
+        let key = key.unwrap();
+        let matching_actions: Vec<_> = bindings.iter().filter(|(k, _)| **k == key).collect();
+
+        // Should only have one action (HashMap prevents duplicates)
+        assert_eq!(matching_actions.len(), 1);
+
+        // The action should be one of the two (HashMap iteration order is undefined)
+        let action = matching_actions[0].1;
+        assert!(
+            action == "add_tag" || action == "remove_tag",
+            "Expected action to be add_tag or remove_tag, got {action}"
+        );
+    }
+
+    #[test]
+    fn test_invalid_keybind_graceful_handling() {
+        use crate::ui::ratatui_adapter::parse_key_string_for_test;
+
+        // Invalid keybind strings should be skipped during parsing
+        // Note: The parser is quite permissive - it ignores unknown modifiers
+        // and parses F-keys with any number. These are truly invalid:
+        let invalid_keys = vec![
+            "ctrl-unknown-key", // Multi-character unknown key
+            "invalid",          // Unknown key name
+            "ctrl-",            // Incomplete (no key after modifier)
+            "",                 // Empty
+            "ctrl-abc",         // Multi-character non-special key
+            "unknown-unknown",  // Unknown parts
+            "fkey",             // Not f + number
+        ];
+
+        for key_str in invalid_keys {
+            let result = parse_key_string_for_test(key_str);
+            // Invalid keys should return None (gracefully handled)
+            assert!(
+                result.is_none(),
+                "Expected '{key_str}' to be invalid, but got {result:?}"
+            );
+        }
+
+        // Also test that warnings would be logged for ignored modifiers
+        // (though we don't actually log them in the current implementation)
+        // Examples that parse but ignore parts:
+        //   "super-t" -> parses as just "t" (super is ignored)
+        //   "ctrl-ctrl-t" -> parses as "ctrl-t" (duplicate ctrl ignored)
+        //   "f99" -> parses as F(99) (no validation on F-key range)
+    }
+
+    #[test]
+    fn test_valid_keybind_invalid_action() {
+        use super::super::actions::BrowseAction;
+        use std::str::FromStr;
+
+        // Valid keybind but action doesn't exist
+        let toml = r#"
+            [keybinds]
+            nonexistent_action = "ctrl-z"
+            add_tag = "ctrl-t"
+        "#;
+
+        let config: KeybindConfig = toml::from_str(toml).unwrap();
+        let bindings = config.to_keybind_map();
+
+        // Both keybinds should be in the map
+        assert_eq!(bindings.len(), 2);
+
+        // Verify that the invalid action string is stored
+        let has_invalid = bindings.values().any(|v| v == "nonexistent_action");
+        assert!(has_invalid);
+
+        // Verify that parsing the invalid action fails
+        let parse_result = BrowseAction::from_str("nonexistent_action");
+        assert!(
+            parse_result.is_err(),
+            "Expected invalid action to fail parsing"
+        );
+
+        // Verify that valid action parses correctly
+        let parse_result = BrowseAction::from_str("add_tag");
+        assert!(parse_result.is_ok(), "Expected valid action to parse");
+        assert_eq!(parse_result.unwrap(), BrowseAction::AddTag);
+    }
+
+    #[test]
+    fn test_keybind_normalization() {
+        use crate::ui::ratatui_adapter::parse_key_string_for_test;
+
+        // Test that different variations parse to same key
+        let variations = vec![
+            ("ctrl-t", "control-t"),
+            ("alt-x", "Alt-X"),
+            ("CTRL-A", "ctrl-a"),
+        ];
+
+        for (v1, v2) in variations {
+            let key1 = parse_key_string_for_test(v1);
+            let key2 = parse_key_string_for_test(v2);
+            assert_eq!(
+                key1, key2,
+                "Expected '{v1}' and '{v2}' to parse to same key"
+            );
+        }
+    }
+
+    #[test]
+    fn test_special_keys_parsing() {
+        use crate::ui::ratatui_adapter::parse_key_string_for_test;
+        use crossterm::event::KeyCode;
+
+        let special_keys = vec![
+            ("f1", KeyCode::F(1)),
+            ("f12", KeyCode::F(12)),
+            ("enter", KeyCode::Enter),
+            ("esc", KeyCode::Esc),
+            ("tab", KeyCode::Tab),
+            ("bspace", KeyCode::Backspace),
+            ("del", KeyCode::Delete),
+            ("up", KeyCode::Up),
+            ("down", KeyCode::Down),
+            ("pgup", KeyCode::PageUp),
+            ("pgdn", KeyCode::PageDown),
+        ];
+
+        for (key_str, expected_code) in special_keys {
+            let result = parse_key_string_for_test(key_str);
+            assert!(
+                result.is_some(),
+                "Expected '{key_str}' to parse successfully"
+            );
+            assert_eq!(result.unwrap().code, expected_code);
+        }
+    }
+
+    #[test]
+    fn test_refine_search_included_in_bindings() {
         let config = KeybindConfig::default();
-        let bindings = config.bindings_for_phase(BrowsePhase::FileSelection);
+        let bindings = config.bindings();
 
         // Check that refine_search keybinds are included
         let has_refine_search = bindings.iter().any(|b| b.contains("refine_search"));
         assert!(
             has_refine_search,
-            "Expected refine_search in bindings: {:?}",
-            bindings
+            "Expected refine_search in bindings: {bindings:?}"
         );
 
         // Check both keybinds are present
@@ -543,8 +650,7 @@ confirm_delete = false
         let has_f2 = bindings.iter().any(|b| b == "f2:refine_search");
         assert!(
             has_ctrl_slash || has_f2,
-            "Expected ctrl-/ or f2 keybind for refine_search: {:?}",
-            bindings
+            "Expected ctrl-/ or f2 keybind for refine_search: {bindings:?}"
         );
     }
 }

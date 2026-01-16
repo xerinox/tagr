@@ -6,6 +6,64 @@ Tagr is a **fast, tag-based file organizer** for the command line built in Rust.
 
 **Core value proposition**: 100-1000x faster tag queries via multi-tree architecture (files tree + tags reverse index).
 
+## Architecture Philosophy: CLI-First, TUI-Assisted
+
+**Tagr has two distinct, first-class modes with different purposes:**
+
+### 1. Headless/CLI Mode (Primary Interface)
+**Commands:** `tagr search`, `tagr tag`, `tagr note`, `tagr filter`, etc.
+
+**Purpose:** Power user / automation / scripting interface
+- **All functionality MUST work headlessly** - TUI is never required
+- Designed for Unix philosophy: pipes, filters, composition
+- Primary interface for automation: `tagr search -F filter | xargs cmd`
+- Exit codes matter for script composition
+- Output is pipe-friendly by default (one path per line)
+- JSON format available via `--format json` for structured parsing
+
+**Design Principles:**
+- Never degrade CLI functionality to support TUI features
+- Default output: balanced human/machine readability
+- `--quiet` mode: pure pipe-friendly (one item per line, no decoration) - **power user toggle**
+- `--verbose` mode: human-friendly with additional metadata
+- Support `--format json` for structured parsing
+- Exit codes: 0 = success, 1 = failure/not found (enables `if tagr search ...`)
+
+### 2. TUI Mode (Discovery & Learning Interface)
+**Command:** `tagr browse`
+
+**Purpose:** Beginner / visual learning / quick lookup / tutorial mode
+- Helps users **discover** and **construct** queries visually
+- Guides users toward CLI "power user" workflow via status bar hints
+- Shows CLI equivalents: "Save filter: `tagr filter save my-filter`"
+- Goal: Build queries in TUI → Save as filter → Reuse in CLI scripts
+- For users who learn visually and need guidance
+
+**NOT a replacement for CLI** - it's a teaching/discovery layer that leads users to the headless commands.
+
+**Example Workflow:**
+```bash
+# 1. User starts in TUI to explore
+tagr browse
+
+# 2. Discovers Rust files with "TODO" in notes (visual exploration)
+# 3. TUI status bar shows: "Equivalent CLI: tagr search --tag rust | tagr note search TODO"
+
+# 4. User saves the filter
+tagr filter save rust-todos
+
+# 5. Now uses it in automation (headless)
+tagr search -F rust-todos | xargs notify-send "Pending work"
+```
+
+### Implementation Priority
+
+1. **CLI commands first** - Must work perfectly headlessly
+2. **TUI integration second** - Visual convenience layer only
+3. **Never sacrifice CLI functionality for TUI features**
+
+All new features must have complete CLI implementations before TUI integration begins.
+
 ## Architecture
 
 ### Multi-Tree Database Design
@@ -112,6 +170,65 @@ See `src/db/mod.rs::insert_pair()` for the canonical pattern.
 7. **Iterator error handling**: Use `.collect::<Result<Vec<_>>>()` to propagate errors through iterator chains. Use `.enumerate()` for line numbers in parsing.
 
 ### CLI Design Patterns (clap v4)
+
+**Output Design Philosophy:**
+
+CLI commands should balance human readability with machine parseability:
+
+**Default mode:** Reasonable human output with minimal decoration
+- Show essential information clearly
+- Parseable but not strictly minimal
+- Example: `file.txt [tag1, tag2]` or simple tables
+
+**`--quiet` mode:** Pure pipe-friendly output (**power user toggle**)
+- One item per line, no decoration
+- No headers, no formatting, no colors
+- Perfect for `| xargs`, `| while read`, script composition
+- Example: just `file.txt` on each line
+
+**`--verbose` mode:** Human-friendly with rich metadata
+- Tables, colors, extra context
+- Detailed information for interactive use
+- Example: full file details with timestamps, sizes, permissions
+
+**`--format json`:** Structured data for advanced parsing
+- Machine-readable JSON objects
+- For complex script integration
+- Example: `{"file": "...", "tags": [...], "metadata": {...}}`
+
+All CLI commands must produce **pipe-friendly output in `--quiet` mode**:
+- One item per line (file paths, tags, etc.)
+- No decorative formatting
+- Exit codes for script composition (0 = success, 1 = failure)
+
+**Example Command Patterns:**
+
+```rust
+use clap::{Args, ValueEnum};
+
+/// Standard output format options
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// One item per line (default, pipe-friendly)
+    Text,
+    /// JSON objects for structured parsing
+    Json,
+    /// No output, exit codes only
+    Quiet,
+}
+
+/// Reusable output configuration
+#[derive(Args, Debug, Clone)]
+pub struct OutputArgs {
+    /// Output format
+    #[arg(short = 'f', long = "format", default_value = "text")]
+    pub format: OutputFormat,
+    
+    /// Show additional metadata (human-readable)
+    #[arg(short = 'v', long = "verbose")]
+    pub verbose: bool,
+}
+```
 
 **Create reusable argument groups with `#[command(flatten)]`:**
 

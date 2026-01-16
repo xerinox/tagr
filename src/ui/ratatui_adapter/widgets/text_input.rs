@@ -39,6 +39,10 @@ pub struct TextInputState {
     pub entered_values: Vec<String>,
     /// Callback identifier for completion
     pub action_id: String,
+    /// Context: selected file paths when modal was opened
+    /// Stored to ensure action applies to originally selected files
+    /// even if cursor moves during input
+    pub context: Vec<String>,
 }
 
 impl TextInputState {
@@ -57,7 +61,15 @@ impl TextInputState {
             multi_value: false,
             entered_values: Vec::new(),
             action_id: action_id.into(),
+            context: Vec::new(),
         }
+    }
+
+    /// Set context (selected file paths)
+    #[must_use]
+    pub fn with_context(mut self, context: Vec<String>) -> Self {
+        self.context = context;
+        self
     }
 
     /// Enable multi-value mode (space-separated values)
