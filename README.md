@@ -4,13 +4,13 @@ A fast, interactive command-line tool for organizing files with tags using fuzzy
 
 ## Features
 
+- **File notes with markdown** - Attach rich text documentation to files with append-style timestamps NEW in v0.10.0
 - **Tag hierarchies and aliases** - Organize tags with parent:child relationships and create tag synonyms
 - **Tag-based file organization** - Organize files using flexible tags instead of rigid folder structures
 - **Interactive fuzzy finding** - Browse and select files using an intuitive fuzzy finder interface
 - **Hierarchical tag tree** - Visual tree widget in TUI with collapsible nodes and multi-select
 - **Preview pane** - See file content with syntax highlighting before selecting (uses bat/syntect)
 - **Real-time action keybinds** - Perform tag operations directly within the fuzzy finder
-- **File notes** - Attach markdown notes to files for documentation and context
 - **Saved filters** - Save complex search criteria for quick recall
 - **Virtual tags** - Query files by metadata (size, date, extension, permissions, git status)
 - **Bulk operations** - Manage tags across many files at once
@@ -134,8 +134,9 @@ tagr browse -t config -x "cat {}"
 | ↑↓ or Ctrl+J/K | Navigate |
 | TAB | Select/deselect (multi-select) |
 | Space | Expand/collapse tree nodes (tag phase) |
-| Ctrl+N | Edit note for selected file |
+| Ctrl+N | Edit note for selected file  |
 | Alt+N | Toggle file/note preview |
+| Ctrl+L | Show file details modal (metadata + tags + note) |
 | Enter | Confirm and proceed |
 | ESC | Cancel |
 | Type | Filter via fuzzy matching |

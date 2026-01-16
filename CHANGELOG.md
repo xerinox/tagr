@@ -5,6 +5,92 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-01-16
+
+### Added
+
+#### File Notes (Complete)
+- **Markdown Notes for Files** - Attach rich text documentation to any file
+  - Free-form markdown content with timestamps
+  - Simple append-style workflow with chronological context
+  - Full editor control via `$EDITOR` integration
+  - Zero task management complexity (no priority, status, or due dates)
+- **CLI Commands** - Complete headless interface
+  - `tagr note add <file> <content>` - Quick append with timestamp
+  - `tagr note edit <file>` - Full editor access (create/update)
+  - `tagr note show <file>` - Display note content
+  - `tagr note search <query>` - Full-text search across all notes
+  - `tagr note list` - List all files with notes
+  - `tagr note delete <file>` - Remove notes
+  - Pipe-friendly output with `--format quiet|json|text`
+  - Exit codes for script composition (0 = success, 1 = failure)
+- **TUI Integration** - Visual convenience layer
+  - **Ctrl+N** - Edit note for selected file (suspends TUI, launches `$EDITOR`)
+  - **Alt+N** - Toggle between file preview and note preview
+  - **" Notes Only" category** - Special tag tree entry for files with notes but no tags
+  - **Markdown syntax highlighting** - Notes rendered with full syntect integration
+  - **Ctrl+L details modal** - Inline file metadata with note preview
+- **Database Integration** - Seamless storage alongside tags
+  - New `notes` sled tree for O(1) lookups
+  - Equality model: Files tracked if tags OR notes OR both exist
+  - Atomic operations preserve data integrity
+  - Cleanup command removes orphaned notes
+- **Timestamp Format** - Markdown-native chronological entries
+  - Format: `### YYYY-MM-DD HH:MM` (H3 heading)
+  - Horizontal rules (`---`) between entries for clear separation
+  - Fully compatible with markdown parsers and syntax highlighters
+  - User-editable - reorganize/delete entries as needed
+- **Configuration** - Customizable note behavior
+  - `notes.editor` - Override `$EDITOR` environment variable
+  - `notes.max_note_size_kb` - Size limit warnings
+  - `notes.storage` - Storage mode (integrated database, future: file-backed)
+  - Stored in `~/.config/tagr/config.toml`
+
+### Changed
+- **Simplified TUI Architecture** - Major refactor for clarity
+  - Removed `BrowsePhase` enum entirely (TagSelection vs FileSelection)
+  - Always show 3-pane layout (tags | files | preview)
+  - Focus pane determines behavior instead of phase switching
+  - Tag tree always built from database with full tag list
+  - Simplified keybind management (no phase-specific filtering)
+- **Preview System** - Extended for notes support
+  - Added `PreviewContent::Note` variant
+  - Toggle between file content and note content via Alt+N
+  - Preview cache properly invalidates on mode changes
+  - Note preview shows markdown with timestamp highlighting
+
+### Fixed
+- **Tag Tree Filtering** - Synchronized multi-pane filtering
+  - Fuzzy search now filters both tags AND files simultaneously
+  - Query filters tag tree by tag name substring matching
+  - Query also filters file list via nucleo fuzzy matching
+  - Real-time synchronized filtering across both panes
+- **Selection Visibility** - Improved visual feedback
+  - Checkmarks stay green, not affected by highlight color
+  - Only filename text gets REVERSED style, not entire row
+  - Tag tree: blue background + bold when both highlighted AND selected
+- **Tag Mode Syncing** - Automatic mode switching for UX
+  - Automatically sets Any (OR) for multiple tag selections
+  - Automatically sets All (AND) for single tag selection
+- **Preview Rendering** - Fixed blank preview issues
+  - Preview now updates when navigating files with j/k/up/down
+  - Fixed preview in 3-pane TUI during tag selection
+  - Preview generation uses correct file path in tag selection mode
+- **CLI Preview Accuracy** - Status bar shows correct tag mode
+  - Displays `--any-tag` vs `--all-tags` based on actual mode
+  - Accurate CLI command representation in status bar
+
+### Testing
+- 368 library tests passing (+14 from v0.9.0)
+- 43 integration tests passing (+6 from v0.9.0)
+- Comprehensive note functionality coverage:
+  - Database CRUD operations (10 tests)
+  - CLI command behavior (4 tests)
+  - Integration workflows (4 tests)
+  - Append logic and timestamp formatting (8 tests)
+
+---
+
 ## [0.9.0] - 2026-01-07
 
 ### Added
