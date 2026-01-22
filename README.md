@@ -1,4 +1,5 @@
 # tagr
+<img width="1886" height="1114" alt="image" src="https://github.com/user-attachments/assets/42972348-825b-4a3e-9164-62dc8144ca9f" />
 
 A fast, interactive command-line tool for organizing files with tags using fuzzy finding and persistent storage.
 
