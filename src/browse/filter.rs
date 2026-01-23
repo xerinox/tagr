@@ -212,7 +212,7 @@ impl fmt::Display for ActiveFilter {
 
         // Exclude tags
         for tag in &self.criteria.excludes {
-            write!(f, " -x ")?;
+            write!(f, " -e ")?;
             if needs_quoting(tag) {
                 write!(f, "\"{tag}\"")?;
             } else {
@@ -222,7 +222,7 @@ impl fmt::Display for ActiveFilter {
 
         // File patterns
         for pattern in &self.criteria.file_patterns {
-            write!(f, " -p ")?;
+            write!(f, " -f ")?;
             if needs_quoting(pattern) {
                 write!(f, "\"{pattern}\"")?;
             } else {
@@ -240,8 +240,8 @@ impl fmt::Display for ActiveFilter {
             }
         }
 
-        // Tag mode (only show if non-default or multiple tags)
-        if self.criteria.tags.len() > 1 || !self.criteria.excludes.is_empty() {
+        // Tag mode (only show if multiple include tags)
+        if self.criteria.tags.len() > 1 {
             match self.criteria.tag_mode {
                 TagMode::Any => write!(f, " --any-tag")?,
                 TagMode::All => write!(f, " --all-tags")?,
@@ -436,11 +436,25 @@ mod tests {
         let mut filter = ActiveFilter::new();
         filter.include_tag("rust".to_string());
         filter.exclude_tag("python".to_string());
+
+        let display = format!("{filter}");
+        assert!(display.contains("-t rust"));
+        assert!(display.contains("-e python"));
+        // Mode flag should NOT appear with only 1 include tag
+        assert!(!display.contains("--any-tag"));
+        assert!(!display.contains("--all-tags"));
+    }
+
+    #[test]
+    fn test_display_with_multiple_includes() {
+        let mut filter = ActiveFilter::new();
+        filter.include_tag("rust".to_string());
+        filter.include_tag("python".to_string());
         filter.criteria.tag_mode = TagMode::Any;
 
         let display = format!("{filter}");
         assert!(display.contains("-t rust"));
-        assert!(display.contains("-x python"));
+        assert!(display.contains("-t python"));
         assert!(display.contains("--any-tag"));
     }
 
@@ -454,7 +468,7 @@ mod tests {
         let display = format!("{filter}");
         eprintln!("Display output: {display}");
         assert!(display.contains("-t rust"));
-        assert!(display.contains("-p *.rs"));
+        assert!(display.contains("-f *.rs"));
         assert!(display.contains("-v \"size:>1MB\"") || display.contains("-v size:>1MB"));
     }
 
