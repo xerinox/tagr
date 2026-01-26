@@ -11,6 +11,7 @@ use thiserror::Error;
 pub mod browse;
 pub mod cli;
 pub mod commands;
+pub mod completions;
 pub mod config;
 pub mod db;
 pub mod discovery;
