@@ -140,6 +140,11 @@ pub fn bulk_tag(
             }
         }
     }
+
+    // Invalidate completion cache (bulk ops may introduce new tags)
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(db);
+
     if !quiet {
         summary.print("Bulk Tag");
     }
@@ -236,6 +241,11 @@ pub fn bulk_untag(
             }
         }
     }
+
+    // Invalidate completion cache (bulk ops may orphan tags)
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(db);
+
     if !quiet {
         summary.print("Bulk Untag");
     }
