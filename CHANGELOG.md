@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Shell Completions (Complete)
+- **Static Completions** - Generate shell scripts for bash, zsh, fish, PowerShell, elvish
+  - `tagr completions <shell>` - Generate completion script
+  - ValueHint annotations for file/directory arguments
+  - Automatic subcommand and flag completion
+- **Dynamic Completions** (behind `dynamic-completions` feature flag)
+  - **Tag completion** - Suggests tags from database for `-t/--tag` and `-e/--exclude`
+  - **Virtual tag completion** - Context-aware vtag syntax hints for `-v/--virtual-tag`
+  - **Filter completion** - Suggests saved filter names for `-F/--filter`
+  - **Database completion** - Suggests configured databases for `--db`
+- **Completion Cache** - Fast lookups without database access
+  - JSON cache at `~/.cache/tagr/completions.cache`
+  - Smart invalidation: only updates on new/orphaned tags
+  - Lightweight partial invalidation for filters and databases
+  - Fallback to database on cache miss
+- **Database API** - `tag_exists()` for O(1) tag existence check
+  - Uses reverse index for constant-time lookup
+  - Enables smart cache invalidation
+
 #### File Notes (Complete)
 - **Markdown Notes for Files** - Attach rich text documentation to any file
   - Free-form markdown content with timestamps
@@ -565,6 +584,7 @@ for item in old_db.iter() {
 - `nucleo = "0.5"` - Fast fuzzy matching engine
 - `ratatui = "0.30"` - Terminal UI framework
 - `crossterm = "0.28"` - Cross-platform terminal handling
+- `clap_complete = "4.5"` - Shell completion generation
 - `bincode = "2.0.0-rc.3"` - Binary serialization
 - `sled = "0.34"` - Embedded database
 - `clap = "4.5"` - CLI parsing

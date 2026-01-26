@@ -65,6 +65,9 @@ tagr tags
 
 # Config management
 tagr config
+
+# Shell completions
+tagr completions
 ```
 
 Aliases:
@@ -782,6 +785,69 @@ tagr bulk rename-tag todo pending --yes
 # Merge multiple tags into a single tag
 tagr bulk merge-tags bug defect issue --into bug-report --yes
 ```
+
+---
+
+## Shell Completions (`tagr completions`)
+
+Generate shell completion scripts for various shells.
+
+### Static Completions
+
+```bash
+# Generate for bash
+tagr completions bash > ~/.local/share/bash-completion/completions/tagr
+
+# Generate for zsh
+tagr completions zsh > ~/.zfunc/_tagr
+
+# Generate for fish
+tagr completions fish > ~/.config/fish/completions/tagr.fish
+
+# Generate for PowerShell
+tagr completions powershell > tagr.ps1
+
+# Generate for elvish
+tagr completions elvish > tagr.elv
+```
+
+### Dynamic Completions
+
+When built with `--features dynamic-completions`, tagr provides context-aware completions:
+
+| Argument | Completes |
+|----------|----------|
+| `-t/--tag` | Tags from your database |
+| `-e/--exclude` | Tags from your database |
+| `-v/--virtual-tag` | Virtual tag types with syntax hints |
+| `-F/--filter` | Saved filter names with descriptions |
+| `--db` | Configured database names |
+| File arguments | File paths (via shell) |
+
+**Setup:**
+
+> **Note**: You only need to set up ONE completion method. If you want dynamic completions, use the instructions below **instead** of the "Static Completions" commands above. The dynamic method handles both static flags and dynamic values.
+
+```bash
+# Bash (add to ~/.bashrc)
+source <(COMPLETE=bash tagr)
+
+# Zsh (add to ~/.zshrc)
+source <(COMPLETE=zsh tagr)
+
+# Fish
+COMPLETE=fish tagr | source
+```
+
+**Cache Behavior:**
+
+- Cache stored at `~/.cache/tagr/completions.cache`
+- Auto-invalidates when:
+  - A **new tag** is created (first use of a tag)
+  - A **tag becomes orphaned** (last file with that tag removed)
+  - **Filters** are created or deleted
+  - **Databases** are added or removed
+- Falls back to database lookup on cache miss
 
 ---
 
