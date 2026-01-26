@@ -369,6 +369,23 @@ impl Database {
         Ok(file_set.into_iter().map(PathBuf::from).collect())
     }
 
+    /// Check if a tag exists in the database
+    ///
+    /// Uses the reverse index for O(1) lookup.
+    ///
+    /// # Arguments
+    /// * `tag` - The tag to check
+    ///
+    /// # Returns
+    /// `true` if at least one file has this tag, `false` otherwise
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if database operations fail.
+    pub fn tag_exists(&self, tag: &str) -> Result<bool, DbError> {
+        Ok(self.tags.contains_key(tag.as_bytes())?)
+    }
+
     /// Get all unique tags in the database (optimized)
     ///
     /// # Returns
