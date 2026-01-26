@@ -40,8 +40,12 @@
 //! }
 //! ```
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum, ValueHint};
 use std::path::{Path, PathBuf};
+
+// Dynamic completion support (behind feature flag)
+#[cfg(feature = "dynamic-completions")]
+use clap_complete::engine::ArgValueCompleter;
 
 /// Path display format
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,6 +420,7 @@ pub enum DbCommands {
         name: String,
 
         /// Path to the database directory
+        #[arg(value_hint = ValueHint::DirPath)]
         path: PathBuf,
     },
 
@@ -532,7 +537,7 @@ pub enum BulkCommands {
     #[command(visible_alias = "copy")]
     CopyTags {
         /// Source file to copy tags from
-        #[arg(value_name = "SOURCE_FILE")]
+        #[arg(value_name = "SOURCE_FILE", value_hint = ValueHint::FilePath)]
         source: PathBuf,
 
         #[command(flatten)]
@@ -558,7 +563,7 @@ pub enum BulkCommands {
     /// Batch tag from an input file (text, csv, json)
     FromFile {
         /// Input file containing file paths and tags
-        #[arg(value_name = "INPUT_FILE")]
+        #[arg(value_name = "INPUT_FILE", value_hint = ValueHint::FilePath)]
         input: PathBuf,
 
         /// Input format
@@ -582,7 +587,7 @@ pub enum BulkCommands {
     #[command(name = "map-tags", visible_alias = "map")]
     MapTags {
         /// Mapping file containing tag rename pairs
-        #[arg(value_name = "MAPPING_FILE")]
+        #[arg(value_name = "MAPPING_FILE", value_hint = ValueHint::FilePath)]
         input: PathBuf,
 
         /// Input format
@@ -606,7 +611,7 @@ pub enum BulkCommands {
     #[command(name = "delete-files", visible_alias = "del-files")]
     DeleteFiles {
         /// Input file containing file paths to delete
-        #[arg(value_name = "INPUT_FILE")]
+        #[arg(value_name = "INPUT_FILE", value_hint = ValueHint::FilePath)]
         input: PathBuf,
 
         /// Input format
@@ -837,13 +842,14 @@ pub enum FilterCommands {
         filters: Vec<String>,
 
         /// Output file path (prints to stdout if not specified)
-        #[arg(short = 'o', long = "output")]
+        #[arg(short = 'o', long = "output", value_hint = ValueHint::FilePath)]
         output: Option<PathBuf>,
     },
 
     /// Import filters from a file
     Import {
         /// Path to the file to import from
+        #[arg(value_hint = ValueHint::FilePath)]
         path: PathBuf,
 
         /// Overwrite existing filters with the same name
@@ -864,6 +870,7 @@ pub enum FilterCommands {
 pub struct DbArgs {
     /// Database name to use (overrides default)
     #[arg(long = "db", value_name = "NAME")]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_databases)))]
     pub db: Option<String>,
 }
 
@@ -872,7 +879,8 @@ pub struct DbArgs {
 #[allow(clippy::struct_excessive_bools)]
 pub struct SearchCriteriaArgs {
     /// Tags to search for
-    #[arg(short = 't', long = "tag", value_name = "TAG", num_args = 0..)]
+    #[arg(short = 't', long = "tag", value_name = "TAG", action = clap::ArgAction::Append)]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
     pub tags: Vec<String>,
 
     /// Match files with ANY of the specified tags (OR logic, default is AND)
@@ -884,7 +892,7 @@ pub struct SearchCriteriaArgs {
     pub all_tags: bool,
 
     /// File path patterns to filter results (glob syntax: *.rs, src/**/*)  
-    #[arg(short = 'f', long = "file", value_name = "PATTERN", num_args = 0..)]
+    #[arg(short = 'f', long = "file", value_name = "PATTERN", action = clap::ArgAction::Append)]
     pub file_patterns: Vec<String>,
 
     /// Match files with ANY of the file patterns (OR logic, default is AND)
@@ -896,7 +904,8 @@ pub struct SearchCriteriaArgs {
     pub all_files: bool,
 
     /// Exclude files with these tags
-    #[arg(short = 'e', long = "exclude", value_name = "TAG", num_args = 0..)]
+    #[arg(short = 'e', long = "exclude", value_name = "TAG", action = clap::ArgAction::Append)]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
     pub excludes: Vec<String>,
 
     /// Use regex matching for tags (alias: --regex-tags)
@@ -920,7 +929,8 @@ pub struct SearchCriteriaArgs {
     pub glob_files: bool,
 
     /// Virtual tags to filter by (e.g., "size:>1MB", "modified:today")
-    #[arg(short = 'v', long = "virtual-tag", value_name = "VTAG", num_args = 0..)]
+    #[arg(short = 'v', long = "virtual-tag", value_name = "VTAG", action = clap::ArgAction::Append)]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_vtags)))]
     pub virtual_tags: Vec<String>,
 
     /// Match files with ANY of the virtual tags (OR logic, default is AND)
@@ -937,6 +947,7 @@ pub struct SearchCriteriaArgs {
 pub struct FilterArgs {
     /// Load a saved filter
     #[arg(short = 'F', long = "filter", value_name = "NAME")]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_filters)))]
     pub filter: Option<String>,
 
     /// Save current search as a filter
@@ -1046,7 +1057,7 @@ pub enum Commands {
     #[command(visible_alias = "t")]
     Tag {
         /// File to tag
-        #[arg(short = 'f', long = "file", value_name = "FILE")]
+        #[arg(short = 'f', long = "file", value_name = "FILE", value_hint = ValueHint::FilePath)]
         file_flag: Option<PathBuf>,
 
         /// Tags to apply
@@ -1054,7 +1065,7 @@ pub enum Commands {
         tags_flag: Vec<String>,
 
         /// File to tag (positional)
-        #[arg(value_name = "FILE", conflicts_with = "file_flag")]
+        #[arg(value_name = "FILE", conflicts_with = "file_flag", value_hint = ValueHint::FilePath)]
         file_pos: Option<PathBuf>,
 
         /// Tags to apply (positional)
@@ -1105,7 +1116,7 @@ pub enum Commands {
     #[command(visible_alias = "u")]
     Untag {
         /// File to untag
-        #[arg(short = 'f', long = "file", value_name = "FILE")]
+        #[arg(short = 'f', long = "file", value_name = "FILE", value_hint = ValueHint::FilePath)]
         file_flag: Option<PathBuf>,
 
         /// Tags to remove (omit to remove all tags)
@@ -1122,7 +1133,7 @@ pub enum Commands {
         all: bool,
 
         /// File to untag (positional)
-        #[arg(value_name = "FILE", conflicts_with = "file_flag")]
+        #[arg(value_name = "FILE", conflicts_with = "file_flag", value_hint = ValueHint::FilePath)]
         file_pos: Option<PathBuf>,
 
         /// Tags to remove (positional)
@@ -1192,6 +1203,14 @@ pub enum Commands {
 
         #[command(flatten)]
         db_args: DbArgs,
+    },
+
+    /// Generate shell completions
+    #[command(name = "completions")]
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
 }
 
