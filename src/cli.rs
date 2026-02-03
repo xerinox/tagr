@@ -431,6 +431,7 @@ pub enum DbCommands {
     #[command(visible_alias = "rm")]
     Remove {
         /// Name of the database to remove
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_databases)))]
         name: String,
 
         /// Also delete database files from disk
@@ -441,6 +442,7 @@ pub enum DbCommands {
     /// Set the default database
     #[command(name = "set-default")]
     SetDefault {
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_databases)))]
         /// Name of the database to set as default
         name: String,
     },
@@ -757,6 +759,7 @@ pub enum AliasCommands {
     #[command(visible_alias = "rm")]
     Remove {
         /// Alias to remove
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_aliases)))]
         alias: String,
     },
 
@@ -774,9 +777,11 @@ pub enum AliasCommands {
     #[command(name = "set-canonical")]
     SetCanonical {
         /// Current alias that will become the canonical tag
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_aliases)))]
         alias: String,
 
         /// Current canonical tag that will become an alias
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
         canonical: String,
 
         /// Preview changes without applying them
@@ -799,6 +804,7 @@ pub enum FilterCommands {
     /// Show detailed information about a filter
     Show {
         /// Name of the filter to show
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_filters)))]
         name: String,
     },
 
@@ -817,6 +823,7 @@ pub enum FilterCommands {
     /// Delete a filter
     #[command(visible_alias = "rm")]
     Delete {
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_filters)))]
         /// Name of the filter to delete
         name: String,
 
@@ -828,6 +835,7 @@ pub enum FilterCommands {
     /// Rename a filter
     #[command(visible_alias = "mv")]
     Rename {
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_filters)))]
         /// Current name of the filter
         old_name: String,
 
@@ -837,6 +845,7 @@ pub enum FilterCommands {
 
     /// Export filters to a file
     Export {
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_filters)))]
         /// Names of specific filters to export (exports all if not specified)
         #[arg(value_name = "FILTER")]
         filters: Vec<String>,
@@ -1062,6 +1071,7 @@ pub enum Commands {
 
         /// Tags to apply
         #[arg(short = 't', long = "tags", value_name = "TAG", num_args = 0..)]
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
         tags_flag: Vec<String>,
 
         /// File to tag (positional)
@@ -1070,6 +1080,7 @@ pub enum Commands {
 
         /// Tags to apply (positional)
         #[arg(value_name = "TAGS", conflicts_with = "tags_flag")]
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
         tags_pos: Vec<String>,
 
         /// Skip tag canonicalization (use tags as-is, don't resolve aliases)
@@ -1120,6 +1131,7 @@ pub enum Commands {
         file_flag: Option<PathBuf>,
 
         /// Tags to remove (omit to remove all tags)
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
         #[arg(short = 't', long = "tags", value_name = "TAG", num_args = 0..)]
         tags_flag: Vec<String>,
 
@@ -1137,6 +1149,7 @@ pub enum Commands {
         file_pos: Option<PathBuf>,
 
         /// Tags to remove (positional)
+        #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
         #[arg(value_name = "TAGS", conflicts_with = "tags_flag")]
         tags_pos: Vec<String>,
 

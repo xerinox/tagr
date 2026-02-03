@@ -3,7 +3,7 @@
 //! These completers query the cache/database for context-aware suggestions.
 //! Only available with the `dynamic-completions` feature.
 
-use super::cache::{load_cached_databases, load_cached_filters, load_cached_tags};
+use super::cache::load_cached_tags;
 use super::traits::{Candidate, DynamicCompleter};
 use std::ffi::OsStr;
 
@@ -35,7 +35,7 @@ impl DynamicCompleter for TagCompleter {
     }
 }
 
-/// Complete filter names from cache
+/// Complete filter names (direct load from storage)
 pub struct FilterCompleter;
 
 impl DynamicCompleter for FilterCompleter {
@@ -43,7 +43,27 @@ impl DynamicCompleter for FilterCompleter {
         let current = current.to_string_lossy();
         let current_lower = current.to_lowercase();
 
-        let filters = load_cached_filters();
+        // Load directly from filter manager (fast enough to not need caching)
+        let filters = crate::filters::get_filter_path()
+            .ok()
+            .and_then(|path| {
+                let manager = crate::filters::FilterManager::new(path);
+                manager.list().ok()
+            })
+            .map(|filter_list| {
+                filter_list
+                    .iter()
+                    .map(|f| {
+                        let desc = if f.description.is_empty() {
+                            None
+                        } else {
+                            Some(f.description.clone())
+                        };
+                        (f.name.clone(), desc)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         filters
             .into_iter()
@@ -63,7 +83,7 @@ impl DynamicCompleter for FilterCompleter {
     }
 }
 
-/// Complete database names from cache
+/// Complete database names (direct load from config)
 pub struct DatabaseCompleter;
 
 impl DynamicCompleter for DatabaseCompleter {
@@ -71,7 +91,19 @@ impl DynamicCompleter for DatabaseCompleter {
         let current = current.to_string_lossy();
         let current_lower = current.to_lowercase();
 
-        let databases = load_cached_databases();
+        // Load directly from config (fast enough to not need caching)
+        let databases = crate::config::TagrConfig::load()
+            .map(|c| {
+                let default = c.get_default_database().cloned();
+                c.list_databases()
+                    .iter()
+                    .map(|name| {
+                        let is_default = default.as_ref() == Some(name);
+                        ((*name).clone(), is_default)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         databases
             .into_iter()
@@ -85,6 +117,35 @@ impl DynamicCompleter for DatabaseCompleter {
                     candidate = candidate.with_help("default");
                 }
                 candidate
+            })
+            .collect()
+    }
+}
+
+/// Complete alias names (direct load from schema)
+pub struct AliasCompleter;
+
+impl DynamicCompleter for AliasCompleter {
+    fn complete(&self, current: &OsStr) -> Vec<Candidate> {
+        let current = current.to_string_lossy();
+        let current_lower = current.to_lowercase();
+
+        let schema = match crate::schema::load_default_schema() {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        let aliases = schema.list_aliases();
+
+        aliases
+            .into_iter()
+            .filter(|(alias, _)| {
+                let alias_lower = alias.to_lowercase();
+                alias_lower.starts_with(&current_lower)
+            })
+            .take(50)
+            .map(|(alias, canonical)| {
+                Candidate::new(&alias).with_help(format!("→ {}", canonical))
             })
             .collect()
     }
@@ -204,6 +265,13 @@ mod tests {
     #[test]
     fn test_database_completer_empty_input() {
         let completer = DatabaseCompleter;
+        let results = completer.complete(OsStr::new(""));
+        assert!(results.len() <= 50);
+    }
+
+    #[test]
+    fn test_alias_completer_empty_input() {
+        let completer = AliasCompleter;
         let results = completer.complete(OsStr::new(""));
         assert!(results.len() <= 50);
     }

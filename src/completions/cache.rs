@@ -22,12 +22,6 @@ pub struct CompletionCache {
     /// All tags in the database (sorted)
     pub tags: Vec<String>,
 
-    /// Filter names with descriptions
-    pub filters: Vec<(String, Option<String>)>,
-
-    /// Database names (name, is_default)
-    pub databases: Vec<(String, bool)>,
-
     /// When the cache was last updated
     pub updated_at: Option<SystemTime>,
 
@@ -96,7 +90,7 @@ impl CompletionCache {
         dirs::cache_dir().map(|d| d.join("tagr").join(CACHE_FILENAME))
     }
 
-    /// Refresh cache from database and config
+    /// Refresh cache from database
     ///
     /// Call this after database write operations.
     ///
@@ -105,52 +99,11 @@ impl CompletionCache {
     /// Returns error if database operations fail, but partial data
     /// may still be cached.
     pub fn refresh(db: &crate::db::Database) -> std::io::Result<Self> {
-        use crate::config::TagrConfig;
-        use crate::filters::{FilterManager, get_filter_path};
-
         // Get all tags from database
         let tags = db.list_all_tags().unwrap_or_default();
 
-        // Get filter names and descriptions
-        let filters = get_filter_path()
-            .ok()
-            .and_then(|path| {
-                let manager = FilterManager::new(path);
-                manager.list().ok()
-            })
-            .map(|filter_list| {
-                filter_list
-                    .iter()
-                    .map(|f| {
-                        let desc = if f.description.is_empty() {
-                            None
-                        } else {
-                            Some(f.description.clone())
-                        };
-                        (f.name.clone(), desc)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Get database names
-        let databases = TagrConfig::load()
-            .map(|c| {
-                let default = c.get_default_database().cloned();
-                c.list_databases()
-                    .iter()
-                    .map(|name| {
-                        let is_default = default.as_ref() == Some(name);
-                        ((*name).clone(), is_default)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
         let cache = Self {
             tags,
-            filters,
-            databases,
             updated_at: Some(SystemTime::now()),
             version: CACHE_VERSION,
         };
@@ -164,7 +117,7 @@ impl CompletionCache {
     /// Check if cache is empty (likely first run)
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.tags.is_empty() && self.filters.is_empty() && self.databases.is_empty()
+        self.tags.is_empty()
     }
 }
 
@@ -179,61 +132,16 @@ pub fn invalidate_cache(db: &crate::db::Database) {
 
 /// Invalidate cache for filter changes only
 ///
-/// Call from: filter create/delete/rename/import.
-/// Lighter weight than full refresh - only updates filter portion.
+/// No-op now as filters are not cached. Kept for API compatibility.
 pub fn invalidate_filter_cache() {
-    let mut cache = CompletionCache::load();
-
-    // Reload only filters
-    if let Some(filters) = crate::filters::get_filter_path()
-        .ok()
-        .and_then(|path| {
-            let manager = crate::filters::FilterManager::new(path);
-            manager.list().ok()
-        })
-        .map(|filter_list| {
-            filter_list
-                .iter()
-                .map(|f| {
-                    let desc = if f.description.is_empty() {
-                        None
-                    } else {
-                        Some(f.description.clone())
-                    };
-                    (f.name.clone(), desc)
-                })
-                .collect()
-        })
-    {
-        cache.filters = filters;
-        cache.updated_at = Some(SystemTime::now());
-        let _ = cache.save();
-    }
+    // No-op: filters are loaded dynamically in completers
 }
 
 /// Invalidate cache for database configuration changes
 ///
-/// Call from: db add/remove/set-default.
-/// Lighter weight than full refresh - only updates database portion.
+/// No-op now as databases are not cached. Kept for API compatibility.
 pub fn invalidate_database_cache() {
-    use crate::config::TagrConfig;
-
-    let mut cache = CompletionCache::load();
-
-    // Reload only databases
-    if let Ok(config) = TagrConfig::load() {
-        let default = config.get_default_database().cloned();
-        cache.databases = config
-            .list_databases()
-            .iter()
-            .map(|name| {
-                let is_default = default.as_ref() == Some(name);
-                ((*name).clone(), is_default)
-            })
-            .collect();
-        cache.updated_at = Some(SystemTime::now());
-        let _ = cache.save();
-    }
+    // No-op: databases are loaded dynamically in completers
 }
 
 /// Safely load tags for completion
@@ -293,60 +201,6 @@ fn try_load_from_database() -> Result<Vec<String>, Box<dyn std::error::Error + S
     Ok(tags)
 }
 
-/// Safely load filter names for completion
-#[must_use]
-pub fn load_cached_filters() -> Vec<(String, Option<String>)> {
-    let cache = CompletionCache::load();
-    if !cache.filters.is_empty() {
-        return cache.filters;
-    }
-
-    // Fallback: load directly from filter manager
-    crate::filters::get_filter_path()
-        .ok()
-        .and_then(|path| {
-            let manager = crate::filters::FilterManager::new(path);
-            manager.list().ok()
-        })
-        .map(|filter_list| {
-            filter_list
-                .iter()
-                .map(|f| {
-                    let desc = if f.description.is_empty() {
-                        None
-                    } else {
-                        Some(f.description.clone())
-                    };
-                    (f.name.clone(), desc)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Safely load database names for completion
-#[must_use]
-pub fn load_cached_databases() -> Vec<(String, bool)> {
-    let cache = CompletionCache::load();
-    if !cache.databases.is_empty() {
-        return cache.databases;
-    }
-
-    // Fallback: load directly from config
-    crate::config::TagrConfig::load()
-        .map(|c| {
-            let default = c.get_default_database().cloned();
-            c.list_databases()
-                .iter()
-                .map(|name| {
-                    let is_default = default.as_ref() == Some(name);
-                    ((*name).clone(), is_default)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,8 +216,6 @@ mod tests {
     fn test_cache_roundtrip() {
         let cache = CompletionCache {
             tags: vec!["rust".into(), "python".into()],
-            filters: vec![("my-filter".into(), Some("description".into()))],
-            databases: vec![("default".into(), true)],
             updated_at: Some(SystemTime::now()),
             version: CACHE_VERSION,
         };
@@ -372,7 +224,5 @@ mod tests {
         let loaded: CompletionCache = serde_json::from_str(&json).unwrap();
 
         assert_eq!(cache.tags, loaded.tags);
-        assert_eq!(cache.filters, loaded.filters);
-        assert_eq!(cache.databases, loaded.databases);
     }
 }
