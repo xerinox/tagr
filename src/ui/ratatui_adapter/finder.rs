@@ -512,8 +512,10 @@ impl RatatuiFinder {
 
             // Build display map from schema (for aliases)
             let display_map: std::collections::HashMap<String, String> =
-                if let Some(schema) = &config.tag_schema {
-                    tags_with_counts
+                config.tag_schema.as_ref().map_or_else(|| tags_with_counts
+                        .iter()
+                        .map(|(tag, _)| (tag.clone(), tag.clone()))
+                        .collect(), |schema| tags_with_counts
                         .iter()
                         .map(|(tag, _)| {
                             let canonical = schema.canonicalize(tag);
@@ -524,13 +526,7 @@ impl RatatuiFinder {
                             };
                             (tag.clone(), display)
                         })
-                        .collect()
-                } else {
-                    tags_with_counts
-                        .iter()
-                        .map(|(tag, _)| (tag.clone(), tag.clone()))
-                        .collect()
-                };
+                        .collect());
 
             tag_tree_state.build_from_tags_with_display(&tags_with_counts, &display_map);
 

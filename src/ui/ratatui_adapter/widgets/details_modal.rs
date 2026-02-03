@@ -46,18 +46,20 @@ impl FileDetails {
             Some(metadata.permissions().mode() & 0o777)
         };
 
-        let modified = if let Ok(time) = metadata.modified() {
-            if let Ok(duration) = time.duration_since(std::time::UNIX_EPOCH) {
-                let timestamp = duration.as_secs() as i64;
-                let dt =
-                    chrono::DateTime::from_timestamp(timestamp, 0).unwrap_or_else(chrono::Utc::now);
-                dt.format("%Y-%m-%d %H:%M:%S").to_string()
-            } else {
-                "Unknown".to_string()
-            }
-        } else {
-            "Unknown".to_string()
-        };
+        let modified = metadata.modified().map_or_else(
+            |_| "Unknown".to_string(),
+            |time| {
+                time.duration_since(std::time::UNIX_EPOCH).map_or_else(
+                    |_| "Unknown".to_string(),
+                    |duration| {
+                        let timestamp = duration.as_secs() as i64;
+                        let dt = chrono::DateTime::from_timestamp(timestamp, 0)
+                            .unwrap_or_else(chrono::Utc::now);
+                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                    },
+                )
+            },
+        );
 
         Ok(Self {
             path: path.to_path_buf(),

@@ -136,37 +136,39 @@ pub fn vtag_bool_values() -> Vec<Candidate> {
 #[must_use]
 pub fn complete_vtag(current: &str) -> Vec<Candidate> {
     // Check if we have a vtag type prefix
-    if let Some(colon_pos) = current.find(':') {
-        let prefix = &current[..colon_pos];
-        let value_so_far = &current[colon_pos + 1..];
+    current.find(':').map_or_else(
+        || {
+            vtag_types()
+                .into_iter()
+                .filter(|c| c.value.starts_with(current))
+                .collect()
+        },
+        |colon_pos| {
+            let prefix = &current[..colon_pos];
+            let value_so_far = &current[colon_pos + 1..];
 
-        // Return value candidates for the specific type
-        let values = match prefix {
-            "modified" | "accessed" | "created" => vtag_time_values(),
-            "size" => vtag_size_values(),
-            "perm" => vtag_permission_values(),
-            "git" => vtag_git_values(),
-            "type" => vtag_type_values(),
-            "empty" | "hidden" => vtag_bool_values(),
-            _ => vec![],
-        };
+            // Return value candidates for the specific type
+            let values = match prefix {
+                "modified" | "accessed" | "created" => vtag_time_values(),
+                "size" => vtag_size_values(),
+                "perm" => vtag_permission_values(),
+                "git" => vtag_git_values(),
+                "type" => vtag_type_values(),
+                "empty" | "hidden" => vtag_bool_values(),
+                _ => vec![],
+            };
 
-        // Filter by what user has typed and prepend the prefix
-        values
-            .into_iter()
-            .filter(|c| c.value.starts_with(value_so_far))
-            .map(|c| Candidate {
-                value: format!("{}:{}", prefix, c.value),
-                help: c.help,
-            })
-            .collect()
-    } else {
-        // No colon yet - suggest vtag types
-        vtag_types()
-            .into_iter()
-            .filter(|c| c.value.starts_with(current))
-            .collect()
-    }
+            // Filter by what user has typed and prepend the prefix
+            values
+                .into_iter()
+                .filter(|c| c.value.starts_with(value_so_far))
+                .map(|c| Candidate {
+                    value: format!("{}:{}", prefix, c.value),
+                    help: c.help,
+                })
+                .collect()
+        },
+    )
 }
 
 #[cfg(test)]

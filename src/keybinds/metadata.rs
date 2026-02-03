@@ -65,10 +65,10 @@ impl ActionMetadata {
                 other => {
                     // Capitalize first letter
                     let mut chars = other.chars();
-                    match chars.next() {
-                        Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
-                        None => other.to_string(),
-                    }
+                    chars.next().map_or_else(
+                        || other.to_string(),
+                        |first| format!("{}{}", first.to_uppercase(), chars.as_str()),
+                    )
                 }
             })
             .collect::<Vec<_>>()

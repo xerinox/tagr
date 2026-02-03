@@ -540,29 +540,31 @@ fn create_snippet(content: &str, query: &str, max_length: usize) -> String {
     let query_lower = query.to_lowercase();
     let content_lower = content.to_lowercase();
 
-    if let Some(pos) = content_lower.find(&query_lower) {
-        let start = pos.saturating_sub(max_length / 2);
-        let end = (pos + query.len() + max_length / 2).min(content.len());
+    content_lower.find(&query_lower).map_or_else(
+        || {
+            content
+                .chars()
+                .take(max_length)
+                .collect::<String>()
+                .replace('\n', " ")
+        },
+        |pos| {
+            let start = pos.saturating_sub(max_length / 2);
+            let end = (pos + query.len() + max_length / 2).min(content.len());
 
-        let mut snippet = content[start..end].to_string();
+            let mut snippet = content[start..end].to_string();
 
-        if start > 0 {
-            snippet = format!("...{snippet}");
-        }
-        if end < content.len() {
-            snippet = format!("{snippet}...");
-        }
+            if start > 0 {
+                snippet = format!("...{snippet}");
+            }
+            if end < content.len() {
+                snippet = format!("{snippet}...");
+            }
 
-        // Replace newlines with spaces for compact display
-        snippet.replace('\n', " ")
-    } else {
-        // Fallback if query not found (shouldn't happen)
-        content
-            .chars()
-            .take(max_length)
-            .collect::<String>()
-            .replace('\n', " ")
-    }
+            // Replace newlines with spaces for compact display
+            snippet.replace('\n', " ")
+        },
+    )
 }
 
 // ==================== Error Types ====================
