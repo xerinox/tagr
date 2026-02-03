@@ -144,9 +144,7 @@ impl DynamicCompleter for AliasCompleter {
                 alias_lower.starts_with(&current_lower)
             })
             .take(50)
-            .map(|(alias, canonical)| {
-                Candidate::new(&alias).with_help(format!("→ {}", canonical))
-            })
+            .map(|(alias, canonical)| Candidate::new(&alias).with_help(format!("→ {}", canonical)))
             .collect()
     }
 }

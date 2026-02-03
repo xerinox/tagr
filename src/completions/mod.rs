@@ -119,8 +119,8 @@ pub fn complete_vtags(
 pub fn complete_filters(
     current: &std::ffi::OsStr,
 ) -> Vec<clap_complete::engine::CompletionCandidate> {
-    use clap_complete::engine::CompletionCandidate;
     use crate::filters::{FilterManager, default_filter_path};
+    use clap_complete::engine::CompletionCandidate;
 
     let current_str = current.to_string_lossy();
     let current_lower = current_str.to_lowercase();
@@ -151,8 +151,8 @@ pub fn complete_filters(
 pub fn complete_databases(
     current: &std::ffi::OsStr,
 ) -> Vec<clap_complete::engine::CompletionCandidate> {
-    use clap_complete::engine::CompletionCandidate;
     use crate::config::TagrConfig;
+    use clap_complete::engine::CompletionCandidate;
 
     let current_str = current.to_string_lossy();
     let current_lower = current_str.to_lowercase();
@@ -183,8 +183,8 @@ pub fn complete_databases(
 pub fn complete_aliases(
     current: &std::ffi::OsStr,
 ) -> Vec<clap_complete::engine::CompletionCandidate> {
-    use clap_complete::engine::CompletionCandidate;
     use crate::schema::load_default_schema;
+    use clap_complete::engine::CompletionCandidate;
 
     let current_str = current.to_string_lossy();
     let current_lower = current_str.to_lowercase();
@@ -196,8 +196,7 @@ pub fn complete_aliases(
             .filter(|(alias, _)| alias.to_lowercase().starts_with(&current_lower))
             .take(50)
             .map(|(alias, target)| {
-                CompletionCandidate::new(alias)
-                    .help(Some(format!("-> {}", target).into()))
+                CompletionCandidate::new(alias).help(Some(format!("-> {}", target).into()))
             })
             .collect();
     }
