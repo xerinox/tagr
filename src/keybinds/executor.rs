@@ -305,7 +305,7 @@ impl ActionExecutor {
             crate::db::NoteRecord::new(updated_content)
         };
 
-        context.db.set_note(file_to_edit, note)?;
+        context.db.set_note(file_to_edit, &note)?;
 
         Ok(ActionResult::Message(format!(
             "✓ Updated note for {}",

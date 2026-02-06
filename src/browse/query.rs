@@ -29,6 +29,7 @@ use std::collections::{HashMap, HashSet};
 pub fn get_notes_only_files(db: &Database) -> Result<Vec<TagrItem>, DbError> {
     let all_notes = db.list_all_notes()?;
 
+    #[allow(clippy::match_same_arms)]
     let items: Result<Vec<TagrItem>, DbError> = all_notes
         .into_iter()
         .filter_map(|(path, _note)| {
@@ -511,7 +512,7 @@ mod tests {
             .unwrap();
         db.set_note(
             file1.path(),
-            NoteRecord {
+            &NoteRecord {
                 content: "Note 1".into(),
                 metadata: NoteMeta {
                     created_at: 0,
@@ -524,7 +525,7 @@ mod tests {
         // File with note but no tags - should be included
         db.set_note(
             file2.path(),
-            NoteRecord {
+            &NoteRecord {
                 content: "Note 2".into(),
                 metadata: NoteMeta {
                     created_at: 0,

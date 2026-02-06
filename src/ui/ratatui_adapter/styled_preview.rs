@@ -403,6 +403,7 @@ impl StyledPreviewGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write;
     use std::fs;
     use tempfile::NamedTempFile;
 
@@ -447,7 +448,10 @@ mod tests {
     #[test]
     fn test_generator_truncation() {
         let temp = NamedTempFile::new().unwrap();
-        let content: String = (0..100).map(|i| format!("Line {i}\n")).collect();
+        let content: String = (0..100).fold(String::with_capacity(1000), |mut acc, i| {
+            let _ = writeln!(acc, "Line {i}");
+            acc
+        });
         fs::write(temp.path(), content).unwrap();
 
         let generator = StyledPreviewGenerator::new(10);

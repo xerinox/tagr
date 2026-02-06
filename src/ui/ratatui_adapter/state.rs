@@ -2,6 +2,7 @@
 //!
 //! Manages all mutable state for the fuzzy finder interface,
 //! including items, selection, query, and UI mode.
+use crate::filters::TagMode;
 
 use crate::browse::ActiveFilter;
 use crate::ui::output::MessageLevel;
@@ -968,7 +969,6 @@ impl AppState {
 
             // Set tag mode: Any (OR) when multiple tags selected, All (AND) for single tag
             // This matches tagr's CLI default behavior (multiple -t flags use OR logic)
-            use crate::filters::TagMode;
             self.active_filter.criteria.tag_mode = if self.active_filter.criteria.tags.len() > 1 {
                 TagMode::Any
             } else {

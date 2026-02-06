@@ -467,10 +467,7 @@ mod tests {
         let includes = vec!["lang".to_string()];
         let excludes = vec!["lang:rust".to_string()];
 
-        let files_tags_refs: Vec<(&str, &[String])> = files_tags
-            .iter()
-            .map(|(f, tags)| (*f, tags.as_slice()))
-            .collect();
+        let files_tags_refs = files_tags.iter().map(|(f, tags)| (*f, tags.as_slice()));
 
         let result = filter_by_hierarchy(files_tags_refs.into_iter(), &includes, &excludes);
 

@@ -212,7 +212,7 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             NoteRecord::new(updated_content)
         };
 
-        db.set_note(&canonical_path, note)?;
+        db.set_note(&canonical_path, &note)?;
         println!("✓ Updated note for {}", file.display());
     }
 
@@ -249,7 +249,7 @@ fn execute_add(
         NoteRecord::new(updated_content)
     };
 
-    db.set_note(&canonical_path, note)?;
+    db.set_note(&canonical_path, &note)?;
     println!(
         "✓ Added note entry to {}",
         output::format_path(&canonical_path, path_format)

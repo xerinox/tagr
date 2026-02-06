@@ -662,10 +662,10 @@ impl Database {
     /// # Errors
     ///
     /// Returns `DbError` if path contains invalid UTF-8 or serialization fails.
-    pub fn set_note<P: AsRef<Path>>(&self, file: P, note: NoteRecord) -> Result<(), DbError> {
+    pub fn set_note<P: AsRef<Path>>(&self, file: P, note: &NoteRecord) -> Result<(), DbError> {
         let file_path = file.as_ref();
         let key = bincode::encode_to_vec(file_path, bincode::config::standard())?;
-        let value = bincode::encode_to_vec(&note, bincode::config::standard())?;
+        let value = bincode::encode_to_vec(note, bincode::config::standard())?;
         self.notes.insert(key, value)?;
 
         // Ensure file exists in files tree (with empty tags if not already present)
@@ -1014,7 +1014,7 @@ mod tests {
         let note = NoteRecord::new("Test note content".to_string());
 
         // Set note
-        db.set_note(file.path(), note.clone()).unwrap();
+        db.set_note(file.path(), &note).unwrap();
 
         // Get note
         let retrieved = db.get_note(file.path()).unwrap();
@@ -1032,10 +1032,10 @@ mod tests {
         note2.metadata.created_at = note1.metadata.created_at; // Keep same creation time
 
         // Set initial note
-        db.set_note(file.path(), note1).unwrap();
+        db.set_note(file.path(), &note1).unwrap();
 
         // Update note
-        db.set_note(file.path(), note2).unwrap();
+        db.set_note(file.path(), &note2).unwrap();
 
         // Verify update
         let retrieved = db.get_note(file.path()).unwrap().unwrap();
@@ -1051,7 +1051,7 @@ mod tests {
         let note = NoteRecord::new("To be deleted".to_string());
 
         // Set note
-        db.set_note(file.path(), note).unwrap();
+        db.set_note(file.path(), &note).unwrap();
         assert!(db.get_note(file.path()).unwrap().is_some());
 
         // Delete note
@@ -1089,8 +1089,8 @@ mod tests {
         let note2 = NoteRecord::new("Note 2".to_string());
 
         // Add notes to file1 and file2
-        db.set_note(file1.path(), note1).unwrap();
-        db.set_note(file2.path(), note2).unwrap();
+        db.set_note(file1.path(), &note1).unwrap();
+        db.set_note(file2.path(), &note2).unwrap();
 
         // file3 has no note
 
@@ -1114,12 +1114,12 @@ mod tests {
 
         db.set_note(
             file1.path(),
-            NoteRecord::new("rust programming".to_string()),
+            &NoteRecord::new("rust programming".to_string()),
         )
         .unwrap();
         db.set_note(
             file2.path(),
-            NoteRecord::new("python scripting".to_string()),
+            &NoteRecord::new("python scripting".to_string()),
         )
         .unwrap();
 
@@ -1145,7 +1145,7 @@ mod tests {
         let file = TempFile::create("test.txt").unwrap();
         db.set_note(
             file.path(),
-            NoteRecord::new("Rust Programming Language".to_string()),
+            &NoteRecord::new("Rust Programming Language".to_string()),
         )
         .unwrap();
 
@@ -1164,7 +1164,7 @@ mod tests {
         let file = TempFile::create("test.txt").unwrap();
         db.set_note(
             file.path(),
-            NoteRecord::new("async/await in rust".to_string()),
+            &NoteRecord::new("async/await in rust".to_string()),
         )
         .unwrap();
 
@@ -1188,7 +1188,7 @@ mod tests {
             },
         };
 
-        db.set_note(file.path(), note).unwrap();
+        db.set_note(file.path(), &note).unwrap();
         let retrieved = db.get_note(file.path()).unwrap().unwrap();
 
         assert_eq!(retrieved.metadata.created_at, 1_234_567_890);

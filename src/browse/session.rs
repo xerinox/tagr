@@ -972,7 +972,6 @@ mod tests {
         db.db().clear().unwrap();
 
         // Create 10 files (well below threshold)
-        let mut files = vec![];
         for i in 0..10 {
             let file = TempFile::create(format!("file{i}.txt")).unwrap();
             db.db()
@@ -981,7 +980,6 @@ mod tests {
                     vec!["rust".into(), format!("tag{i}")],
                 ))
                 .unwrap();
-            files.push(file);
         }
 
         let config = BrowseConfig {

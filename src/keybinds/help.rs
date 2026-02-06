@@ -2,6 +2,7 @@
 
 use crate::keybinds::config::KeybindConfig;
 use crate::keybinds::metadata::{ActionCategory, ActionRegistry};
+use std::fmt::Write;
 
 /// Generate formatted help text for F1 menu based on configured keybinds
 #[must_use]
@@ -35,7 +36,6 @@ pub fn generate_help_text(config: &KeybindConfig) -> String {
         && !config.is_disabled("refine_search")
     {
         let keys = meta.primary_key_human(config);
-        use std::fmt::Write;
         writeln!(output, "  {:<14}{}", keys, meta.description).unwrap();
     }
     output.push('\n');
@@ -57,7 +57,6 @@ pub fn generate_help_text(config: &KeybindConfig) -> String {
         }
 
         // Category header
-        use std::fmt::Write;
         writeln!(output, "{}:", category_name(category)).unwrap();
 
         for meta in actions_enabled {

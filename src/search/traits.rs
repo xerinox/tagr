@@ -395,7 +395,7 @@ mod tests {
 
         let params = SearchParams::default();
 
-        let results: Vec<_> = files.apply_filter(&params).collect();
-        assert_eq!(results.len(), 2); // All files pass with no criteria
+        let count = files.apply_filter(&params).count();
+        assert_eq!(count, 2); // All files pass with no criteria
     }
 }
