@@ -165,17 +165,14 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             ))
         })?;
 
-        // Get existing note or create new one
         let existing_note = db.get_note(&canonical_path)?;
         let initial_content = existing_note.as_ref().map_or_else(
             || config.notes.default_template.clone(),
             |n| n.content.clone(),
         );
 
-        // Create temp file with initial content
         let temp_path = create_temp_note_file(&initial_content)?;
 
-        // Open editor
         let status = std::process::Command::new(&editor)
             .arg(&temp_path)
             .status()
@@ -188,11 +185,10 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             )));
         }
 
-        // Read updated content
         let updated_content = std::fs::read_to_string(&temp_path)?;
         std::fs::remove_file(&temp_path)?;
 
-        // Check size limit
+        // Warn if note exceeds configured size limit
         if config
             .notes
             .exceeds_size_limit(updated_content.len() as u64)
@@ -204,7 +200,6 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             );
         }
 
-        // Save note
         let note = if let Some(mut existing) = existing_note {
             existing.update_content(updated_content);
             existing
@@ -232,16 +227,13 @@ fn execute_add(
         ))
     })?;
 
-    // Get existing note content or empty string
     let existing_content = db
         .get_note(&canonical_path)?
         .map(|n| n.content)
         .unwrap_or_default();
 
-    // Append new entry with timestamp
     let updated_content = append_note_entry(&existing_content, &args.content);
 
-    // Save note
     let note = if let Some(mut existing) = db.get_note(&canonical_path)? {
         existing.update_content(updated_content);
         existing
@@ -323,7 +315,6 @@ fn execute_delete(
 ) -> Result<(), NoteError> {
     let mut files_to_delete = Vec::new();
 
-    // Check which files have notes
     for file in &args.files {
         let canonical_path = file.canonicalize().map_err(|e| {
             NoteError::Io(std::io::Error::new(
@@ -350,7 +341,6 @@ fn execute_delete(
         return Ok(());
     }
 
-    // Confirmation prompt
     if !args.yes {
         print!("Delete notes for {} file(s)? [y/N] ", files_to_delete.len());
         std::io::stdout().flush()?;
@@ -364,7 +354,6 @@ fn execute_delete(
         }
     }
 
-    // Delete notes
     let mut deleted = 0;
     for file in &files_to_delete {
         if db.delete_note(file)? {
@@ -561,7 +550,6 @@ fn create_snippet(content: &str, query: &str, max_length: usize) -> String {
                 snippet = format!("{snippet}...");
             }
 
-            // Replace newlines with spaces for compact display
             snippet.replace('\n', " ")
         },
     )

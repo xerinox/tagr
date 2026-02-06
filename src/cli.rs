@@ -167,35 +167,31 @@ impl SearchParams {
     /// Typical usage when loading filters: `filter_params.merge(&cli_params)`
     /// The caller is responsible for preserving modes when appropriate.
     pub fn merge(&mut self, other: &Self) {
-        // Merge tags
         for tag in &other.tags {
             if !self.tags.contains(tag) {
                 self.tags.push(tag.clone());
             }
         }
 
-        // Merge file patterns
         for pattern in &other.file_patterns {
             if !self.file_patterns.contains(pattern) {
                 self.file_patterns.push(pattern.clone());
             }
         }
 
-        // Merge exclusions
         for exclude in &other.exclude_tags {
             if !self.exclude_tags.contains(exclude) {
                 self.exclude_tags.push(exclude.clone());
             }
         }
 
-        // Merge virtual tags
         for vtag in &other.virtual_tags {
             if !self.virtual_tags.contains(vtag) {
                 self.virtual_tags.push(vtag.clone());
             }
         }
 
-        // OR the boolean flags
+        // Boolean flags: OR semantics - either set takes precedence
         self.regex_tag = self.regex_tag || other.regex_tag;
         self.regex_file = self.regex_file || other.regex_file;
         self.glob_files = self.glob_files || other.glob_files;

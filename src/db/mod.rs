@@ -189,7 +189,6 @@ impl Database {
             self.remove_from_tag_index(&file_path, &tags)?;
         }
 
-        // Also remove associated note if it exists
         self.delete_note(file.as_ref())?;
 
         Ok(self.files.remove(key.as_slice())?.is_some())
@@ -236,13 +235,10 @@ impl Database {
             tags.retain(|tag| !tags_to_remove.contains(tag));
 
             if tags.is_empty() {
-                // Check if file has a note before removing from database
                 let has_note = self.get_note(path)?.is_some();
                 if has_note {
-                    // Keep file in database with empty tags (equality model)
                     self.insert(path, tags)?;
                 } else {
-                    // No note - safe to remove completely
                     self.remove(path)?;
                 }
             } else {
@@ -671,7 +667,6 @@ impl Database {
         // Ensure file exists in files tree (with empty tags if not already present)
         // This maintains the equality model: files with notes are "tracked" even without tags
         if self.get_tags(file_path)?.is_none() {
-            // File not in database - add it with empty tags
             self.insert(file_path, vec![])?;
         }
 
@@ -723,13 +718,12 @@ impl Database {
         let was_deleted = self.notes.remove(key.clone())?.is_some();
 
         if was_deleted {
-            // Check if file has any tags - if not, remove from files tree
+            // Maintaining equality model: files with no tags AND no notes shouldn't exist in db
             if let Some(tags_value) = self.files.get(key.clone())? {
                 let (tags, _): (Vec<String>, usize) =
                     bincode::decode_from_slice(&tags_value, bincode::config::standard())?;
 
                 if tags.is_empty() {
-                    // No tags and no note - remove from files tree
                     self.files.remove(key)?;
                 }
             }
@@ -818,7 +812,6 @@ mod tests {
 
         assert!(test_db.path().exists());
         assert_eq!(db.count(), 0);
-        // TestDb automatically cleaned up on drop
     }
 
     #[test]
@@ -836,7 +829,6 @@ mod tests {
         assert_eq!(db.count(), 2);
         assert!(db.contains(file1.path()).unwrap());
         assert!(db.contains(file2.path()).unwrap());
-        // TestDb and TempFiles automatically cleaned up
     }
 
     #[test]
@@ -1013,10 +1005,8 @@ mod tests {
         let file = TempFile::create("note_test.txt").unwrap();
         let note = NoteRecord::new("Test note content".to_string());
 
-        // Set note
         db.set_note(file.path(), &note).unwrap();
 
-        // Get note
         let retrieved = db.get_note(file.path()).unwrap();
         assert_eq!(retrieved, Some(note));
     }
@@ -1029,15 +1019,12 @@ mod tests {
         let file = TempFile::create("update_test.txt").unwrap();
         let note1 = NoteRecord::new("Original content".to_string());
         let mut note2 = NoteRecord::new("Updated content".to_string());
-        note2.metadata.created_at = note1.metadata.created_at; // Keep same creation time
+        note2.metadata.created_at = note1.metadata.created_at;
 
-        // Set initial note
         db.set_note(file.path(), &note1).unwrap();
 
-        // Update note
         db.set_note(file.path(), &note2).unwrap();
 
-        // Verify update
         let retrieved = db.get_note(file.path()).unwrap().unwrap();
         assert_eq!(retrieved.content, "Updated content");
     }
@@ -1050,18 +1037,14 @@ mod tests {
         let file = TempFile::create("delete_test.txt").unwrap();
         let note = NoteRecord::new("To be deleted".to_string());
 
-        // Set note
         db.set_note(file.path(), &note).unwrap();
         assert!(db.get_note(file.path()).unwrap().is_some());
 
-        // Delete note
         let deleted = db.delete_note(file.path()).unwrap();
         assert!(deleted);
 
-        // Verify deletion
         assert!(db.get_note(file.path()).unwrap().is_none());
 
-        // Delete again should return false
         let deleted_again = db.delete_note(file.path()).unwrap();
         assert!(!deleted_again);
     }
@@ -1088,11 +1071,8 @@ mod tests {
         let note1 = NoteRecord::new("Note 1".to_string());
         let note2 = NoteRecord::new("Note 2".to_string());
 
-        // Add notes to file1 and file2
         db.set_note(file1.path(), &note1).unwrap();
         db.set_note(file2.path(), &note2).unwrap();
-
-        // file3 has no note
 
         let all_notes = db.list_all_notes().unwrap();
         assert_eq!(all_notes.len(), 2);
@@ -1123,16 +1103,13 @@ mod tests {
         )
         .unwrap();
 
-        // Search for "rust"
         let results = db.search_notes("rust").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, file1.path().to_path_buf());
 
-        // Search for "programming"
         let results = db.search_notes("programming").unwrap();
         assert_eq!(results.len(), 1);
 
-        // Search for non-existent term
         let results = db.search_notes("java").unwrap();
         assert_eq!(results.len(), 0);
     }
@@ -1149,7 +1126,6 @@ mod tests {
         )
         .unwrap();
 
-        // All these should match
         assert_eq!(db.search_notes("rust").unwrap().len(), 1);
         assert_eq!(db.search_notes("RUST").unwrap().len(), 1);
         assert_eq!(db.search_notes("RuSt").unwrap().len(), 1);

@@ -574,7 +574,7 @@ pub fn validate_filter_name(name: &str) -> Result<(), String> {
         ));
     }
 
-    // Check for valid characters: alphanumeric, hyphen, underscore
+    // Validate against shell-unsafe characters; filenames should be shell-friendly
     if !name
         .chars()
         .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
@@ -613,7 +613,6 @@ impl std::fmt::Display for Filter {
 
 impl std::fmt::Display for FilterCriteria {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Tags
         if self.tags.is_empty() {
             writeln!(f, "Tags: (none)")?;
         } else {
@@ -628,7 +627,6 @@ impl std::fmt::Display for FilterCriteria {
             )?;
         }
 
-        // File patterns
         if self.file_patterns.is_empty() {
             writeln!(f, "File Patterns: (none)")?;
         } else {
@@ -643,12 +641,10 @@ impl std::fmt::Display for FilterCriteria {
             )?;
         }
 
-        // Excludes
         if !self.excludes.is_empty() {
             writeln!(f, "Excludes: {}", self.excludes.join(", "))?;
         }
 
-        // Virtual tags
         if !self.virtual_tags.is_empty() {
             writeln!(
                 f,
@@ -661,7 +657,6 @@ impl std::fmt::Display for FilterCriteria {
             )?;
         }
 
-        // Regex modes
         if self.regex_tag || self.regex_file {
             let mut regex_modes = Vec::new();
             if self.regex_tag {
@@ -759,10 +754,8 @@ mod tests {
         assert!(storage.contains("test-filter"));
         assert_eq!(storage.filters.len(), 1);
 
-        // Try to add duplicate
         assert!(storage.add(filter).is_err());
 
-        // Remove filter
         let removed = storage.remove("test-filter");
         assert!(removed.is_some());
         assert!(!storage.contains("test-filter"));
@@ -790,13 +783,11 @@ mod tests {
         let mut storage = FilterStorage::new();
         storage.filters.push(filter);
 
-        // Serialize to TOML
         let toml = toml::to_string_pretty(&storage).unwrap();
         assert!(toml.contains("rust-tutorials"));
         assert!(toml.contains("rust"));
         assert!(toml.contains("tutorial"));
 
-        // Deserialize back
         let deserialized: FilterStorage = toml::from_str(&toml).unwrap();
         assert_eq!(deserialized.filters.len(), 1);
         assert_eq!(deserialized.filters[0].name, "rust-tutorials");
