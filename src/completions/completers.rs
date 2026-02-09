@@ -360,10 +360,10 @@ mod tests {
         // Verify strsim is working as expected for our ranking logic
         let distance1 = strsim::levenshtein("rust", "rust-lang");
         let distance2 = strsim::levenshtein("rust", "project:rust-tools");
-        
+
         // rust-lang is closer to rust than project:rust-tools
         assert!(distance1 < distance2);
-        
+
         // Exact match has distance 0
         assert_eq!(strsim::levenshtein("rust", "rust"), 0);
     }
