@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Smart Tag Completion Sorting** - Hierarchical tag completer with relevance ranking
+  - Exact matches shown first (rank 0)
+  - Prefix matches next (rank 1)  
+  - Contains matches ranked by Levenshtein distance (rank 2+)
+  - Hierarchy-aware navigation: typing `lang:` shows only children under that prefix
+  - Root suggestions with "(hierarchy)" help text when input is empty
+- **Levenshtein Distance Ranking** - Added `strsim` crate for fuzzy match quality scoring
+  - Closer matches appear before distant matches in contains results
+  - Example: `lang:rust` appears before `project:rust-tools` when searching "rust"
+
+### Changed
+- **Tag Completion Algorithm** - `complete_tags()` now uses `HierarchicalTagCompleter`
+  - Previously: Simple prefix/contains filter with no relevance ranking
+  - Now: Multi-tiered ranking with hierarchy awareness and edit distance scoring
+
 ## [0.10.0] - 2026-01-16
 
 ### Added

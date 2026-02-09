@@ -71,22 +71,27 @@ pub fn init_dynamic_completions<F: Fn() -> Command>(factory: F) {
 ///
 /// This is the entry point for ArgValueCompleter. It returns candidates
 /// for database tags based on what the user has typed.
+///
+/// Uses hierarchical completion with smart sorting:
+/// - Exact matches first
+/// - Prefix matches next
+/// - Fuzzy matches ranked by Levenshtein distance
+/// - Hierarchy-aware (shows `lang:` roots, filters children)
 #[cfg(feature = "dynamic-completions")]
 pub fn complete_tags(current: &std::ffi::OsStr) -> Vec<clap_complete::engine::CompletionCandidate> {
     use clap_complete::engine::CompletionCandidate;
+    use traits::DynamicCompleter;
 
-    let current_str = current.to_string_lossy();
-    let current_lower = current_str.to_lowercase();
-
-    let tags = cache::load_cached_tags();
-
-    tags.into_iter()
-        .filter(|tag| {
-            let tag_lower = tag.to_lowercase();
-            tag_lower.starts_with(&current_lower) || tag_lower.contains(&current_lower)
+    completers::HierarchicalTagCompleter
+        .complete(current)
+        .into_iter()
+        .map(|c| {
+            let mut candidate = CompletionCandidate::new(c.value);
+            if let Some(help) = c.help {
+                candidate = candidate.help(Some(help.into()));
+            }
+            candidate
         })
-        .take(50)
-        .map(CompletionCandidate::new)
         .collect()
 }
 

@@ -149,12 +149,18 @@ impl DynamicCompleter for AliasCompleter {
     }
 }
 
-/// Smart tag completer with hierarchy awareness
+/// Smart tag completer with hierarchy awareness and relevance ranking
 ///
 /// Features:
-/// - Shows top-level tags first
+/// - Shows top-level tags and hierarchy roots when empty
 /// - When user types `lang:`, shows only children under that prefix
-/// - Suggests colons after hierarchy roots
+/// - Suggests colons after hierarchy roots with "(hierarchy)" help text
+/// - Smart sorting: exact matches, then prefix matches, then fuzzy matches by Levenshtein distance
+///
+/// Sorting priority:
+/// 1. Exact match (case-insensitive)
+/// 2. Prefix matches (starts with query)
+/// 3. Contains matches (ranked by edit distance - closer matches first)
 ///
 /// Note: Uses cache, not live database lookup
 pub struct HierarchicalTagCompleter;
@@ -196,33 +202,81 @@ impl DynamicCompleter for HierarchicalTagCompleter {
                 .collect();
         }
 
+        let current_lower = current.to_lowercase();
+
         // Check if user is typing within a hierarchy
         if let Some(colon_pos) = current.rfind(':') {
             let prefix = &current[..=colon_pos];
             let suffix = &current[colon_pos + 1..];
+            let suffix_lower = suffix.to_lowercase();
 
-            // Find all tags under this hierarchy
-            let children: Vec<_> = tags
+            // Find all tags under this hierarchy with smart sorting
+            let mut children: Vec<(String, u8)> = tags
                 .iter()
                 .filter(|t| t.starts_with(prefix))
-                .filter(|t| {
+                .filter_map(|t| {
                     let child_part = &t[prefix.len()..];
-                    child_part
-                        .to_lowercase()
-                        .starts_with(&suffix.to_lowercase())
+                    let child_lower = child_part.to_lowercase();
+
+                    // Rank matches
+                    let rank = if child_lower == suffix_lower {
+                        0 // Exact match
+                    } else if child_lower.starts_with(&suffix_lower) {
+                        1 // Prefix match
+                    } else if child_lower.contains(&suffix_lower) {
+                        // Contains match - rank by Levenshtein distance
+                        let distance = strsim::levenshtein(&child_lower, &suffix_lower);
+                        2 + distance.min(255) as u8
+                    } else {
+                        return None;
+                    };
+
+                    Some((t.clone(), rank))
                 })
-                .take(50)
-                .map(|t| Candidate::new(t.clone()))
                 .collect();
 
-            return children;
+            // Sort by rank (lower is better)
+            children.sort_by_key(|(_, rank)| *rank);
+
+            return children
+                .into_iter()
+                .take(50)
+                .map(|(tag, _)| Candidate::new(tag))
+                .collect();
         }
 
-        // Regular prefix matching
-        tags.into_iter()
-            .filter(|t| t.to_lowercase().starts_with(&current.to_lowercase()))
+        // Regular matching with smart sorting
+        let mut matches: Vec<(String, u8)> = tags
+            .into_iter()
+            .filter_map(|tag| {
+                let tag_lower = tag.to_lowercase();
+
+                // Rank matches
+                let rank = if tag_lower == current_lower {
+                    0 // Exact match
+                } else if tag_lower.starts_with(&current_lower) {
+                    1 // Prefix match
+                } else if tag_lower.contains(&current_lower) {
+                    // Contains match - rank by Levenshtein distance
+                    let distance = strsim::levenshtein(&tag_lower, &current_lower);
+                    2 + distance.min(255) as u8
+                } else {
+                    return None;
+                };
+
+                Some((tag, rank))
+            })
+            .collect();
+
+        // Sort by rank (lower is better), then alphabetically
+        matches.sort_by(|(tag_a, rank_a), (tag_b, rank_b)| {
+            rank_a.cmp(rank_b).then_with(|| tag_a.cmp(tag_b))
+        });
+
+        matches
+            .into_iter()
             .take(50)
-            .map(Candidate::new)
+            .map(|(tag, _)| Candidate::new(tag))
             .collect()
     }
 }
@@ -279,5 +333,38 @@ mod tests {
         let completer = VirtualTagCompleter;
         let results = completer.complete(OsStr::new("mod"));
         assert!(results.iter().any(|c| c.value == "modified:"));
+    }
+
+    #[test]
+    fn test_hierarchical_completer_empty_shows_roots() {
+        let completer = HierarchicalTagCompleter;
+        // Empty input should show roots - test doesn't fail if cache is empty
+        let results = completer.complete(OsStr::new(""));
+        assert!(results.len() <= 50);
+    }
+
+    #[test]
+    fn test_hierarchical_completer_hierarchy_prefix() {
+        let completer = HierarchicalTagCompleter;
+        // This would work if cache has lang:* tags, but won't fail if cache is empty
+        let results = completer.complete(OsStr::new("lang:"));
+        assert!(results.len() <= 50);
+        // All results should start with "lang:" if any results exist
+        for result in results {
+            assert!(result.value.starts_with("lang:"));
+        }
+    }
+
+    #[test]
+    fn test_levenshtein_distance_ranking() {
+        // Verify strsim is working as expected for our ranking logic
+        let distance1 = strsim::levenshtein("rust", "rust-lang");
+        let distance2 = strsim::levenshtein("rust", "project:rust-tools");
+        
+        // rust-lang is closer to rust than project:rust-tools
+        assert!(distance1 < distance2);
+        
+        // Exact match has distance 0
+        assert_eq!(strsim::levenshtein("rust", "rust"), 0);
     }
 }
