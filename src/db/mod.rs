@@ -652,7 +652,7 @@ impl Database {
     ///
     /// let db = Database::open("my_db").unwrap();
     /// let note = NoteRecord::new("My note content".to_string());
-    /// db.set_note("file.txt", note).unwrap();
+    /// db.set_note("file.txt", &note).unwrap();
     /// ```
     ///
     /// # Errors
