@@ -42,6 +42,7 @@
 //! On first run, tagr will prompt for initial setup. Configuration is stored in
 //! the user's config directory (`~/.config/tagr/config.toml` on Linux).
 
+use clap::CommandFactory;
 use tagr::{
     TagrError,
     cli::{AliasCommands, Cli, Commands, ConfigCommands, DbCommands, SearchParams},
@@ -94,6 +95,10 @@ fn handle_db_command(
                     println!("Set '{name}' as default database");
                 }
             }
+
+            // Invalidate completion cache since database list changed
+            #[cfg(feature = "dynamic-completions")]
+            tagr::completions::invalidate_database_cache();
         }
         DbCommands::List => {
             if config.databases.is_empty() {
@@ -181,6 +186,10 @@ fn handle_db_command(
                 config.default_database = None;
                 config.save()?;
             }
+
+            // Invalidate completion cache since database list changed
+            #[cfg(feature = "dynamic-completions")]
+            tagr::completions::invalidate_database_cache();
         }
         DbCommands::SetDefault { name } => {
             if config.get_database(name).is_none() {
@@ -300,6 +309,10 @@ fn handle_config_command(
 /// or any command handler returns an error.
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
+    // Handle shell completion before anything else (when feature is enabled)
+    #[cfg(feature = "dynamic-completions")]
+    tagr::completions::init_dynamic_completions(Cli::command);
+
     let config = config::TagrConfig::load_or_setup()?;
 
     let cli = Cli::parse_args();
@@ -307,6 +320,13 @@ fn main() -> Result<()> {
     let quiet = cli.quiet || config.quiet;
 
     let command = cli.get_command();
+
+    // Handle completions generation command (no database needed)
+    if let Commands::Completions { shell } = &command {
+        let mut cmd = Cli::command();
+        tagr::completions::generate_static(*shell, &mut cmd, &mut std::io::stdout());
+        return Ok(());
+    }
 
     if let Commands::Db { command } = &command {
         handle_db_command(config, command, quiet)?;
@@ -647,7 +667,9 @@ fn main() -> Result<()> {
                 commands::alias(command, db_ref)
                     .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
             }
-            Commands::Db { .. } | Commands::Config { .. } => unreachable!(),
+            Commands::Db { .. } | Commands::Config { .. } | Commands::Completions { .. } => {
+                unreachable!()
+            }
         }
     }
 

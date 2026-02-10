@@ -76,7 +76,6 @@ pub fn pattern_matches(pattern: &str, tag: &str) -> bool {
         return true;
     }
 
-    // Check if tag starts with "pattern:"
     let prefix = format!("{pattern}{HIERARCHY_DELIMITER}");
     tag.starts_with(&prefix)
 }
@@ -107,7 +106,6 @@ fn most_specific_match(
 ) -> Option<(Signal, usize)> {
     let mut best_match: Option<(Signal, usize)> = None;
 
-    // Check include patterns
     for pattern in include_patterns {
         if pattern_matches(pattern, tag) {
             let depth = tag_depth(pattern);
@@ -117,14 +115,13 @@ fn most_specific_match(
                     best_match = Some((Signal::Include, depth));
                 }
                 Some((Signal::Exclude, best_depth)) if depth == best_depth => {
-                    // Keep exclude at same depth
+                    // Exclude at same depth already found; keep it (precedence rule)
                 }
                 _ => {}
             }
         }
     }
 
-    // Check exclude patterns
     for pattern in exclude_patterns {
         if pattern_matches(pattern, tag) {
             let depth = tag_depth(pattern);
@@ -134,7 +131,7 @@ fn most_specific_match(
                     best_match = Some((Signal::Exclude, depth));
                 }
                 Some((Signal::Include, best_depth)) if depth == best_depth => {
-                    // Prefer exclude at same depth
+                    // At equal depth, exclude always wins (explicit exclusion takes precedence)
                     best_match = Some((Signal::Exclude, depth));
                 }
                 _ => {}
@@ -177,7 +174,6 @@ pub fn should_include_file(
     include_patterns: &[String],
     exclude_patterns: &[String],
 ) -> bool {
-    // Group file tags by hierarchy
     let mut hierarchy_signals: HashMap<String, Vec<(Signal, usize)>> = HashMap::new();
 
     for tag in file_tags {
@@ -192,9 +188,8 @@ pub fn should_include_file(
         }
     }
 
-    // Check if any hierarchy has an exclude signal
+    // Single exclude in any hierarchy excludes the entire file (exclude precedence across hierarchies)
     for signals in hierarchy_signals.values() {
-        // Within a hierarchy, use the most specific signal
         let mut most_specific: Option<(Signal, usize)> = None;
 
         for &(signal, depth) in signals {
@@ -206,20 +201,19 @@ pub fn should_include_file(
                 Some((Signal::Include, best_depth))
                     if depth == best_depth && signal == Signal::Exclude =>
                 {
-                    // Prefer exclude at same depth
+                    // At equal depth within a hierarchy, exclude wins
                     most_specific = Some((signal, depth));
                 }
                 _ => {}
             }
         }
 
-        // If the most specific signal in this hierarchy is exclude, exclude the file
         if let Some((Signal::Exclude, _)) = most_specific {
             return false;
         }
     }
 
-    // If we have include patterns but no tags matched, exclude the file
+    // If we have include patterns, file must match at least one (no match = exclude)
     if !include_patterns.is_empty() {
         let has_match = file_tags.iter().any(|tag| {
             include_patterns
@@ -467,10 +461,7 @@ mod tests {
         let includes = vec!["lang".to_string()];
         let excludes = vec!["lang:rust".to_string()];
 
-        let files_tags_refs: Vec<(&str, &[String])> = files_tags
-            .iter()
-            .map(|(f, tags)| (*f, tags.as_slice()))
-            .collect();
+        let files_tags_refs = files_tags.iter().map(|(f, tags)| (*f, tags.as_slice()));
 
         let result = filter_by_hierarchy(files_tags_refs.into_iter(), &includes, &excludes);
 

@@ -5,9 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Smart Tag Completion Sorting** - Hierarchical tag completer with relevance ranking
+  - Exact matches shown first (rank 0)
+  - Prefix matches next (rank 1)  
+  - Contains matches ranked by Levenshtein distance (rank 2+)
+  - Hierarchy-aware navigation: typing `lang:` shows only children under that prefix
+  - Root suggestions with "(hierarchy)" help text when input is empty
+- **Levenshtein Distance Ranking** - Added `strsim` crate for fuzzy match quality scoring
+  - Closer matches appear before distant matches in contains results
+  - Example: `lang:rust` appears before `project:rust-tools` when searching "rust"
+
+### Changed
+- **Tag Completion Algorithm** - `complete_tags()` now uses `HierarchicalTagCompleter`
+  - Previously: Simple prefix/contains filter with no relevance ranking
+  - Now: Multi-tiered ranking with hierarchy awareness and edit distance scoring
+
 ## [0.10.0] - 2026-01-16
 
 ### Added
+
+#### Shell Completions (Complete)
+- **Static Completions** - Generate shell scripts for bash, zsh, fish, PowerShell, elvish
+  - `tagr completions <shell>` - Generate completion script
+  - ValueHint annotations for file/directory arguments
+  - Automatic subcommand and flag completion
+- **Dynamic Completions** (behind `dynamic-completions` feature flag)
+  - **Tag completion** - Suggests tags from database for `-t/--tag` and `-e/--exclude`
+  - **Virtual tag completion** - Context-aware vtag syntax hints for `-v/--virtual-tag`
+  - **Filter completion** - Suggests saved filter names for `-F/--filter`
+  - **Database completion** - Suggests configured databases for `--db`
+- **Completion Cache** - Fast lookups without database access
+  - JSON cache at `~/.cache/tagr/completions.cache`
+  - Smart invalidation: only updates on new/orphaned tags
+  - Lightweight partial invalidation for filters and databases
+  - Fallback to database on cache miss
+- **Database API** - `tag_exists()` for O(1) tag existence check
+  - Uses reverse index for constant-time lookup
+  - Enables smart cache invalidation
 
 #### File Notes (Complete)
 - **Markdown Notes for Files** - Attach rich text documentation to any file
@@ -565,6 +602,7 @@ for item in old_db.iter() {
 - `nucleo = "0.5"` - Fast fuzzy matching engine
 - `ratatui = "0.30"` - Terminal UI framework
 - `crossterm = "0.28"` - Cross-platform terminal handling
+- `clap_complete = "4.5"` - Shell completion generation
 - `bincode = "2.0.0-rc.3"` - Binary serialization
 - `sled = "0.34"` - Embedded database
 - `clap = "4.5"` - CLI parsing

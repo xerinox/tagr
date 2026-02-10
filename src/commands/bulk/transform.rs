@@ -81,14 +81,12 @@ pub fn transform_tags(
     yes: bool,
     quiet: bool,
 ) -> Result<()> {
-    // Collect all unique tags from database
     let all_pairs = db.list_all()?;
     let mut all_tags: HashSet<String> = HashSet::new();
     for pair in &all_pairs {
         all_tags.extend(pair.tags.iter().cloned());
     }
 
-    // Filter tags if specified
     let tags_to_transform: Vec<String> = if let Some(filter) = filter_tags {
         all_tags
             .into_iter()
@@ -105,14 +103,12 @@ pub fn transform_tags(
         return Ok(());
     }
 
-    // Build transformation mapping
     let mut tag_mapping: HashMap<String, String> = HashMap::new();
     let mut conflicts: HashMap<String, Vec<String>> = HashMap::new();
 
     for old_tag in &tags_to_transform {
         let new_tag = transformation.apply(old_tag)?;
 
-        // Check for collisions
         if new_tag != *old_tag {
             if let Some(existing_old) = tag_mapping
                 .iter()
@@ -139,7 +135,6 @@ pub fn transform_tags(
         return Ok(());
     }
 
-    // Show conflicts if any
     if !conflicts.is_empty() && !quiet {
         println!("{}", "Warning: Tag collisions detected:".yellow().bold());
         for (new_tag, old_tags) in &conflicts {
@@ -148,7 +143,6 @@ pub fn transform_tags(
         println!();
     }
 
-    // Find affected files
     let mut affected_files: HashSet<PathBuf> = HashSet::new();
     for pair in &all_pairs {
         if pair.tags.iter().any(|t| tag_mapping.contains_key(t)) {

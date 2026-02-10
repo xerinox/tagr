@@ -226,16 +226,15 @@ impl<'a> BrowseSession<'a> {
                     return Ok(AcceptResult::Cancelled);
                 }
 
-                // Check if notes-only virtual tag is selected
+                // NOTES_ONLY_TAG is a special virtual tag for browsing files with notes
                 let has_notes_only = selected_ids
                     .iter()
                     .any(|id| id == crate::browse::models::NOTES_ONLY_TAG);
 
                 let items = if has_notes_only && selected_ids.len() == 1 {
-                    // Only notes-only selected - show files with notes but no tags
                     query::get_notes_only_files(self.db)?
                 } else if has_notes_only {
-                    // Notes-only mixed with regular tags - get both
+                    // Combine files from regular tags and files-with-notes
                     let regular_tags: Vec<String> = selected_ids
                         .iter()
                         .filter(|id| *id != crate::browse::models::NOTES_ONLY_TAG)
@@ -247,7 +246,6 @@ impl<'a> BrowseSession<'a> {
                     regular_files.append(&mut notes_files);
                     regular_files
                 } else {
-                    // Normal tag selection
                     query::get_files_by_tags(self.db, &selected_ids, SearchMode::Any)?
                 };
 
@@ -315,11 +313,9 @@ impl<'a> BrowseSession<'a> {
         action: &BrowseAction,
         selected_ids: &[String],
     ) -> Result<ActionOutcome> {
-        // NOTE: Phase check removed - in 3-pane view, phases don't exist.
-        // Pane-focused filtering happens at UI layer (events.rs).
-        // Session layer trusts that UI only calls this for valid actions.
+        // In 3-pane mode, phases are virtual - the UI layer manages visibility.
+        // This method trusts the UI only calls it with valid actions per current context.
 
-        // Convert selected_ids directly to PathBufs (they are file paths from context)
         let selected_files: Vec<PathBuf> = selected_ids.iter().map(PathBuf::from).collect();
 
         match action {
@@ -374,7 +370,6 @@ impl<'a> BrowseSession<'a> {
                     },
                 })
             }
-            // Other actions not yet implemented in session layer
             _ => Err(BrowseError::ActionNotAvailable),
         }
     }
@@ -447,21 +442,18 @@ impl<'a> BrowseSession<'a> {
 
         let old_params = self.config.initial_search.as_ref();
 
-        // Determine if filters are being relaxed (need DB re-query)
         let filters_relaxed = old_params.is_some_and(|old| is_filter_relaxation(old, &new_params));
 
         self.config.initial_search = Some(new_params.clone());
 
-        // Decision: in-memory vs DB query
+        // Use hybrid filtering: DB queries for relaxations, in-memory for restrictions
         if filters_relaxed || self.base_items.is_none() {
-            // Re-query database (filter relaxation or first refinement)
             let items = query::get_matching_files(self.db, &new_params)?;
 
-            // Cache for in-memory filtering if small enough
             if items.len() < HYBRID_FILTER_THRESHOLD {
                 self.base_items = Some(items.clone());
             } else {
-                self.base_items = None; // Too large, don't cache
+                self.base_items = None;
             }
 
             self.current_phase = BrowserPhase {
@@ -472,7 +464,6 @@ impl<'a> BrowseSession<'a> {
                 settings: self.config.file_phase_settings.clone(),
             };
         } else if let Some(ref base) = self.base_items {
-            // Use in-memory filtering (fast path)
             let filtered_refs = query::filter_items_in_memory(base, &new_params);
             let items: Vec<TagrItem> = filtered_refs.into_iter().cloned().collect();
 
@@ -484,7 +475,6 @@ impl<'a> BrowseSession<'a> {
                 settings: self.config.file_phase_settings.clone(),
             };
         } else {
-            // Fallback: re-query (should not happen, but defensive)
             let items = query::get_matching_files(self.db, &new_params)?;
 
             self.current_phase = BrowserPhase {
@@ -645,27 +635,22 @@ impl PhaseSettings {
 /// - Removing file patterns
 /// - Removing virtual tag constraints
 const fn is_filter_relaxation(old: &SearchParams, new: &SearchParams) -> bool {
-    // Exclude tags reduced
     if new.exclude_tags.len() < old.exclude_tags.len() {
         return true;
     }
 
-    // Include tags reduced in ALL mode (becomes less restrictive)
     if matches!(old.tag_mode, crate::cli::SearchMode::All) && new.tags.len() < old.tags.len() {
         return true;
     }
 
-    // File patterns reduced
     if new.file_patterns.len() < old.file_patterns.len() {
         return true;
     }
 
-    // Virtual tags reduced
     if new.virtual_tags.len() < old.virtual_tags.len() {
         return true;
     }
 
-    // Mode changed from ALL to ANY (less restrictive)
     if matches!(old.tag_mode, crate::cli::SearchMode::All)
         && matches!(new.tag_mode, crate::cli::SearchMode::Any)
     {
@@ -972,7 +957,6 @@ mod tests {
         db.db().clear().unwrap();
 
         // Create 10 files (well below threshold)
-        let mut files = vec![];
         for i in 0..10 {
             let file = TempFile::create(format!("file{i}.txt")).unwrap();
             db.db()
@@ -981,7 +965,6 @@ mod tests {
                     vec!["rust".into(), format!("tag{i}")],
                 ))
                 .unwrap();
-            files.push(file);
         }
 
         let config = BrowseConfig {

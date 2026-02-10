@@ -228,13 +228,10 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     values,
                 } => {
                     // Convert action_id string to BrowseAction enum
-                    let action = match action_id.parse::<BrowseAction>() {
-                        Ok(a) => a,
-                        Err(_) => {
-                            return Err(BrowseError::UnexpectedState(format!(
-                                "Unknown action_id: {action_id}"
-                            )));
-                        }
+                    let Ok(action) = action_id.parse::<BrowseAction>() else {
+                        return Err(BrowseError::UnexpectedState(format!(
+                            "Unknown action_id: {action_id}"
+                        )));
                     };
 
                     // Execute action through session (handles all action types)

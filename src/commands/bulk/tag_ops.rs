@@ -18,7 +18,6 @@ type Result<T> = std::result::Result<T, TagrError>;
 /// - Implicitly enables glob handling for file patterns in bulk context
 /// - Prevents glob-like tokens being supplied as tags without regex flag
 fn normalize_bulk_params(params: &mut SearchParams) -> Result<()> {
-    // Builder validates separation and will error on glob-like tags
     let mut builder = PatternBuilder::new(PatternContext::BulkFiles)
         .regex_tags(params.regex_tag)
         .regex_files(params.regex_file)
@@ -31,11 +30,10 @@ fn normalize_bulk_params(params: &mut SearchParams) -> Result<()> {
         builder.add_file_token(f);
     }
 
-    // Build to run validation; we ignore the typed queries for now
-    // as DB integration is out of scope. Errors propagate via TagrError::from.
+    // Validates tag/file separation; DB integration deferred to command handler
     let _ = builder.build(params.tag_mode, params.file_mode)?;
 
-    // Implicit glob enable: if any file token looks like a glob and regex_file is false
+    // Auto-enable glob flag if file patterns contain glob wildcards (unless regex mode is on)
     if !params.regex_file
         && params
             .file_patterns
@@ -140,6 +138,11 @@ pub fn bulk_tag(
             }
         }
     }
+
+    // Invalidate completion cache (bulk ops may introduce new tags)
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(db);
+
     if !quiet {
         summary.print("Bulk Tag");
     }
@@ -236,6 +239,11 @@ pub fn bulk_untag(
             }
         }
     }
+
+    // Invalidate completion cache (bulk ops may orphan tags)
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(db);
+
     if !quiet {
         summary.print("Bulk Untag");
     }

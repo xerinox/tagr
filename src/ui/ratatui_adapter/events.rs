@@ -5,6 +5,7 @@
 use super::state::{AppState, Mode};
 use crate::filters::TagMode;
 use crate::keybinds::actions::BrowseAction;
+use crate::ui::ratatui_adapter::widgets::FileDetails;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -102,9 +103,8 @@ fn handle_normal_mode(
     // Check custom keybinds first
     if let Some(action_str) = custom_binds.get(&key) {
         // Parse action string to enum
-        let action = match action_str.parse::<BrowseAction>() {
-            Ok(a) => a,
-            Err(_) => return EventResult::Ignored, // Unknown action
+        let Ok(action) = action_str.parse::<BrowseAction>() else {
+            return EventResult::Ignored; // Unknown action
         };
 
         // Check phase and pane availability
@@ -164,7 +164,6 @@ fn handle_normal_mode(
                     .flatten();
 
                 // Create FileDetails and enter details mode
-                use crate::ui::ratatui_adapter::widgets::FileDetails;
                 if let Ok(details) = FileDetails::from_path(&path, tags, note) {
                     state.enter_details(details);
                 }
@@ -689,9 +688,7 @@ fn handle_input_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
             }
 
             // Parse action string to enum
-            let action = if let Ok(a) = action_str.parse::<BrowseAction>() {
-                a
-            } else {
+            let Ok(action) = action_str.parse::<BrowseAction>() else {
                 state.cancel_text_input();
                 return EventResult::Ignored; // Unknown action
             };
@@ -784,9 +781,7 @@ fn handle_confirm_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
         (KeyCode::Enter | KeyCode::Char('y' | 'Y'), _) => {
             if let Some(confirm_state) = state.exit_confirm() {
                 // Parse action string to enum
-                let action = if let Ok(a) = confirm_state.action_id.parse::<BrowseAction>() {
-                    a
-                } else {
+                let Ok(action) = confirm_state.action_id.parse::<BrowseAction>() else {
                     state.cancel_confirm();
                     return EventResult::Ignored; // Unknown action
                 };

@@ -53,7 +53,7 @@ pub fn execute(
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
 
-        // Start with filter params as base, then merge CLI overrides
+        // Load filter as base params, applying CLI overrides
         let mut filter_params = SearchParams::from(&filter.criteria);
         let cli_tag_mode = params.tag_mode;
         let cli_file_mode = params.file_mode;
@@ -61,7 +61,7 @@ pub fn execute(
 
         filter_params.merge(&params);
 
-        // If user didn't explicitly provide mode flags, keep filter's modes
+        // Preserve filter's modes unless user explicitly set via CLI flags
         if explicit_flags.tag_mode {
             filter_params.tag_mode = cli_tag_mode;
         } else {

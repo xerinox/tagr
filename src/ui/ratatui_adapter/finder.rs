@@ -6,6 +6,7 @@ use super::events::{EventResult, KeybindMap, poll_and_handle};
 use super::state::{AppState, Mode};
 use super::styled_preview::{StyledPreview, StyledPreviewGenerator};
 use super::theme::Theme;
+use super::widgets::TagTreeState;
 use super::widgets::{
     ConfirmDialog, DetailsModal, HelpBar, HelpOverlay, KeyHint, PreviewPane, RefineSearchOverlay,
     SearchBar, StatusBar, TextInputModal,
@@ -324,7 +325,7 @@ impl RatatuiFinder {
     }
 
     /// Render the content area (items + preview OR tag tree + live results)
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::unused_self)]
     fn render_content(
         &self,
         frame: &mut Frame,
@@ -493,7 +494,6 @@ impl RatatuiFinder {
         state.available_tags.clone_from(&config.available_tags);
 
         // Always initialize tag tree (3-pane layout)
-        use super::widgets::TagTreeState;
         let mut tag_tree_state = TagTreeState::new();
 
         // Build tag tree from database (always available in 3-pane layout)
@@ -512,25 +512,28 @@ impl RatatuiFinder {
 
             // Build display map from schema (for aliases)
             let display_map: std::collections::HashMap<String, String> =
-                if let Some(schema) = &config.tag_schema {
-                    tags_with_counts
-                        .iter()
-                        .map(|(tag, _)| {
-                            let canonical = schema.canonicalize(tag);
-                            let display = if canonical == tag.as_str() {
-                                tag.clone()
-                            } else {
-                                format!("{tag} ({canonical})")
-                            };
-                            (tag.clone(), display)
-                        })
-                        .collect()
-                } else {
-                    tags_with_counts
-                        .iter()
-                        .map(|(tag, _)| (tag.clone(), tag.clone()))
-                        .collect()
-                };
+                config.tag_schema.as_ref().map_or_else(
+                    || {
+                        tags_with_counts
+                            .iter()
+                            .map(|(tag, _)| (tag.clone(), tag.clone()))
+                            .collect()
+                    },
+                    |schema| {
+                        tags_with_counts
+                            .iter()
+                            .map(|(tag, _)| {
+                                let canonical = schema.canonicalize(tag);
+                                let display = if canonical == tag.as_str() {
+                                    tag.clone()
+                                } else {
+                                    format!("{tag} ({canonical})")
+                                };
+                                (tag.clone(), display)
+                            })
+                            .collect()
+                    },
+                );
 
             tag_tree_state.build_from_tags_with_display(&tags_with_counts, &display_map);
 
@@ -719,7 +722,7 @@ impl RatatuiFinder {
                                                     crate::db::NoteRecord::new(updated_content)
                                                 };
 
-                                                let _ = db.set_note(&canonical_path, note);
+                                                let _ = db.set_note(&canonical_path, &note);
 
                                                 // Update has_note metadata for the current item
                                                 if state.is_tag_selection_phase() {

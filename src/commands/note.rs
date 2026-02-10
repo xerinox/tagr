@@ -165,17 +165,14 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             ))
         })?;
 
-        // Get existing note or create new one
         let existing_note = db.get_note(&canonical_path)?;
         let initial_content = existing_note.as_ref().map_or_else(
             || config.notes.default_template.clone(),
             |n| n.content.clone(),
         );
 
-        // Create temp file with initial content
         let temp_path = create_temp_note_file(&initial_content)?;
 
-        // Open editor
         let status = std::process::Command::new(&editor)
             .arg(&temp_path)
             .status()
@@ -188,11 +185,10 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             )));
         }
 
-        // Read updated content
         let updated_content = std::fs::read_to_string(&temp_path)?;
         std::fs::remove_file(&temp_path)?;
 
-        // Check size limit
+        // Warn if note exceeds configured size limit
         if config
             .notes
             .exceeds_size_limit(updated_content.len() as u64)
@@ -204,7 +200,6 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             );
         }
 
-        // Save note
         let note = if let Some(mut existing) = existing_note {
             existing.update_content(updated_content);
             existing
@@ -212,7 +207,7 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             NoteRecord::new(updated_content)
         };
 
-        db.set_note(&canonical_path, note)?;
+        db.set_note(&canonical_path, &note)?;
         println!("✓ Updated note for {}", file.display());
     }
 
@@ -232,16 +227,13 @@ fn execute_add(
         ))
     })?;
 
-    // Get existing note content or empty string
     let existing_content = db
         .get_note(&canonical_path)?
         .map(|n| n.content)
         .unwrap_or_default();
 
-    // Append new entry with timestamp
     let updated_content = append_note_entry(&existing_content, &args.content);
 
-    // Save note
     let note = if let Some(mut existing) = db.get_note(&canonical_path)? {
         existing.update_content(updated_content);
         existing
@@ -249,7 +241,7 @@ fn execute_add(
         NoteRecord::new(updated_content)
     };
 
-    db.set_note(&canonical_path, note)?;
+    db.set_note(&canonical_path, &note)?;
     println!(
         "✓ Added note entry to {}",
         output::format_path(&canonical_path, path_format)
@@ -323,7 +315,6 @@ fn execute_delete(
 ) -> Result<(), NoteError> {
     let mut files_to_delete = Vec::new();
 
-    // Check which files have notes
     for file in &args.files {
         let canonical_path = file.canonicalize().map_err(|e| {
             NoteError::Io(std::io::Error::new(
@@ -350,7 +341,6 @@ fn execute_delete(
         return Ok(());
     }
 
-    // Confirmation prompt
     if !args.yes {
         print!("Delete notes for {} file(s)? [y/N] ", files_to_delete.len());
         std::io::stdout().flush()?;
@@ -364,7 +354,6 @@ fn execute_delete(
         }
     }
 
-    // Delete notes
     let mut deleted = 0;
     for file in &files_to_delete {
         if db.delete_note(file)? {
@@ -540,29 +529,30 @@ fn create_snippet(content: &str, query: &str, max_length: usize) -> String {
     let query_lower = query.to_lowercase();
     let content_lower = content.to_lowercase();
 
-    if let Some(pos) = content_lower.find(&query_lower) {
-        let start = pos.saturating_sub(max_length / 2);
-        let end = (pos + query.len() + max_length / 2).min(content.len());
+    content_lower.find(&query_lower).map_or_else(
+        || {
+            content
+                .chars()
+                .take(max_length)
+                .collect::<String>()
+                .replace('\n', " ")
+        },
+        |pos| {
+            let start = pos.saturating_sub(max_length / 2);
+            let end = (pos + query.len() + max_length / 2).min(content.len());
 
-        let mut snippet = content[start..end].to_string();
+            let mut snippet = content[start..end].to_string();
 
-        if start > 0 {
-            snippet = format!("...{snippet}");
-        }
-        if end < content.len() {
-            snippet = format!("{snippet}...");
-        }
+            if start > 0 {
+                snippet = format!("...{snippet}");
+            }
+            if end < content.len() {
+                snippet = format!("{snippet}...");
+            }
 
-        // Replace newlines with spaces for compact display
-        snippet.replace('\n', " ")
-    } else {
-        // Fallback if query not found (shouldn't happen)
-        content
-            .chars()
-            .take(max_length)
-            .collect::<String>()
-            .replace('\n', " ")
-    }
+            snippet.replace('\n', " ")
+        },
+    )
 }
 
 // ==================== Error Types ====================

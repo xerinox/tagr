@@ -46,6 +46,43 @@ The configuration is saved to `~/.config/tagr/config.toml`.
 
 For a complete list of commands and flags, see the CLI reference in `docs/cli-reference.md`.
 
+### Shell Completions
+
+Tagr provides shell completions for bash, zsh, fish, PowerShell, and elvish.
+
+**Static completions** (always available):
+
+```bash
+# Generate completion script for your shell
+tagr completions bash > ~/.local/share/bash-completion/completions/tagr
+tagr completions zsh > ~/.zfunc/_tagr
+tagr completions fish > ~/.config/fish/completions/tagr.fish
+```
+
+**Dynamic completions** (context-aware, behind feature flag):
+
+Build with `--features dynamic-completions` for intelligent completions that suggest:
+- **Tags** from your database when using `-t/--tag`
+- **Virtual tags** with syntax hints when using `-v/--virtual-tag`
+- **Filter names** when using `-F/--filter`
+- **Database names** when using `--db`
+
+```bash
+# Build with dynamic completions
+cargo build --release --features dynamic-completions
+
+# Setup for bash (add to ~/.bashrc)
+source <(COMPLETE=bash tagr)
+
+# Setup for zsh (add to ~/.zshrc)
+source <(COMPLETE=zsh tagr)
+
+# Setup for fish
+COMPLETE=fish tagr | source
+```
+
+The completion cache is automatically updated when tags, filters, or databases change.
+
 ### Basic Usage
 
 ```bash
@@ -1651,6 +1688,7 @@ cargo test
 - **crossterm** - Cross-platform terminal manipulation
 - **bincode** - Efficient binary serialization
 - **clap** - Command-line argument parsing
+- **clap_complete** - Shell completion generation
 - **chrono** - Date/time handling for filter timestamps
 - **thiserror** - Error handling
 
