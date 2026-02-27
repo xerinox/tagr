@@ -3,6 +3,7 @@
 use crate::schema::load_default_schema;
 use crate::{TagrError, db::Database};
 use std::path::PathBuf;
+use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -42,6 +43,7 @@ pub fn execute(
     tags: &[String],
     no_canonicalize: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let file_path = file.ok_or_else(|| TagrError::InvalidInput("No file provided".into()))?;
 
@@ -67,7 +69,7 @@ pub fn execute(
             Err(e) => {
                 // If schema can't be loaded, warn but continue with original tags
                 if !quiet {
-                    eprintln!("Warning: Could not load schema ({e}), using tags as-is");
+                    writeln!(writer, "Warning: Could not load schema ({e}), using tags as-is")?;
                 }
                 tags.to_vec()
             }
@@ -91,7 +93,7 @@ pub fn execute(
     db.add_tags(&fullpath, final_tags)?;
 
     if let Some(msg) = success_msg {
-        println!("{msg}");
+        writeln!(writer, "{msg}")?;
     }
 
     Ok(())
@@ -107,6 +109,7 @@ pub fn untag(
     tags: &[String],
     all: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let file_path = file.ok_or_else(|| TagrError::InvalidInput("No file provided".into()))?;
 
@@ -130,7 +133,7 @@ pub fn untag(
         invalidate_cache_if_orphaned_tags(db, &old_tags);
 
         if !quiet {
-            println!("Removed all tags from {}", file_path.display());
+            writeln!(writer, "Removed all tags from {}", file_path.display())?;
         }
         return Ok(());
     }
@@ -148,11 +151,12 @@ pub fn untag(
     invalidate_cache_if_orphaned_tags(db, tags);
 
     if !quiet {
-        println!(
+        writeln!(
+            writer,
             "Removed tags {} from {}",
             tags.join(", "),
             file_path.display()
-        );
+        )?;
     }
 
     Ok(())

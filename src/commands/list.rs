@@ -1,6 +1,7 @@
 //! List command - list files or tags in the database
 
 use crate::{TagrError, cli::ListVariant, config, db::Database, output};
+use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -13,48 +14,50 @@ pub fn execute(
     variant: ListVariant,
     path_format: config::PathFormat,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     match variant {
-        ListVariant::Files => list_files(db, path_format, quiet),
-        ListVariant::Tags => list_tags(db, quiet),
+        ListVariant::Files => list_files(db, path_format, quiet, writer),
+        ListVariant::Tags => list_tags(db, quiet, writer),
     }
 }
 
-fn list_files(db: &Database, path_format: config::PathFormat, quiet: bool) -> Result<()> {
+fn list_files(db: &Database, path_format: config::PathFormat, quiet: bool, writer: &mut impl Write) -> Result<()> {
     let all_pairs = db.list_all()?;
 
     if all_pairs.is_empty() {
         if !quiet {
-            println!("No files found in database.");
+            writeln!(writer, "No files found in database.")?;
         }
     } else {
         if !quiet {
-            println!("Files in database:");
+            writeln!(writer, "Files in database:")?;
         }
         for pair in all_pairs {
-            println!(
+            writeln!(
+                writer,
                 "{}",
                 output::file_with_tags(&pair.file, &pair.tags, path_format, quiet)
-            );
+            )?;
         }
     }
     Ok(())
 }
 
-fn list_tags(db: &Database, quiet: bool) -> Result<()> {
+fn list_tags(db: &Database, quiet: bool, writer: &mut impl Write) -> Result<()> {
     let tags = db.list_all_tags()?;
 
     if tags.is_empty() {
         if !quiet {
-            println!("No tags found in database.");
+            writeln!(writer, "No tags found in database.")?;
         }
     } else {
         if !quiet {
-            println!("Tags in database:");
+            writeln!(writer, "Tags in database:")?;
         }
         for tag in tags {
             let count = db.find_by_tag(&tag)?.len();
-            println!("{}", output::tag_with_count(&tag, count, quiet));
+            writeln!(writer, "{}", output::tag_with_count(&tag, count, quiet))?;
         }
     }
     Ok(())

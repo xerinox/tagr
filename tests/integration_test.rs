@@ -226,6 +226,7 @@ fn test_e2e_search_execute_with_glob_flag() {
             format: config::PathFormat::Absolute,
             quiet: true,
         },
+        &mut Vec::new(),
     );
     assert!(res.is_ok());
 }
@@ -271,9 +272,9 @@ fn test_tag_command_add_tags() {
 fn test_search_command_single_tag() {
     let test_db = TestDb::new("search_single");
 
-    let file1 = TestFile::create("file1.txt", "content1").unwrap();
-    let file2 = TestFile::create("file2.txt", "content2").unwrap();
-    let file3 = TestFile::create("file3.txt", "content3").unwrap();
+    let file1 = TestFile::create("search_single_file1.txt", "content1").unwrap();
+    let file2 = TestFile::create("search_single_file2.txt", "content2").unwrap();
+    let file3 = TestFile::create("search_single_file3.txt", "content3").unwrap();
 
     let file1_path = fs::canonicalize(file1.path()).unwrap();
     let file2_path = fs::canonicalize(file2.path()).unwrap();
