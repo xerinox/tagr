@@ -45,7 +45,7 @@
 use clap::CommandFactory;
 use tagr::{
     TagrError,
-    cli::{AliasCommands, Cli, Commands, ConfigCommands, DbCommands, SearchParams},
+    cli::{Cli, Commands, ConfigCommands, DbCommands},
     commands, config,
     db::Database,
 };
@@ -332,6 +332,26 @@ fn main() -> Result<()> {
         handle_db_command(config, command, quiet)?;
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
+    } else if let Commands::Watch(watch_args) = &command {
+        // Watch mode is handled specially:
+        // - `--daemon` flag means this process IS the daemon; run the event loop
+        // - otherwise: update watch.toml and start the daemon if not running
+        if watch_args.daemon {
+            let db_name = command.get_db()
+                .or_else(|| config.get_default_database().cloned())
+                .ok_or_else(|| TagrError::InvalidInput(
+                    "Daemon requires a default database. Set one with: tagr db add <name> <path>".into(),
+                ))?;
+            let db_path = config.get_database(&db_name).ok_or_else(|| {
+                TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
+            })?;
+            let db = Database::open(db_path)?;
+            tagr::daemon::core::run(&db)
+                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+        } else {
+            commands::watch::watch_cli(watch_args, &config, quiet)
+                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+        }
     } else {
         let db_name = command.get_db().or_else(|| {
             config.get_default_database().cloned()
@@ -343,8 +363,6 @@ fn main() -> Result<()> {
             TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
         })?;
 
-        let db = Database::open(db_path)?;
-
         // Determine path format: CLI override > config default
         let path_format = if let Some(cli_format) = cli.get_path_format() {
             match cli_format {
@@ -355,323 +373,59 @@ fn main() -> Result<()> {
             config.path_format
         };
 
-        match &command {
-            Commands::Browse { filter_args, .. } => {
-                let ctx = command.get_browse_context().unwrap();
-
-                let save_filter = filter_args
-                    .save_filter
-                    .as_ref()
-                    .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
-
-                commands::browse(
-                    &db,
-                    ctx.search_params,
-                    filter_args.filter.as_deref(),
-                    save_filter,
-                    ctx.execute_cmd,
-                    Some(&ctx.preview_overrides),
-                    path_format,
-                    quiet,
-                )?;
+        // Try to open the DB directly first — this is the fast path and works
+        // even when the daemon is running (sled allows a second reader only if
+        // the lock is available).  If the DB lock is held (daemon has it open),
+        // the open will fail with an EWOULDBLOCK-style error; in that case we
+        // fall back to forwarding the command over IPC.
+        match Database::open(db_path) {
+            Ok(db) => {
+                let mut stdout = std::io::stdout();
+                commands::dispatch_command(&command, &db, &config, path_format, quiet, &mut stdout)?;
             }
-            Commands::Tag { .. } => {
-                let ctx = command.get_tag_context().unwrap();
-                commands::tag(&db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet)?;
-            }
-            Commands::Search {
-                filter_args,
-                criteria,
-                ..
-            } => {
-                use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+            Err(lock_err) if is_db_lock_error(&lock_err) => {
+                // DB is locked — forward to daemon if it is reachable.
+                let rt = tokio::runtime::Runtime::new().map_err(TagrError::IoError)?;
+                let daemon_running = rt.block_on(async {
+                    use tagr::daemon::DaemonManager;
+                    tagr::daemon::PlatformDaemonManager.is_running().await
+                }).unwrap_or(false);
 
-                let params = command.get_search_params().ok_or_else(|| {
-                    TagrError::InvalidInput("Failed to parse search parameters".into())
-                })?;
+                if !daemon_running {
+                    return Err(TagrError::InvalidInput(
+                        "Database is locked and the daemon is not responding. \
+                         Try `tagr watch --stop` then retry.".into(),
+                    ));
+                }
 
-                let save_filter = filter_args
-                    .save_filter
-                    .as_ref()
-                    .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
+                let args: Vec<String> = std::env::args().collect();
+                let cwd = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .to_string_lossy()
+                    .to_string();
 
-                // Determine if user explicitly provided mode flags
-                let has_explicit_tag_mode = criteria.any_tag || criteria.all_tags;
-                let has_explicit_file_mode = criteria.any_file || criteria.all_files;
-                let has_explicit_virtual_mode = criteria.any_virtual || criteria.all_virtual;
+                let req = tagr::ipc::IpcRequest::Command { args, cwd };
+                let resp = rt
+                    .block_on(tagr::daemon::client::send_request(req))
+                    .map_err(|e| TagrError::IoError(std::io::Error::other(e.to_string())))?;
 
-                commands::search(
-                    &db,
-                    params,
-                    FilterConfig {
-                        apply: filter_args.filter.as_deref(),
-                        save: save_filter,
-                    },
-                    ExplicitFlags {
-                        tag_mode: has_explicit_tag_mode,
-                        file_mode: has_explicit_file_mode,
-                        virtual_mode: has_explicit_virtual_mode,
-                    },
-                    OutputConfig {
-                        format: path_format,
-                        quiet,
-                    },
-                )?;
-            }
-            Commands::Untag { .. } => {
-                let ctx = command.get_untag_context().unwrap();
-                commands::tag::untag(&db, ctx.file, &ctx.tags, ctx.all, quiet)?;
-            }
-            Commands::Tags { command, .. } => {
-                commands::tags(&db, command, quiet)?;
-            }
-            Commands::Bulk { command, .. } => {
-                use tagr::cli::BulkCommands;
-
-                match command {
-                    BulkCommands::Tag {
-                        criteria,
-                        add_tags,
-                        conditions,
-                        dry_run,
-                        yes,
-                    } => {
-                        let params = SearchParams::from(criteria);
-                        commands::bulk::bulk_tag(
-                            &db, params, add_tags, conditions, *dry_run, *yes, quiet,
-                        )?;
-                    }
-                    BulkCommands::Untag {
-                        criteria,
-                        remove_tags,
-                        all,
-                        conditions,
-                        dry_run,
-                        yes,
-                    } => {
-                        let params = SearchParams::from(criteria);
-                        commands::bulk::bulk_untag(
-                            &db,
-                            params,
-                            remove_tags,
-                            *all,
-                            conditions,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::RenameTag {
-                        old_tag,
-                        new_tag,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::rename_tag(&db, old_tag, new_tag, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::MergeTags {
-                        source_tags,
-                        target_tag,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::merge_tags(
-                            &db,
-                            source_tags,
-                            target_tag,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::CopyTags {
-                        source,
-                        criteria,
-                        specific_tags,
-                        exclude,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::CopyTagsConfig;
-
-                        let params = SearchParams::from(criteria);
-                        let specific = if specific_tags.is_empty() {
-                            None
-                        } else {
-                            Some(specific_tags.as_slice())
-                        };
-
-                        commands::bulk::copy_tags(
-                            &db,
-                            source,
-                            params,
-                            CopyTagsConfig {
-                                specific_tags: specific,
-                                exclude_tags: exclude,
-                                dry_run: *dry_run,
-                                yes: *yes,
-                                quiet,
-                            },
-                        )?;
-                    }
-                    BulkCommands::FromFile {
-                        input,
-                        format,
-                        delimiter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::BatchFormat;
-
-                        let fmt = match format {
-                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
-                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
-                        };
-                        commands::bulk::batch_from_file(&db, input, fmt, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::MapTags {
-                        input,
-                        format,
-                        delimiter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::BatchFormat;
-                        let fmt = match format {
-                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
-                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
-                        };
-                        commands::bulk::bulk_map_tags(&db, input, fmt, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::DeleteFiles {
-                        input,
-                        format,
-                        delimiter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::BatchFormat;
-                        let fmt = match format {
-                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
-                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
-                        };
-                        commands::bulk::bulk_delete_files(&db, input, fmt, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::PropagateByDir {
-                        root,
-                        mappings,
-                        hierarchy,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::propagate_by_directory(
-                            &db,
-                            root.as_deref(),
-                            mappings,
-                            *hierarchy,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::PropagateByExt {
-                        mappings,
-                        no_defaults,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::propagate_by_extension(
-                            &db,
-                            mappings,
-                            *no_defaults,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::Transform {
-                        transformation,
-                        param,
-                        replacement,
-                        filter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use commands::bulk::TagTransformation;
-                        use tagr::cli::TransformationType;
-
-                        let trans = match transformation {
-                            TransformationType::Lowercase => TagTransformation::Lowercase,
-                            TransformationType::Uppercase => TagTransformation::Uppercase,
-                            TransformationType::KebabCase => TagTransformation::KebabCase,
-                            TransformationType::SnakeCase => TagTransformation::SnakeCase,
-                            TransformationType::CamelCase => TagTransformation::CamelCase,
-                            TransformationType::PascalCase => TagTransformation::PascalCase,
-                            TransformationType::AddPrefix => {
-                                TagTransformation::AddPrefix(param.clone().unwrap())
-                            }
-                            TransformationType::AddSuffix => {
-                                TagTransformation::AddSuffix(param.clone().unwrap())
-                            }
-                            TransformationType::RemovePrefix => {
-                                TagTransformation::RemovePrefix(param.clone().unwrap())
-                            }
-                            TransformationType::RemoveSuffix => {
-                                TagTransformation::RemoveSuffix(param.clone().unwrap())
-                            }
-                            TransformationType::RegexReplace => TagTransformation::RegexReplace {
-                                pattern: param.clone().unwrap(),
-                                replacement: replacement.clone().unwrap(),
-                            },
-                        };
-
-                        let filter_tags = if filter.is_empty() {
-                            None
-                        } else {
-                            Some(filter.as_slice())
-                        };
-
-                        commands::bulk::transform_tags(
-                            &db,
-                            &trans,
-                            filter_tags,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
+                match resp {
+                    tagr::ipc::IpcResponse::Success(out) => print!("{out}"),
+                    tagr::ipc::IpcResponse::Error(err) => {
+                        return Err(TagrError::InvalidInput(err));
                     }
                 }
             }
-            Commands::Cleanup { .. } => {
-                commands::cleanup(&db, path_format, quiet)?;
-            }
-            Commands::List { variant, .. } => {
-                commands::list(&db, *variant, path_format, quiet)?;
-            }
-            Commands::Note { command, .. } => {
-                command.execute(&db, &config, path_format)?;
-            }
-            Commands::Filter { command } => {
-                // Filter management doesn't need database access
-                commands::filter(command, quiet)?;
-            }
-            Commands::Alias { command } => {
-                // Pass database to set-canonical command, None to others
-                let db_ref = match command {
-                    AliasCommands::SetCanonical { .. } => Some(&db),
-                    _ => None,
-                };
-                commands::alias(command, db_ref)
-                    .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
-            }
-            Commands::Db { .. } | Commands::Config { .. } | Commands::Completions { .. } => {
-                unreachable!()
-            }
+            Err(other) => return Err(other.into()),
         }
     }
 
     Ok(())
 }
+
+/// Returns `true` when a [`DbError`] is caused by the sled advisory lock being
+/// held by another process (i.e. the daemon has the database open).
+fn is_db_lock_error(err: &tagr::db::DbError) -> bool {
+    err.to_string().contains("could not acquire lock")
+}
+

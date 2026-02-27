@@ -42,6 +42,7 @@
 
 use clap::{Args, Parser, Subcommand, ValueEnum, ValueHint};
 use std::path::{Path, PathBuf};
+use crate::commands::watch::WatchArgs;
 
 // Dynamic completion support (behind feature flag)
 #[cfg(feature = "dynamic-completions")]
@@ -1221,6 +1222,10 @@ pub enum Commands {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
+
+    /// Monitor files for changes and auto-tag them
+    #[command(visible_alias = "w")]
+    Watch(WatchArgs),
 }
 
 impl Commands {
