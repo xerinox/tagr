@@ -43,15 +43,16 @@
 
 use crate::cli::SearchParams;
 use crate::search::hierarchy;
+use std::borrow::Cow;
 
 /// Represents a file-tag pair as borrowed data
 ///
 /// This is the core DTO (Data Transfer Object) for filtering operations.
 /// It provides a zero-cost view of file path and tags without ownership.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FileTagPair<'a> {
-    /// File path as string slice
-    pub file: &'a str,
+    /// File path as borrowed or owned string
+    pub file: Cow<'a, str>,
     /// Tags associated with the file
     pub tags: &'a [String],
 }
@@ -59,8 +60,11 @@ pub struct FileTagPair<'a> {
 impl<'a> FileTagPair<'a> {
     /// Create a new file-tag pair
     #[must_use]
-    pub const fn new(file: &'a str, tags: &'a [String]) -> Self {
-        Self { file, tags }
+    pub fn new(file: impl Into<Cow<'a, str>>, tags: &'a [String]) -> Self {
+        Self {
+            file: file.into(),
+            tags,
+        }
     }
 }
 
@@ -234,7 +238,7 @@ mod tests {
     fn test_file_tag_pair_creation() {
         let tags = vec!["rust".to_string(), "web".to_string()];
         let pair = FileTagPair::new("test.rs", &tags);
-        assert_eq!(pair.file, "test.rs");
+        assert_eq!(pair.file.as_ref(), "test.rs");
         assert_eq!(pair.tags.len(), 2);
     }
 
@@ -242,7 +246,7 @@ mod tests {
     fn test_as_pair_trait() {
         let mock = MockFile::new("test.rs", vec!["rust", "web"]);
         let pair = mock.as_pair();
-        assert_eq!(pair.file, "test.rs");
+        assert_eq!(pair.file.as_ref(), "test.rs");
         assert_eq!(pair.tags, &["rust", "web"]);
     }
 

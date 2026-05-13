@@ -474,10 +474,11 @@ impl Database {
     ///
     /// # Errors
     ///
-    /// Returns `DbError` if clearing either the files or tags tree fails.
+    /// Returns `DbError` if clearing any internal tree fails.
     pub fn clear(&self) -> Result<(), DbError> {
         self.files.clear()?;
         self.tags.clear()?;
+        self.notes.clear()?;
         Ok(())
     }
 
@@ -804,6 +805,35 @@ mod tests {
     use super::*;
     use crate::testing::{TempFile, TestDb};
     use std::fs;
+    use std::path::Path;
+    use std::time::Duration;
+
+    fn open_test_db(path: &Path) -> Database {
+        let mut last_error = None;
+        for delay_ms in [0_u64, 10, 20, 40, 80, 120] {
+            if delay_ms > 0 {
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+
+            match Database::open(path) {
+                Ok(db) => return db,
+                Err(err) => {
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        match last_error {
+            Some(err) => panic!(
+                "Failed to open test database at '{}' after retries: {err}",
+                path.display()
+            ),
+            None => panic!(
+                "Failed to open test database at '{}' with unknown error",
+                path.display()
+            ),
+        }
+    }
 
     #[test]
     fn test_create_database() {
@@ -856,39 +886,61 @@ mod tests {
     }
 
     #[test]
+    fn test_clear_removes_notes() {
+        let test_db = TestDb::new("test_clear_removes_notes");
+        let db = test_db.db();
+
+        let file = TempFile::create("note_clear_test.txt").unwrap();
+        let note = NoteRecord::new("clear me".to_string());
+
+        db.set_note(file.path(), &note).unwrap();
+        assert!(db.get_note(file.path()).unwrap().is_some());
+
+        db.clear().unwrap();
+
+        assert!(db.get_note(file.path()).unwrap().is_none());
+        assert!(db.list_all_notes().unwrap().is_empty());
+    }
+
+    #[test]
     fn test_remove_database_physically() {
-        let test_db_path = "test_db_remove";
+        let test_root = tempfile::Builder::new()
+            .prefix("test_db_remove")
+            .tempdir()
+            .unwrap();
+        let test_db_path = test_root.path().join("db");
         let file = TempFile::create("file.txt").unwrap();
 
         {
-            let db = Database::open(test_db_path).unwrap();
+            let db = open_test_db(&test_db_path);
             db.clear().unwrap();
             db.insert(file.path(), vec!["tag".into()]).unwrap();
-            assert!(PathBuf::from(test_db_path).exists());
+            assert!(test_db_path.exists());
         }
 
-        fs::remove_dir_all(test_db_path).unwrap();
+        fs::remove_dir_all(&test_db_path).unwrap();
 
-        assert!(!PathBuf::from(test_db_path).exists());
+        assert!(!test_db_path.exists());
     }
 
     #[test]
     fn test_reopen_existing_database() {
-        let test_db_path = "test_db_reopen";
+        let test_root = tempfile::Builder::new()
+            .prefix("test_db_reopen")
+            .tempdir()
+            .unwrap();
+        let test_db_path = test_root.path().join("db");
         let file = TempFile::create("persistent.txt").unwrap();
 
         {
-            let db = Database::open(test_db_path).unwrap();
+            let db = open_test_db(&test_db_path);
             db.clear().unwrap();
             db.insert(file.path(), vec!["saved".into()]).unwrap();
             db.flush().unwrap();
         }
 
-        // Mitigate occasional sled lock retention in parallel test runs
-        std::thread::sleep(std::time::Duration::from_millis(20));
-
         {
-            let db = Database::open(test_db_path).unwrap();
+            let db = open_test_db(&test_db_path);
             assert_eq!(db.count(), 1);
             assert!(db.contains(file.path()).unwrap());
             let tags = db.get_tags(file.path()).unwrap();
@@ -896,8 +948,6 @@ mod tests {
 
             db.clear().unwrap();
         }
-
-        let _ = fs::remove_dir_all(test_db_path);
     }
 
     #[test]
@@ -926,23 +976,27 @@ mod tests {
 
     #[test]
     fn test_remove_and_recreate_database() {
-        let test_db_path = "test_db_recreate";
+        let test_root = tempfile::Builder::new()
+            .prefix("test_db_recreate")
+            .tempdir()
+            .unwrap();
+        let test_db_path = test_root.path().join("db");
 
         {
             let old_file = TempFile::create("old_file.txt").unwrap();
-            let db = Database::open(test_db_path).unwrap();
+            let db = open_test_db(&test_db_path);
             db.clear().unwrap();
             db.insert(old_file.path(), vec!["old_tag".into()]).unwrap();
             assert_eq!(db.count(), 1);
         }
 
-        fs::remove_dir_all(test_db_path).unwrap();
-        assert!(!PathBuf::from(test_db_path).exists());
+        fs::remove_dir_all(&test_db_path).unwrap();
+        assert!(!test_db_path.exists());
 
         {
             let new_file = TempFile::create("new_file.txt").unwrap();
             let old_file_path = PathBuf::from("old_file.txt");
-            let db = Database::open(test_db_path).unwrap();
+            let db = open_test_db(&test_db_path);
             assert_eq!(db.count(), 0);
 
             db.insert(new_file.path(), vec!["new_tag".into()]).unwrap();
@@ -952,28 +1006,28 @@ mod tests {
 
             db.clear().unwrap();
         }
-
-        let _ = fs::remove_dir_all(test_db_path);
     }
 
     #[test]
     fn test_database_flush_on_drop() {
-        let test_db_path = "test_db_flush_drop";
+        let test_root = tempfile::Builder::new()
+            .prefix("test_db_flush_drop")
+            .tempdir()
+            .unwrap();
+        let test_db_path = test_root.path().join("db");
         let file = TempFile::create("file.txt").unwrap();
 
         {
-            let db = Database::open(test_db_path).unwrap();
+            let db = open_test_db(&test_db_path);
             db.clear().unwrap();
             db.insert(file.path(), vec!["tag".into()]).unwrap();
         }
 
         {
-            let db = Database::open(test_db_path).unwrap();
+            let db = open_test_db(&test_db_path);
             assert!(db.contains(file.path()).unwrap());
             db.clear().unwrap();
         }
-
-        let _ = fs::remove_dir_all(test_db_path);
     }
 
     #[test]

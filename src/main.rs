@@ -52,6 +52,10 @@ use tagr::{
 
 type Result<T> = std::result::Result<T, TagrError>;
 
+fn required_arg(name: &'static str) -> TagrError {
+    TagrError::InvalidInput(format!("Missing required argument '{name}'"))
+}
+
 /// Handle the db command - manage multiple databases
 #[allow(clippy::too_many_lines)]
 fn handle_db_command(
@@ -333,9 +337,10 @@ fn main() -> Result<()> {
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
     } else {
-        let db_name = command.get_db().or_else(|| {
-            config.get_default_database().cloned()
-        }).ok_or_else(|| TagrError::InvalidInput(
+        let db_name = command
+            .get_db()
+            .or_else(|| config.get_default_database().map(ToOwned::to_owned))
+            .ok_or_else(|| TagrError::InvalidInput(
             "No default database set. Use 'tagr db add <name> <path>' to create one, or specify --db <name>.".into()
         ))?;
 
@@ -357,7 +362,9 @@ fn main() -> Result<()> {
 
         match &command {
             Commands::Browse { filter_args, .. } => {
-                let ctx = command.get_browse_context().unwrap();
+                let ctx = command
+                    .get_browse_context()
+                    .ok_or_else(|| required_arg("browse context"))?;
 
                 let save_filter = filter_args
                     .save_filter
@@ -376,7 +383,9 @@ fn main() -> Result<()> {
                 )?;
             }
             Commands::Tag { .. } => {
-                let ctx = command.get_tag_context().unwrap();
+                let ctx = command
+                    .get_tag_context()
+                    .ok_or_else(|| required_arg("tag context"))?;
                 commands::tag(&db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet)?;
             }
             Commands::Search {
@@ -419,7 +428,9 @@ fn main() -> Result<()> {
                 )?;
             }
             Commands::Untag { .. } => {
-                let ctx = command.get_untag_context().unwrap();
+                let ctx = command
+                    .get_untag_context()
+                    .ok_or_else(|| required_arg("untag context"))?;
                 commands::tag::untag(&db, ctx.file, &ctx.tags, ctx.all, quiet)?;
             }
             Commands::Tags { command, .. } => {
@@ -603,6 +614,10 @@ fn main() -> Result<()> {
                         use commands::bulk::TagTransformation;
                         use tagr::cli::TransformationType;
 
+                        let required_param = |name: &'static str| -> Result<String> {
+                            param.clone().ok_or_else(|| required_arg(name))
+                        };
+
                         let trans = match transformation {
                             TransformationType::Lowercase => TagTransformation::Lowercase,
                             TransformationType::Uppercase => TagTransformation::Uppercase,
@@ -611,20 +626,22 @@ fn main() -> Result<()> {
                             TransformationType::CamelCase => TagTransformation::CamelCase,
                             TransformationType::PascalCase => TagTransformation::PascalCase,
                             TransformationType::AddPrefix => {
-                                TagTransformation::AddPrefix(param.clone().unwrap())
+                                TagTransformation::AddPrefix(required_param("param")?)
                             }
                             TransformationType::AddSuffix => {
-                                TagTransformation::AddSuffix(param.clone().unwrap())
+                                TagTransformation::AddSuffix(required_param("param")?)
                             }
                             TransformationType::RemovePrefix => {
-                                TagTransformation::RemovePrefix(param.clone().unwrap())
+                                TagTransformation::RemovePrefix(required_param("param")?)
                             }
                             TransformationType::RemoveSuffix => {
-                                TagTransformation::RemoveSuffix(param.clone().unwrap())
+                                TagTransformation::RemoveSuffix(required_param("param")?)
                             }
                             TransformationType::RegexReplace => TagTransformation::RegexReplace {
-                                pattern: param.clone().unwrap(),
-                                replacement: replacement.clone().unwrap(),
+                                pattern: required_param("param")?,
+                                replacement: replacement
+                                    .clone()
+                                    .ok_or_else(|| required_arg("replacement"))?,
                             },
                         };
 

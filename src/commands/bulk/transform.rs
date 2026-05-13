@@ -115,12 +115,10 @@ pub fn transform_tags(
                 .find(|(_, v)| *v == &new_tag)
                 .map(|(k, _)| k.clone())
             {
-                conflicts
-                    .entry(new_tag.clone())
-                    .or_default()
-                    .push(old_tag.clone());
+                let conflict_entries = conflicts.entry(new_tag.clone()).or_default();
+                conflict_entries.push(old_tag.clone());
                 if &existing_old != old_tag {
-                    conflicts.get_mut(&new_tag).unwrap().push(existing_old);
+                    conflict_entries.push(existing_old);
                 }
             } else {
                 tag_mapping.insert(old_tag.clone(), new_tag);

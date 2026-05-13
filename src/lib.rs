@@ -86,8 +86,7 @@ impl Pair {
 
 impl search::AsFileTagPair for Pair {
     fn as_pair(&self) -> search::FileTagPair<'_> {
-        // Convert PathBuf to &str - if invalid UTF-8, use empty string
-        let file_str = self.file.to_str().unwrap_or("");
+        let file_str = self.file.to_string_lossy();
         search::FileTagPair::new(file_str, &self.tags)
     }
 }
