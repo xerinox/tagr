@@ -54,6 +54,67 @@ impl WatchArgs {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_args(patterns: Vec<&str>, tags: Vec<&str>) -> WatchArgs {
+        WatchArgs {
+            patterns: patterns.into_iter().map(PathBuf::from).collect(),
+            tags: tags.into_iter().map(String::from).collect(),
+            filter: None,
+            vtags: vec![],
+            filter_by_tags: vec![],
+            stop: false,
+            daemon: false,
+        }
+    }
+
+    #[test]
+    fn test_to_rule_with_patterns_and_tags() {
+        let args = make_args(vec!["~/docs/*.md"], vec!["docs", "markdown"]);
+        let rule = args.to_rule().unwrap();
+
+        assert_eq!(rule.patterns, vec!["~/docs/*.md"]);
+        assert_eq!(rule.tags, vec!["docs", "markdown"]);
+        assert!(rule.filter.is_none());
+        assert!(rule.filter_criteria.is_none());
+    }
+
+    #[test]
+    fn test_to_rule_empty_patterns_returns_none() {
+        let args = make_args(vec![], vec!["tag1"]);
+        assert!(args.to_rule().is_none());
+    }
+
+    #[test]
+    fn test_to_rule_preserves_filter() {
+        let mut args = make_args(vec!["/tmp/*.rs"], vec!["rust"]);
+        args.filter = Some("my-filter".into());
+        let rule = args.to_rule().unwrap();
+        assert_eq!(rule.filter, Some("my-filter".into()));
+    }
+
+    #[test]
+    fn test_to_rule_preserves_vtags_and_filter_by_tags() {
+        let mut args = make_args(vec!["/tmp/*.rs"], vec!["rust"]);
+        args.vtags = vec!["size:small".into()];
+        args.filter_by_tags = vec!["code".into()];
+        let rule = args.to_rule().unwrap();
+
+        assert_eq!(rule.vtags, vec!["size:small"]);
+        assert_eq!(rule.filter_by_tags, vec!["code"]);
+    }
+
+    #[test]
+    fn test_to_rule_empty_tags_still_creates_rule() {
+        let args = make_args(vec!["/tmp/*.txt"], vec![]);
+        let rule = args.to_rule().unwrap();
+        assert!(rule.tags.is_empty());
+        assert_eq!(rule.patterns, vec!["/tmp/*.txt"]);
+    }
+}
+
 /// Handle `tagr watch` from the CLI (non-daemon path).
 ///
 /// Updates `watch.toml` with the new rule and ensures the daemon is running

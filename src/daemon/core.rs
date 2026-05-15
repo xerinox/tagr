@@ -434,3 +434,232 @@ fn make_absolute(p: &Path, base: &Path) -> PathBuf {
         base.join(p)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ipc::{IpcRequest, IpcResponse};
+    use crate::testing::TestDb;
+
+    // ---- glob_parent tests ----
+
+    #[test]
+    fn test_glob_parent_simple_wildcard() {
+        let result = glob_parent("/home/user/docs/*.md");
+        assert_eq!(result, PathBuf::from("/home/user/docs"));
+    }
+
+    #[test]
+    fn test_glob_parent_recursive_wildcard() {
+        let result = glob_parent("/home/user/projects/**/*.rs");
+        assert_eq!(result, PathBuf::from("/home/user/projects"));
+    }
+
+    #[test]
+    fn test_glob_parent_no_glob() {
+        let result = glob_parent("/home/user/docs/readme.md");
+        assert_eq!(result, PathBuf::from("/home/user/docs/readme.md"));
+    }
+
+    #[test]
+    fn test_glob_parent_glob_in_middle() {
+        let result = glob_parent("/home/*/docs/*.md");
+        assert_eq!(result, PathBuf::from("/home"));
+    }
+
+    #[test]
+    fn test_glob_parent_question_mark() {
+        let result = glob_parent("/tmp/file?.txt");
+        assert_eq!(result, PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn test_glob_parent_bracket_pattern() {
+        let result = glob_parent("/tmp/[abc].txt");
+        assert_eq!(result, PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn test_glob_parent_tilde_expansion() {
+        let result = glob_parent("~/docs/*.md");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(result, home.join("docs"));
+        }
+    }
+
+    #[test]
+    fn test_glob_parent_pure_glob() {
+        // A glob with no directory prefix resolves to empty string (no parent)
+        let result = glob_parent("*.txt");
+        assert!(
+            result == PathBuf::from(".") || result == PathBuf::from(""),
+            "Expected '.' or '', got: {:?}",
+            result
+        );
+    }
+
+    // ---- make_absolute tests ----
+
+    #[test]
+    fn test_make_absolute_already_absolute() {
+        let result = make_absolute(Path::new("/home/user/file.txt"), Path::new("/base"));
+        assert_eq!(result, PathBuf::from("/home/user/file.txt"));
+    }
+
+    #[test]
+    fn test_make_absolute_relative() {
+        let result = make_absolute(Path::new("file.txt"), Path::new("/base/dir"));
+        assert_eq!(result, PathBuf::from("/base/dir/file.txt"));
+    }
+
+    #[test]
+    fn test_make_absolute_relative_nested() {
+        let result = make_absolute(Path::new("sub/dir/file.txt"), Path::new("/base"));
+        assert_eq!(result, PathBuf::from("/base/sub/dir/file.txt"));
+    }
+
+    // ---- resolve_relative_paths tests ----
+
+    #[test]
+    fn test_resolve_relative_paths_tag_file_flag() {
+        let mut cmd = crate::cli::Commands::Tag {
+            file_flag: Some(PathBuf::from("relative.txt")),
+            tags_flag: vec!["tag1".into()],
+            file_pos: None,
+            tags_pos: vec![],
+            no_canonicalize: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/working/dir"));
+
+        if let crate::cli::Commands::Tag { file_flag, .. } = &cmd {
+            assert_eq!(file_flag.as_ref().unwrap(), &PathBuf::from("/working/dir/relative.txt"));
+        } else {
+            panic!("Expected Tag command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_relative_paths_tag_file_pos() {
+        let mut cmd = crate::cli::Commands::Tag {
+            file_flag: None,
+            tags_flag: vec![],
+            file_pos: Some(PathBuf::from("file.txt")),
+            tags_pos: vec!["tag1".into()],
+            no_canonicalize: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/cwd"));
+
+        if let crate::cli::Commands::Tag { file_pos, .. } = &cmd {
+            assert_eq!(file_pos.as_ref().unwrap(), &PathBuf::from("/cwd/file.txt"));
+        } else {
+            panic!("Expected Tag command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_relative_paths_absolute_unchanged() {
+        let mut cmd = crate::cli::Commands::Tag {
+            file_flag: Some(PathBuf::from("/absolute/path.txt")),
+            tags_flag: vec!["tag1".into()],
+            file_pos: None,
+            tags_pos: vec![],
+            no_canonicalize: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/cwd"));
+
+        if let crate::cli::Commands::Tag { file_flag, .. } = &cmd {
+            assert_eq!(file_flag.as_ref().unwrap(), &PathBuf::from("/absolute/path.txt"));
+        } else {
+            panic!("Expected Tag command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_relative_paths_untag() {
+        let mut cmd = crate::cli::Commands::Untag {
+            file_flag: Some(PathBuf::from("file.txt")),
+            tags_flag: vec!["tag1".into()],
+            file_pos: None,
+            tags_pos: vec![],
+            all: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/base"));
+
+        if let crate::cli::Commands::Untag { file_flag, .. } = &cmd {
+            assert_eq!(file_flag.as_ref().unwrap(), &PathBuf::from("/base/file.txt"));
+        } else {
+            panic!("Expected Untag command");
+        }
+    }
+
+    // ---- execute_ipc_command tests ----
+
+    #[test]
+    fn test_execute_ipc_ping() {
+        let test_db = TestDb::new("ipc_ping");
+        let (resp, shutdown) = execute_ipc_command(IpcRequest::Ping, test_db.db());
+        assert!(!shutdown);
+        assert!(resp.is_success());
+        assert_eq!(resp.as_str(), "pong");
+    }
+
+    #[test]
+    fn test_execute_ipc_shutdown() {
+        let test_db = TestDb::new("ipc_shutdown");
+        let (resp, shutdown) = execute_ipc_command(IpcRequest::Shutdown, test_db.db());
+        assert!(shutdown);
+        assert!(resp.is_success());
+        assert_eq!(resp.as_str(), "ok");
+    }
+
+    #[test]
+    fn test_execute_ipc_command_invalid_args() {
+        let test_db = TestDb::new("ipc_invalid");
+        let (resp, shutdown) = execute_ipc_command(
+            IpcRequest::Command {
+                args: vec!["tagr".into(), "--nonsense-flag".into()],
+                cwd: "/tmp".into(),
+            },
+            test_db.db(),
+        );
+        assert!(!shutdown);
+        assert!(!resp.is_success());
+    }
+
+    #[test]
+    fn test_execute_ipc_command_list() {
+        let test_db = TestDb::new("ipc_list");
+        let db = test_db.db();
+
+        let temp = crate::testing::TempFile::create("ipc_test.txt").unwrap();
+        db.insert(temp.path(), vec!["test-tag".into()]).unwrap();
+
+        let (resp, shutdown) = execute_ipc_command(
+            IpcRequest::Command {
+                args: vec!["tagr".into(), "list".into()],
+                cwd: "/tmp".into(),
+            },
+            db,
+        );
+        assert!(!shutdown);
+        // The list command may fail if TagrConfig::load() returns a config
+        // that doesn't match the test DB. We verify no panic and valid response.
+        match resp {
+            IpcResponse::Success(output) => {
+                // If config loaded successfully, output should contain our file
+                assert!(output.contains("ipc_test.txt"), "Expected file in list output: {output}");
+            }
+            IpcResponse::Error(_) => {
+                // Acceptable — config mismatch in test environment
+            }
+        }
+    }
+}

@@ -872,7 +872,7 @@ pub enum FilterCommands {
 }
 
 /// Shared arguments for commands that work with a database
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Default)]
 pub struct DbArgs {
     /// Database name to use (overrides default)
     #[arg(long = "db", value_name = "NAME")]

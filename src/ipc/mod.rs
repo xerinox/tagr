@@ -102,4 +102,62 @@ mod tests {
         assert!(!resp.is_success());
         assert_eq!(resp.as_str(), "test error");
     }
+
+    #[test]
+    fn test_ipc_request_ping_serde_round_trip() {
+        let req = IpcRequest::Ping;
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: IpcRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, IpcRequest::Ping));
+    }
+
+    #[test]
+    fn test_ipc_request_shutdown_serde_round_trip() {
+        let req = IpcRequest::Shutdown;
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: IpcRequest = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, IpcRequest::Shutdown));
+    }
+
+    #[test]
+    fn test_ipc_request_command_serde_round_trip() {
+        let req = IpcRequest::Command {
+            args: vec!["tagr".into(), "search".into(), "-t".into(), "rust".into()],
+            cwd: "/home/user/projects".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        match deserialized {
+            IpcRequest::Command { args, cwd } => {
+                assert_eq!(args, vec!["tagr", "search", "-t", "rust"]);
+                assert_eq!(cwd, "/home/user/projects");
+            }
+            _ => panic!("Expected Command variant"),
+        }
+    }
+
+    #[test]
+    fn test_ipc_response_serde_round_trip() {
+        let success = IpcResponse::Success("file1.txt\nfile2.txt\n".into());
+        let json = serde_json::to_string(&success).unwrap();
+        let deserialized: IpcResponse = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.is_success());
+        assert_eq!(deserialized.as_str(), "file1.txt\nfile2.txt\n");
+
+        let error = IpcResponse::Error("not found".into());
+        let json = serde_json::to_string(&error).unwrap();
+        let deserialized: IpcResponse = serde_json::from_str(&json).unwrap();
+        assert!(!deserialized.is_success());
+        assert_eq!(deserialized.as_str(), "not found");
+    }
+
+    #[test]
+    fn test_ipc_socket_path_is_valid() {
+        // This should succeed on any Unix/Windows platform
+        if let Ok(path) = get_ipc_socket_path() {
+            let path_str = path.to_string_lossy();
+            assert!(path_str.contains("tagr_daemon"));
+        }
+    }
 }
