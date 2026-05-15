@@ -423,7 +423,53 @@ fn resolve_relative_paths(command: &mut crate::cli::Commands, base: &Path) {
                 *p = make_absolute(p, base);
             }
         }
+        Commands::Note { command: note_cmd, .. } => {
+            resolve_note_paths(note_cmd, base);
+        }
+        Commands::Filter { command: filter_cmd } => {
+            resolve_filter_paths(filter_cmd, base);
+        }
         _ => {}
+    }
+}
+
+fn resolve_note_paths(cmd: &mut crate::commands::note::NoteSubcommand, base: &Path) {
+    use crate::commands::note::NoteSubcommand;
+    match cmd {
+        NoteSubcommand::Edit(args) => {
+            make_all_absolute(&mut args.files, base);
+        }
+        NoteSubcommand::Add(args) => {
+            args.file = make_absolute(&args.file, base);
+        }
+        NoteSubcommand::Show(args) => {
+            make_all_absolute(&mut args.files, base);
+        }
+        NoteSubcommand::Delete(args) => {
+            make_all_absolute(&mut args.files, base);
+        }
+        NoteSubcommand::List(_) | NoteSubcommand::Search(_) => {}
+    }
+}
+
+fn resolve_filter_paths(cmd: &mut crate::cli::FilterCommands, base: &Path) {
+    use crate::cli::FilterCommands;
+    match cmd {
+        FilterCommands::Import { path, .. } => {
+            *path = make_absolute(path, base);
+        }
+        FilterCommands::Export { output, .. } => {
+            if let Some(p) = output {
+                *p = make_absolute(p, base);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn make_all_absolute(paths: &mut [PathBuf], base: &Path) {
+    for p in paths.iter_mut() {
+        *p = make_absolute(p, base);
     }
 }
 
@@ -661,5 +707,176 @@ mod tests {
                 // Acceptable — config mismatch in test environment
             }
         }
+    }
+
+    // ---- resolve_relative_paths: Note commands ----
+
+    #[test]
+    fn test_resolve_note_add_relative() {
+        let mut cmd = crate::cli::Commands::Note {
+            command: crate::commands::note::NoteSubcommand::Add(
+                crate::commands::note::AddArgs {
+                    file: PathBuf::from("notes.txt"),
+                    content: "hello".into(),
+                },
+            ),
+            absolute: false,
+            relative: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/project"));
+
+        if let crate::cli::Commands::Note { command: crate::commands::note::NoteSubcommand::Add(args), .. } = &cmd {
+            assert_eq!(args.file, PathBuf::from("/project/notes.txt"));
+        } else {
+            panic!("Expected Note Add command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_note_show_multiple_files() {
+        let mut cmd = crate::cli::Commands::Note {
+            command: crate::commands::note::NoteSubcommand::Show(
+                crate::commands::note::ShowArgs {
+                    files: vec![PathBuf::from("a.txt"), PathBuf::from("/abs/b.txt")],
+                    format: Default::default(),
+                    verbose: false,
+                },
+            ),
+            absolute: false,
+            relative: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/base"));
+
+        if let crate::cli::Commands::Note { command: crate::commands::note::NoteSubcommand::Show(args), .. } = &cmd {
+            assert_eq!(args.files[0], PathBuf::from("/base/a.txt"));
+            assert_eq!(args.files[1], PathBuf::from("/abs/b.txt"));
+        } else {
+            panic!("Expected Note Show command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_note_edit_relative() {
+        let mut cmd = crate::cli::Commands::Note {
+            command: crate::commands::note::NoteSubcommand::Edit(
+                crate::commands::note::EditArgs {
+                    files: vec![PathBuf::from("doc.md")],
+                    editor: None,
+                },
+            ),
+            absolute: false,
+            relative: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/workspace"));
+
+        if let crate::cli::Commands::Note { command: crate::commands::note::NoteSubcommand::Edit(args), .. } = &cmd {
+            assert_eq!(args.files[0], PathBuf::from("/workspace/doc.md"));
+        } else {
+            panic!("Expected Note Edit command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_note_delete_relative() {
+        let mut cmd = crate::cli::Commands::Note {
+            command: crate::commands::note::NoteSubcommand::Delete(
+                crate::commands::note::DeleteArgs {
+                    files: vec![PathBuf::from("old.txt")],
+                    dry_run: false,
+                    yes: false,
+                },
+            ),
+            absolute: false,
+            relative: false,
+            db_args: Default::default(),
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/home"));
+
+        if let crate::cli::Commands::Note { command: crate::commands::note::NoteSubcommand::Delete(args), .. } = &cmd {
+            assert_eq!(args.files[0], PathBuf::from("/home/old.txt"));
+        } else {
+            panic!("Expected Note Delete command");
+        }
+    }
+
+    // ---- resolve_relative_paths: Filter commands ----
+
+    #[test]
+    fn test_resolve_filter_import_relative() {
+        let mut cmd = crate::cli::Commands::Filter {
+            command: crate::cli::FilterCommands::Import {
+                path: PathBuf::from("filters.toml"),
+                overwrite: false,
+                skip_existing: false,
+            },
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/data"));
+
+        if let crate::cli::Commands::Filter { command: crate::cli::FilterCommands::Import { path, .. } } = &cmd {
+            assert_eq!(*path, PathBuf::from("/data/filters.toml"));
+        } else {
+            panic!("Expected Filter Import command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_filter_export_relative() {
+        let mut cmd = crate::cli::Commands::Filter {
+            command: crate::cli::FilterCommands::Export {
+                filters: vec![],
+                output: Some(PathBuf::from("out.toml")),
+            },
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/export"));
+
+        if let crate::cli::Commands::Filter { command: crate::cli::FilterCommands::Export { output, .. } } = &cmd {
+            assert_eq!(output.as_ref().unwrap(), &PathBuf::from("/export/out.toml"));
+        } else {
+            panic!("Expected Filter Export command");
+        }
+    }
+
+    #[test]
+    fn test_resolve_filter_export_no_output() {
+        let mut cmd = crate::cli::Commands::Filter {
+            command: crate::cli::FilterCommands::Export {
+                filters: vec![],
+                output: None,
+            },
+        };
+
+        resolve_relative_paths(&mut cmd, Path::new("/export"));
+
+        if let crate::cli::Commands::Filter { command: crate::cli::FilterCommands::Export { output, .. } } = &cmd {
+            assert!(output.is_none());
+        } else {
+            panic!("Expected Filter Export command");
+        }
+    }
+
+    // ---- make_all_absolute ----
+
+    #[test]
+    fn test_make_all_absolute_mixed() {
+        let mut paths = vec![
+            PathBuf::from("relative.txt"),
+            PathBuf::from("/already/absolute.txt"),
+            PathBuf::from("sub/dir/file.rs"),
+        ];
+
+        make_all_absolute(&mut paths, Path::new("/base"));
+
+        assert_eq!(paths[0], PathBuf::from("/base/relative.txt"));
+        assert_eq!(paths[1], PathBuf::from("/already/absolute.txt"));
+        assert_eq!(paths[2], PathBuf::from("/base/sub/dir/file.rs"));
     }
 }
