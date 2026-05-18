@@ -337,6 +337,13 @@ fn main() -> Result<()> {
         // - `--daemon` flag means this process IS the daemon; run the event loop
         // - otherwise: update watch.toml and start the daemon if not running
         if watch_args.daemon {
+            // If --daemonize was passed, fork into background first.
+            #[cfg(unix)]
+            if watch_args.daemonize {
+                tagr::daemon::fallback::daemonize_self()
+                    .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            }
+
             let db_name = command.get_db()
                 .or_else(|| config.get_default_database().cloned())
                 .ok_or_else(|| TagrError::InvalidInput(

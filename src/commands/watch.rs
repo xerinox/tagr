@@ -34,6 +34,10 @@ pub struct WatchArgs {
     /// Internal: Run as daemon process
     #[arg(long, hide = true)]
     pub daemon: bool,
+
+    /// Internal: Fork into background via daemonize before starting event loop
+    #[arg(long, hide = true)]
+    pub daemonize: bool,
 }
 
 impl WatchArgs {
@@ -67,6 +71,7 @@ mod tests {
             filter_by_tags: vec![],
             stop: false,
             daemon: false,
+            daemonize: false,
         }
     }
 

@@ -15,6 +15,16 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 
+/// Guard that removes the IPC socket file when dropped.
+/// Ensures cleanup happens on normal exit, IPC shutdown, signal, or panic.
+struct SocketGuard(PathBuf);
+
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// Run the daemon event loop (blocking — starts its own async runtime).
 ///
 /// # Errors
@@ -23,6 +33,20 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 pub fn run(db: &Database) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async_run(db))
+}
+
+/// Returns a future that resolves on SIGTERM (Unix) or never resolves (other platforms).
+#[cfg(unix)]
+async fn sigterm_or_pending() {
+    let mut sig = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("failed to register SIGTERM handler");
+    sig.recv().await;
+}
+
+/// Returns a future that never resolves (SIGTERM not available on this platform).
+#[cfg(not(unix))]
+async fn sigterm_or_pending() {
+    std::future::pending::<()>().await;
 }
 
 async fn async_run(db: &Database) -> Result<()> {
@@ -37,6 +61,10 @@ async fn async_run(db: &Database) -> Result<()> {
     let listener = ListenerOptions::new()
         .name(socket_path.clone().to_fs_name::<GenericFilePath>()?)
         .create_tokio()?;
+
+    // Guard ensures socket is cleaned up on normal exit, signal, or panic.
+    let _socket_guard = SocketGuard(socket_path.clone());
+
     println!("IPC socket: {:?}", socket_path);
 
     // Setup the notify file watcher with an async channel.
@@ -77,6 +105,14 @@ async fn async_run(db: &Database) -> Result<()> {
     println!("Daemon ready.");
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+    // Cross-platform Ctrl-C (SIGINT on Unix, Ctrl-C on Windows).
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+
+    // SIGTERM on Unix; a never-completing future on other platforms.
+    let sigterm = sigterm_or_pending();
+    tokio::pin!(sigterm);
 
     loop {
         tokio::select! {
@@ -132,6 +168,14 @@ async fn async_run(db: &Database) -> Result<()> {
                     }
                 });
             }
+            _ = &mut ctrl_c => {
+                println!("Received SIGINT. Stopping daemon.");
+                break;
+            }
+            _ = &mut sigterm => {
+                println!("Received SIGTERM. Stopping daemon.");
+                break;
+            }
             _ = shutdown_rx.recv() => {
                 println!("Shutdown requested. Stopping daemon.");
                 break;
@@ -139,9 +183,8 @@ async fn async_run(db: &Database) -> Result<()> {
         }
     }
 
-    // Delete the socket so callers waiting on it know the daemon has fully stopped.
-    // This happens before the sled DB is dropped, giving a reliable sync point.
-    let _ = std::fs::remove_file(&socket_path);
+    // SocketGuard removes the socket file on drop, which happens here
+    // before the sled DB is dropped — giving callers a reliable sync point.
     Ok(())
 }
 

@@ -67,3 +67,6 @@ lto = "thin"
 [lints.clippy]
 pedantic = "warn"
 nursery = "warn"
+
+[target."cfg(unix)".dependencies]
+daemonize = "0.5.0"
