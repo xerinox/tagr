@@ -3,6 +3,7 @@
 use crate::{TagrError, cli::TagsCommands, db::Database, output};
 use dialoguer::Confirm;
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -10,42 +11,42 @@ type Result<T> = std::result::Result<T, TagrError>;
 ///
 /// # Errors
 /// Returns an error if database operations fail or user interaction fails
-pub fn execute(db: &Database, command: &TagsCommands, quiet: bool) -> Result<()> {
+pub fn execute(db: &Database, command: &TagsCommands, quiet: bool, writer: &mut impl Write) -> Result<()> {
     match command {
-        TagsCommands::List { tree } => list_all_tags(db, *tree, quiet),
-        TagsCommands::Remove { tag } => remove_tag_globally(db, tag, quiet),
+        TagsCommands::List { tree } => list_all_tags(db, *tree, quiet, writer),
+        TagsCommands::Remove { tag } => remove_tag_globally(db, tag, quiet, writer),
     }
 }
 
-fn list_all_tags(db: &Database, tree: bool, quiet: bool) -> Result<()> {
+fn list_all_tags(db: &Database, tree: bool, quiet: bool, writer: &mut impl Write) -> Result<()> {
     let tags = db.list_all_tags()?;
 
     if tags.is_empty() {
         if !quiet {
-            println!("No tags found in database.");
+            writeln!(writer, "No tags found in database.")?;
         }
         return Ok(());
     }
 
     if tree {
-        display_tree_view(db, &tags, quiet)
+        display_tree_view(db, &tags, quiet, writer)
     } else {
-        display_flat_list(db, &tags, quiet)
+        display_flat_list(db, &tags, quiet, writer)
     }
 }
 
-fn display_flat_list(db: &Database, tags: &[String], quiet: bool) -> Result<()> {
+fn display_flat_list(db: &Database, tags: &[String], quiet: bool, writer: &mut impl Write) -> Result<()> {
     if !quiet {
-        println!("Tags in database:");
+        writeln!(writer, "Tags in database:")?;
     }
     for tag in tags {
         let count = db.find_by_tag(tag)?.len();
-        println!("{}", output::tag_with_count(tag, count, quiet));
+        writeln!(writer, "{}", output::tag_with_count(tag, count, quiet))?;
     }
     Ok(())
 }
 
-fn display_tree_view(db: &Database, tags: &[String], quiet: bool) -> Result<()> {
+fn display_tree_view(db: &Database, tags: &[String], quiet: bool, writer: &mut impl Write) -> Result<()> {
     use crate::schema::HIERARCHY_DELIMITER;
 
     // Separate hierarchical tags from flat tags
@@ -72,7 +73,7 @@ fn display_tree_view(db: &Database, tags: &[String], quiet: bool) -> Result<()> 
     }
 
     if !quiet {
-        println!("Tags in database (tree view):");
+        writeln!(writer, "Tags in database (tree view):")?;
     }
 
     // Sort root tags for consistent output
@@ -81,8 +82,8 @@ fn display_tree_view(db: &Database, tags: &[String], quiet: bool) -> Result<()> 
 
     for root in sorted_roots {
         let count = db.find_by_tag(&root)?.len();
-        println!("{}", output::tag_with_count(&root, count, quiet));
-        print_children(db, &root, &hierarchy, quiet)?;
+        writeln!(writer, "{}", output::tag_with_count(&root, count, quiet))?;
+        print_children(db, &root, &hierarchy, quiet, writer)?;
     }
 
     Ok(())
@@ -93,6 +94,7 @@ fn print_children(
     parent: &str,
     hierarchy: &HashMap<String, Vec<String>>,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     use crate::schema::HIERARCHY_DELIMITER;
 
@@ -116,13 +118,13 @@ fn print_children(
             let indent = "    ".repeat(depth.saturating_sub(1));
 
             if quiet {
-                println!("{indent}{prefix_str}{child}");
+                writeln!(writer, "{indent}{prefix_str}{child}")?;
             } else {
-                println!("  {indent}{prefix_str}{child}  ({count} file(s))");
+                writeln!(writer, "  {indent}{prefix_str}{child}  ({count} file(s))")?;
             }
 
             // Recursively print children of this child
-            print_children(db, child, hierarchy, quiet)?;
+            print_children(db, child, hierarchy, quiet, writer)?;
         }
     }
 
@@ -137,27 +139,27 @@ fn extract_root(tag: &str) -> String {
         .to_string()
 }
 
-fn remove_tag_globally(db: &Database, tag: &str, quiet: bool) -> Result<()> {
+fn remove_tag_globally(db: &Database, tag: &str, quiet: bool, writer: &mut impl Write) -> Result<()> {
     let files_before = db.find_by_tag(tag)?;
 
     if files_before.is_empty() {
         if !quiet {
-            println!("Tag '{tag}' not found in database.");
+            writeln!(writer, "Tag '{tag}' not found in database.")?;
         }
         return Ok(());
     }
 
     if !quiet {
-        println!("Found tag '{tag}' in {} file(s):", files_before.len());
+        writeln!(writer, "Found tag '{tag}' in {} file(s):", files_before.len())?;
         for file in &files_before {
-            println!("  - {}", file.display());
+            writeln!(writer, "  - {}", file.display())?;
         }
-        println!();
+        writeln!(writer)?;
     }
 
     if !confirm("Remove tag from all files?", quiet)? {
         if !quiet {
-            println!("Cancelled.");
+            writeln!(writer, "Cancelled.")?;
         }
         return Ok(());
     }
@@ -165,9 +167,9 @@ fn remove_tag_globally(db: &Database, tag: &str, quiet: bool) -> Result<()> {
     let files_removed = db.remove_tag_globally(tag)?;
 
     if !quiet {
-        println!("Removed tag '{tag}' from {} file(s).", files_before.len());
+        writeln!(writer, "Removed tag '{tag}' from {} file(s).", files_before.len())?;
         if files_removed > 0 {
-            println!("Cleaned up {files_removed} file(s) with no remaining tags.");
+            writeln!(writer, "Cleaned up {files_removed} file(s) with no remaining tags.")?;
         }
     }
     Ok(())

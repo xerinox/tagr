@@ -69,31 +69,23 @@ pub fn dispatch_command(
             commands::tag::untag(db, ctx.file, &ctx.tags, ctx.all, quiet, writer)?;
         }
         Commands::Cleanup { .. } => {
-            // Note: Cleanup uses println! directly and might be interactive.
-            // Output capture not fully supported for cleanup yet.
-             commands::cleanup(db, path_format, quiet)?;
+            commands::cleanup(db, path_format, quiet, writer)?;
         }
         Commands::Note { command, .. } => {
-             // Note uses println!
-             command.execute(db, config, path_format)?;
+            command.execute(db, config, path_format, writer)?;
         }
         Commands::Tags { command, .. } => {
-             // Tags uses println!
-             commands::tags(db, command, quiet)?;
+            commands::tags(db, command, quiet, writer)?;
         }
         Commands::Bulk { command: _, .. } => {
-             // Bulk uses println!
-            //  ... copy dispatch logic from main.rs ...
-            // For now, minimal support or use writer if I refactor bulk later.
-            // Leaving bulk for now as it's complex.
-             return Err(TagrError::InvalidInput("Bulk commands not yet supported in daemon mode".into()));
+            return Err(TagrError::InvalidInput("Bulk commands not yet supported in daemon mode".into()));
         }
         Commands::Alias { command } => {
             let db_ref = match command {
                 AliasCommands::SetCanonical { .. } => Some(db),
                 _ => None,
             };
-            commands::alias(command, db_ref)
+            commands::alias(command, db_ref, writer)
                 .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
         }
         Commands::Filter { command } => {

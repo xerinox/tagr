@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::cli::AliasCommands;
 use crate::db::Database;
-use crate::schema::{SchemaError, load_default_schema};
+use crate::schema::load_default_schema;
 
 /// Execute alias management commands
 ///
@@ -12,22 +12,23 @@ use crate::schema::{SchemaError, load_default_schema};
 pub fn execute_alias_command(
     command: &AliasCommands,
     db: Option<&Database>,
+    writer: &mut impl Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
         AliasCommands::Add { alias, canonical } => {
-            add_alias(alias, canonical)?;
+            add_alias(alias, canonical, writer)?;
             Ok(())
         }
         AliasCommands::Remove { alias } => {
-            remove_alias(alias)?;
+            remove_alias(alias, writer)?;
             Ok(())
         }
         AliasCommands::List => {
-            list_aliases()?;
+            list_aliases(writer)?;
             Ok(())
         }
         AliasCommands::Show { tag } => {
-            show_aliases(tag)?;
+            show_aliases(tag, writer)?;
             Ok(())
         }
         AliasCommands::SetCanonical {
@@ -35,30 +36,31 @@ pub fn execute_alias_command(
             canonical,
             dry_run,
             yes,
-        } => set_canonical(alias, canonical, *dry_run, *yes, db),
+        } => set_canonical(alias, canonical, *dry_run, *yes, db, writer),
     }
 }
 
 /// Add a new alias
-fn add_alias(alias: &str, canonical: &str) -> Result<(), SchemaError> {
+fn add_alias(alias: &str, canonical: &str, writer: &mut impl Write) -> Result<(), Box<dyn std::error::Error>> {
     let mut schema = load_default_schema()?;
 
     schema.add_alias(alias, canonical)?;
     schema.save()?;
 
-    println!(
+    writeln!(
+        writer,
         "{} Added alias: {} {} {}",
         "✓".green().bold(),
         alias.cyan(),
         "→".dimmed(),
         canonical.yellow()
-    );
+    )?;
 
     Ok(())
 }
 
 /// Remove an alias
-fn remove_alias(alias: &str) -> Result<(), SchemaError> {
+fn remove_alias(alias: &str, writer: &mut impl Write) -> Result<(), Box<dyn std::error::Error>> {
     let mut schema = load_default_schema()?;
 
     // Get the canonical before removing (for display)
@@ -67,29 +69,30 @@ fn remove_alias(alias: &str) -> Result<(), SchemaError> {
     schema.remove_alias(alias)?;
     schema.save()?;
 
-    println!(
+    writeln!(
+        writer,
         "{} Removed alias: {} {} {}",
         "✓".green().bold(),
         alias.cyan(),
         "→".dimmed(),
         canonical.yellow()
-    );
+    )?;
 
     Ok(())
 }
 
 /// List all aliases
-fn list_aliases() -> Result<(), SchemaError> {
+fn list_aliases(writer: &mut impl Write) -> Result<(), Box<dyn std::error::Error>> {
     let schema = load_default_schema()?;
     let aliases = schema.list_aliases();
 
     if aliases.is_empty() {
-        println!("{}", "No aliases defined".dimmed());
+        writeln!(writer, "{}", "No aliases defined".dimmed())?;
         return Ok(());
     }
 
-    println!("{}", "Aliases:".bold());
-    println!();
+    writeln!(writer, "{}", "Aliases:".bold())?;
+    writeln!(writer)?;
 
     // Find max alias length for alignment
     let max_alias_len = aliases
@@ -99,23 +102,24 @@ fn list_aliases() -> Result<(), SchemaError> {
         .unwrap_or(0);
 
     for (alias, canonical) in &aliases {
-        println!(
+        writeln!(
+            writer,
             "  {:<width$} {} {}",
             alias.cyan(),
             "→".dimmed(),
             canonical.yellow(),
             width = max_alias_len
-        );
+        )?;
     }
 
-    println!();
-    println!("{} aliases total", aliases.len().to_string().bold());
+    writeln!(writer)?;
+    writeln!(writer, "{} aliases total", aliases.len().to_string().bold())?;
 
     Ok(())
 }
 
 /// Show aliases for a specific tag
-fn show_aliases(tag: &str) -> Result<(), SchemaError> {
+fn show_aliases(tag: &str, writer: &mut impl Write) -> Result<(), Box<dyn std::error::Error>> {
     let schema = load_default_schema()?;
 
     // Check if tag is an alias
@@ -123,12 +127,13 @@ fn show_aliases(tag: &str) -> Result<(), SchemaError> {
     let is_alias = canonical != tag;
 
     if is_alias {
-        println!(
+        writeln!(
+            writer,
             "{} {} is an alias for {}",
             "ℹ".blue().bold(),
             tag.cyan(),
             canonical.yellow()
-        );
+        )?;
     }
 
     // Get all aliases for the canonical tag
@@ -136,33 +141,34 @@ fn show_aliases(tag: &str) -> Result<(), SchemaError> {
 
     if aliases.is_empty() {
         if !is_alias {
-            println!(
+            writeln!(
+                writer,
                 "{} No aliases defined for {}",
                 "ℹ".blue().bold(),
                 tag.yellow()
-            );
+            )?;
         }
         return Ok(());
     }
 
-    println!();
-    println!("{} for {}:", "Aliases".bold(), canonical.yellow());
+    writeln!(writer)?;
+    writeln!(writer, "{} for {}:", "Aliases".bold(), canonical.yellow())?;
     for alias in &aliases {
-        println!("  • {}", alias.cyan());
+        writeln!(writer, "  • {}", alias.cyan())?;
     }
 
     // Show full synonym expansion
     let synonyms = schema.expand_synonyms(tag);
     if synonyms.len() > 1 {
-        println!();
-        println!("{}", "All synonyms:".bold());
+        writeln!(writer)?;
+        writeln!(writer, "{}", "All synonyms:".bold())?;
         let mut sorted_synonyms = synonyms;
         sorted_synonyms.sort();
         for synonym in sorted_synonyms {
             if synonym == canonical {
-                println!("  • {} {}", synonym.yellow(), "(canonical)".dimmed());
+                writeln!(writer, "  • {} {}", synonym.yellow(), "(canonical)".dimmed())?;
             } else {
-                println!("  • {}", synonym.cyan());
+                writeln!(writer, "  • {}", synonym.cyan())?;
             }
         }
     }
@@ -178,6 +184,7 @@ fn set_canonical(
     dry_run: bool,
     yes: bool,
     db: Option<&Database>,
+    writer: &mut impl Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Load schema
     let schema = load_default_schema()?;
@@ -212,60 +219,67 @@ fn set_canonical(
     let file_count = affected_files.len();
 
     // Show what will happen
-    println!("{}", "Swap canonical tag:".bold());
-    println!();
-    println!(
+    writeln!(writer, "{}", "Swap canonical tag:".bold())?;
+    writeln!(writer)?;
+    writeln!(
+        writer,
         "  Current:  {} {} {} (alias)",
         alias.cyan(),
         "→".dimmed(),
         canonical.yellow()
-    );
-    println!(
+    )?;
+    writeln!(
+        writer,
         "  New:      {} {} {} (alias)",
         canonical.cyan(),
         "→".dimmed(),
         alias.yellow()
-    );
-    println!();
-    println!("{}", "Changes:".bold());
-    println!(
+    )?;
+    writeln!(writer)?;
+    writeln!(writer, "{}", "Changes:".bold())?;
+    writeln!(
+        writer,
         "  1. Remove alias: {} → {}",
         alias.cyan(),
         canonical.yellow()
-    );
-    println!(
+    )?;
+    writeln!(
+        writer,
         "  2. Rename all tags in database: {} → {}",
         canonical.yellow(),
         alias.cyan()
-    );
-    println!(
+    )?;
+    writeln!(
+        writer,
         "  3. Add new alias: {} → {}",
         canonical.cyan(),
         alias.yellow()
-    );
-    println!();
-    println!(
+    )?;
+    writeln!(writer)?;
+    writeln!(
+        writer,
         "Files affected: {}",
         if file_count == 0 {
             "none".dimmed().to_string()
         } else {
             file_count.to_string().yellow().to_string()
         }
-    );
+    )?;
 
     if dry_run {
-        println!();
-        println!(
+        writeln!(writer)?;
+        writeln!(
+            writer,
             "{} {}",
             "ℹ".blue().bold(),
             "Dry run - no changes made".dimmed()
-        );
+        )?;
         return Ok(());
     }
 
     // Confirm unless --yes
     if !yes {
-        println!();
+        writeln!(writer)?;
         print!("{} ", "Proceed? [y/N]".bold());
         std::io::stdout().flush()?;
 
@@ -274,23 +288,24 @@ fn set_canonical(
         let input = input.trim().to_lowercase();
 
         if input != "y" && input != "yes" {
-            println!("{}", "Cancelled".dimmed());
+            writeln!(writer, "{}", "Cancelled".dimmed())?;
             return Ok(());
         }
     }
 
-    println!();
+    writeln!(writer)?;
 
     // Step 1: Remove old alias
     let mut schema = load_default_schema()?;
     schema.remove_alias(alias)?;
     schema.save()?;
-    println!(
+    writeln!(
+        writer,
         "{} Removed alias: {} → {}",
         "1/3".dimmed(),
         alias.cyan(),
         canonical.yellow()
-    );
+    )?;
 
     // Step 2: Rename tags in database
     for file in &affected_files {
@@ -311,27 +326,29 @@ fn set_canonical(
             }
         }
     }
-    println!(
+    writeln!(
+        writer,
         "{} Renamed tags: {} → {} ({} files)",
         "2/3".dimmed(),
         canonical.yellow(),
         alias.cyan(),
         file_count
-    );
+    )?;
 
     // Step 3: Add new alias
     let mut schema = load_default_schema()?;
     schema.add_alias(canonical, alias)?;
     schema.save()?;
-    println!(
+    writeln!(
+        writer,
         "{} Added alias: {} → {}",
         "3/3".dimmed(),
         canonical.cyan(),
         alias.yellow()
-    );
+    )?;
 
-    println!();
-    println!("{} Canonical tag swapped successfully", "✓".green().bold());
+    writeln!(writer)?;
+    writeln!(writer, "{} Canonical tag swapped successfully", "✓".green().bold())?;
 
     Ok(())
 }
