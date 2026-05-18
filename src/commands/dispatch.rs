@@ -57,11 +57,15 @@ pub fn dispatch_command(
             commands::list::execute(db, *variant, path_format, quiet, writer)?;
         }
         Commands::Tag { .. } => {
-            let ctx = command.get_tag_context().unwrap();
+            let ctx = command.get_tag_context().ok_or_else(|| {
+                TagrError::InvalidInput("Failed to extract tag context from command".into())
+            })?;
             commands::tag::execute(db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet, writer)?;
         }
         Commands::Untag { .. } => {
-            let ctx = command.get_untag_context().unwrap();
+            let ctx = command.get_untag_context().ok_or_else(|| {
+                TagrError::InvalidInput("Failed to extract untag context from command".into())
+            })?;
             commands::tag::untag(db, ctx.file, &ctx.tags, ctx.all, quiet, writer)?;
         }
         Commands::Cleanup { .. } => {
