@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use colored::Colorize;
@@ -86,6 +87,7 @@ pub fn bulk_tag(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     if tags.is_empty() {
         return Err(TagrError::InvalidInput("No tags provided".into()));
@@ -94,16 +96,16 @@ pub fn bulk_tag(
     let files = crate::db::query::apply_search_params(db, &params)?;
     if files.is_empty() {
         if !quiet {
-            println!("No files match the specified criteria.");
+            writeln!(writer, "No files match the specified criteria.")?;
         }
         return Ok(());
     }
     if dry_run {
-        print_dry_run_preview(&files, tags, BulkAction::Add);
+        print_dry_run_preview(&files, tags, BulkAction::Add, writer)?;
         return Ok(());
     }
     if !yes && !confirm_bulk_operation(&files, tags, BulkAction::Add)? {
-        println!("Operation cancelled.");
+        writeln!(writer, "Operation cancelled.")?;
         return Ok(());
     }
     let mut summary = BulkOpSummary::new();
@@ -113,7 +115,7 @@ pub fn bulk_tag(
                 Ok(()) => {
                     summary.add_success();
                     if !quiet {
-                        println!("✓ Tagged: {}", file.display());
+                        writeln!(writer, "✓ Tagged: {}", file.display())?;
                     }
                 }
                 Err(e) => {
@@ -127,7 +129,7 @@ pub fn bulk_tag(
                 let _ = SkipReason::ConditionNotMet;
                 summary.add_skip_condition();
                 if !quiet {
-                    println!("⊘ Skipped (condition): {}", file.display());
+                    writeln!(writer, "⊘ Skipped (condition): {}", file.display())?;
                 }
             }
             Err(e) => {
@@ -144,7 +146,7 @@ pub fn bulk_tag(
     crate::completions::invalidate_cache(db);
 
     if !quiet {
-        summary.print("Bulk Tag");
+        summary.print("Bulk Tag", writer)?;
     }
     Ok(())
 }
@@ -165,6 +167,7 @@ pub fn bulk_untag(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     if !remove_all && tags.is_empty() {
         return Err(TagrError::InvalidInput(
@@ -175,7 +178,7 @@ pub fn bulk_untag(
     let files = crate::db::query::apply_search_params(db, &params)?;
     if files.is_empty() {
         if !quiet {
-            println!("No files match the specified criteria.");
+            writeln!(writer, "No files match the specified criteria.")?;
         }
         return Ok(());
     }
@@ -188,7 +191,8 @@ pub fn bulk_untag(
             } else {
                 BulkAction::Remove
             },
-        );
+            writer,
+        )?;
         return Ok(());
     }
     let action = if remove_all {
@@ -197,7 +201,7 @@ pub fn bulk_untag(
         BulkAction::Remove
     };
     if !yes && !confirm_bulk_operation(&files, tags, action)? {
-        println!("Operation cancelled.");
+        writeln!(writer, "Operation cancelled.")?;
         return Ok(());
     }
     let mut summary = BulkOpSummary::new();
@@ -213,7 +217,7 @@ pub fn bulk_untag(
                     Ok(()) => {
                         summary.add_success();
                         if !quiet {
-                            println!("✓ Untagged: {}", file.display());
+                            writeln!(writer, "✓ Untagged: {}", file.display())?;
                         }
                     }
                     Err(e) => {
@@ -228,7 +232,7 @@ pub fn bulk_untag(
                 let _ = SkipReason::ConditionNotMet;
                 summary.add_skip_condition();
                 if !quiet {
-                    println!("⊘ Skipped (condition): {}", file.display());
+                    writeln!(writer, "⊘ Skipped (condition): {}", file.display())?;
                 }
             }
             Err(e) => {
@@ -245,7 +249,7 @@ pub fn bulk_untag(
     crate::completions::invalidate_cache(db);
 
     if !quiet {
-        summary.print("Bulk Untag");
+        summary.print("Bulk Untag", writer)?;
     }
     Ok(())
 }
@@ -262,6 +266,7 @@ pub fn rename_tag(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     if old_tag == new_tag {
         return Err(TagrError::InvalidInput(
@@ -271,26 +276,27 @@ pub fn rename_tag(
     let files = db.find_by_tag(old_tag)?;
     if files.is_empty() {
         if !quiet {
-            println!("Tag '{old_tag}' not found in database.");
+            writeln!(writer, "Tag '{old_tag}' not found in database.")?;
         }
         return Ok(());
     }
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would rename tag '{}' → '{}' in {} file(s)",
             old_tag.cyan(),
             new_tag.green(),
             files.len()
-        );
-        println!("\n{}", "Affected files:".bold());
+        )?;
+        writeln!(writer, "\n{}", "Affected files:".bold())?;
         for (i, file) in files.iter().enumerate().take(10) {
-            println!("  {}. {}", i + 1, file.display());
+            writeln!(writer, "  {}. {}", i + 1, file.display())?;
         }
         if files.len() > 10 {
-            println!("  ... and {} more", files.len() - 10);
+            writeln!(writer, "  ... and {} more", files.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
     if !yes {
@@ -305,7 +311,7 @@ pub fn rename_tag(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -329,7 +335,7 @@ pub fn rename_tag(
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Renamed in: {}", file.display());
+                    writeln!(writer, "✓ Renamed in: {}", file.display())?;
                 }
             }
             Err(e) => {
@@ -341,15 +347,16 @@ pub fn rename_tag(
         }
     }
     if !quiet {
-        println!(
+        writeln!(
+            writer,
             "\n{} Renamed '{}' → '{}' in {} file(s)",
             "✓".green(),
             old_tag,
             new_tag,
             summary.success
-        );
+        )?;
         if summary.errors > 0 {
-            summary.print("Rename Tag");
+            summary.print("Rename Tag", writer)?;
         }
     }
     Ok(())
@@ -452,6 +459,7 @@ pub fn copy_tags(
     source_file: &Path,
     mut params: SearchParams,
     config: CopyTagsConfig,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let source_tags = db.get_tags(source_file)?.ok_or_else(|| {
         TagrError::InvalidInput(format!(
@@ -472,7 +480,7 @@ pub fn copy_tags(
         .collect();
     if tags_to_copy.is_empty() {
         if !config.quiet {
-            println!("No tags to copy after filtering.");
+            writeln!(writer, "No tags to copy after filtering.")?;
         }
         return Ok(());
     }
@@ -480,7 +488,7 @@ pub fn copy_tags(
     let target_files = crate::db::query::apply_search_params(db, &params)?;
     if target_files.is_empty() {
         if !config.quiet {
-            println!("No target files match the specified criteria.");
+            writeln!(writer, "No target files match the specified criteria.")?;
         }
         return Ok(());
     }
@@ -490,26 +498,27 @@ pub fn copy_tags(
         .collect();
     if target_files.is_empty() {
         if !config.quiet {
-            println!("No target files to copy tags to (excluding source file).");
+            writeln!(writer, "No target files to copy tags to (excluding source file).")?;
         }
         return Ok(());
     }
     if config.dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would copy tags [{}] from '{}' to {} file(s)",
             tags_to_copy.join(", ").cyan(),
             source_file.display(),
             target_files.len()
-        );
-        println!("\n{}", "Target files:".bold());
+        )?;
+        writeln!(writer, "\n{}", "Target files:".bold())?;
         for (i, file) in target_files.iter().enumerate().take(10) {
-            println!("  {}. {}", i + 1, file.display());
+            writeln!(writer, "  {}. {}", i + 1, file.display())?;
         }
         if target_files.len() > 10 {
-            println!("  ... and {} more", target_files.len() - 10);
+            writeln!(writer, "  ... and {} more", target_files.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
     if !config.yes {
@@ -524,7 +533,7 @@ pub fn copy_tags(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -534,7 +543,7 @@ pub fn copy_tags(
             Ok(()) => {
                 summary.add_success();
                 if !config.quiet {
-                    println!("✓ Copied tags to: {}", file.display());
+                    writeln!(writer, "✓ Copied tags to: {}", file.display())?;
                 }
             }
             Err(e) => {
@@ -546,7 +555,7 @@ pub fn copy_tags(
         }
     }
     if !config.quiet {
-        summary.print("Copy Tags");
+        summary.print("Copy Tags", writer)?;
     }
     Ok(())
 }
@@ -564,6 +573,7 @@ pub fn merge_tags(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     if source_tags.is_empty() {
         return Err(TagrError::InvalidInput("No source tags provided".into()));
@@ -581,29 +591,31 @@ pub fn merge_tags(
     let files: Vec<PathBuf> = files_set.into_iter().collect();
     if files.is_empty() {
         if !quiet {
-            println!(
+            writeln!(
+                writer,
                 "No files found with source tags: [{}]",
                 source_tags.join(", ")
-            );
+            )?;
         }
         return Ok(());
     }
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would merge tags [{}] → '{}' in {} file(s)",
             source_tags.join(", ").cyan(),
             target_tag.green(),
             files.len()
-        );
-        println!("\n{}", "Affected files:".bold());
+        )?;
+        writeln!(writer, "\n{}", "Affected files:".bold())?;
         for (i, file) in files.iter().enumerate().take(10) {
-            println!("  {}. {}", i + 1, file.display());
+            writeln!(writer, "  {}. {}", i + 1, file.display())?;
         }
         if files.len() > 10 {
-            println!("  ... and {} more", files.len() - 10);
+            writeln!(writer, "  ... and {} more", files.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
     if !yes {
@@ -618,7 +630,7 @@ pub fn merge_tags(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -648,7 +660,7 @@ pub fn merge_tags(
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Merged in: {}", file.display());
+                    writeln!(writer, "✓ Merged in: {}", file.display())?;
                 }
             }
             Err(e) => {
@@ -660,15 +672,16 @@ pub fn merge_tags(
         }
     }
     if !quiet {
-        println!(
+        writeln!(
+            writer,
             "\n{} Merged [{}] → '{}' in {} file(s)",
             "✓".green(),
             source_tags.join(", "),
             target_tag,
             summary.success
-        );
+        )?;
         if summary.errors > 0 {
-            summary.print("Merge Tags");
+            summary.print("Merge Tags", writer)?;
         }
     }
     Ok(())

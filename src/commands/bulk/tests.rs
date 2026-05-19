@@ -102,6 +102,7 @@ fn test_bulk_tag_basic() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags1 = db.get_tags(file1.path()).unwrap().unwrap();
@@ -144,6 +145,7 @@ fn test_bulk_untag_specific_tags() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
@@ -161,7 +163,7 @@ fn test_rename_tag_basic() {
     db.add_tags(f1.path(), vec!["oldname".into(), "other".into()])
         .unwrap();
     db.add_tags(f2.path(), vec!["oldname".into()]).unwrap();
-    rename_tag(db, "oldname", "newname", false, true, true).unwrap();
+    rename_tag(db, "oldname", "newname", false, true, true, &mut std::io::sink()).unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
     assert!(tags1.contains(&"newname".into()));
 }
@@ -187,6 +189,7 @@ fn test_merge_tags_basic() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
@@ -233,6 +236,7 @@ fn test_copy_tags_all() {
             yes: true,
             quiet: true,
         },
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags1 = db.get_tags(t1.path()).unwrap().unwrap();
@@ -255,6 +259,7 @@ fn test_bulk_map_tags_basic() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
@@ -281,6 +286,7 @@ fn test_bulk_delete_files_basic() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     assert_eq!(db.count(), 0);
@@ -323,6 +329,7 @@ fn test_bulk_tag_if_not_exists() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
@@ -382,6 +389,7 @@ fn test_bulk_tag_if_has_tag() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
@@ -447,6 +455,7 @@ fn test_bulk_tag_if_missing_tag() {
         false,
         true,
         true,
+        &mut std::io::sink(),
     )
     .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();

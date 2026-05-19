@@ -114,6 +114,7 @@ fn test_e2e_bulk_tag_with_glob_file_patterns() {
         /*dry_run*/ false,
         /*yes*/ true,
         /*quiet*/ true,
+        &mut std::io::sink(),
     )
     .unwrap();
 
@@ -171,6 +172,7 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
         /*dry_run*/ false,
         /*yes*/ true,
         /*quiet*/ true,
+        &mut std::io::sink(),
     )
     .unwrap();
 
