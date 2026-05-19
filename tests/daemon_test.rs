@@ -49,6 +49,7 @@ impl DaemonHarness {
 
         let child = Command::new(binary)
             .arg("watch")
+            .arg("start")
             .arg("--daemon")
             .env("XDG_RUNTIME_DIR", runtime_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())

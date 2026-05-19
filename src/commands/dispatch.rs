@@ -283,7 +283,7 @@ pub fn dispatch_command(
             return Err(TagrError::InvalidInput("Interactive browse mode not supported in daemon mode".into()));
         }
         // Config/Db commands handled locally usually
-        Commands::Config { .. } | Commands::Db { .. } | Commands::Completions { .. } | Commands::Watch(_) => {
+        Commands::Config { .. } | Commands::Db { .. } | Commands::Completions { .. } | Commands::Watch { .. } => {
              // Should not happen or handled locally
         }
     }

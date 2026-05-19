@@ -52,16 +52,17 @@ fn spawn_detached(exe: &std::path::Path) -> Result<()> {
     let pid_path = daemon_pid_path();
 
     // Build a daemonize config that forks the current process, then
-    // exec's `tagr watch --daemon` in the child.
+    // exec's `tagr watch start --daemon` in the child.
     //
     // We can't use Daemonize::start() directly because that daemonizes
     // the *current* process. Instead we spawn a child and let *it*
     // daemonize itself. But since the daemon entry point already exists
-    // (`tagr watch --daemon`), the simplest approach is to spawn the
+    // (`tagr watch start --daemon`), the simplest approach is to spawn the
     // child directly — the child will daemonize on its own via
     // `daemonize_self()`.
     std::process::Command::new(exe)
         .arg("watch")
+        .arg("start")
         .arg("--daemon")
         .arg("--daemonize")
         .stdin(std::process::Stdio::null())

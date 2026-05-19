@@ -332,14 +332,13 @@ fn main() -> Result<()> {
         handle_db_command(config, command, quiet)?;
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
-    } else if let Commands::Watch(watch_args) = &command {
-        // Watch mode is handled specially:
-        // - `--daemon` flag means this process IS the daemon; run the event loop
-        // - otherwise: update watch.toml and start the daemon if not running
-        if watch_args.daemon {
-            // If --daemonize was passed, fork into background first.
+    } else if let Commands::Watch { command: watch_cmd } = &command {
+        use commands::watch::{WatchCommands, WatchStartArgs};
+
+        // Internal daemon bootstrap: `tagr watch start --daemon [--daemonize]`
+        if let WatchCommands::Start(WatchStartArgs { daemon: true, daemonize }) = watch_cmd {
             #[cfg(unix)]
-            if watch_args.daemonize {
+            if *daemonize {
                 tagr::daemon::fallback::daemonize_self()
                     .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
             }
@@ -356,8 +355,33 @@ fn main() -> Result<()> {
             tagr::daemon::core::run(&db)
                 .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
         } else {
-            commands::watch::watch_cli(watch_args, &config, quiet)
-                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            let mut stdout = std::io::stdout();
+            match watch_cmd {
+                WatchCommands::Add(add_args) => {
+                    commands::watch::watch_add(add_args, &config, quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Remove { index } => {
+                    commands::watch::watch_remove(*index, quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::List => {
+                    commands::watch::watch_list(&mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Status => {
+                    commands::watch::watch_status(&mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Start(_) => {
+                    commands::watch::watch_start(&config, quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Stop => {
+                    commands::watch::watch_stop(quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+            }
         }
     } else {
         let db_name = command.get_db().or_else(|| {

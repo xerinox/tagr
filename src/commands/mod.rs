@@ -25,5 +25,4 @@ pub use list::execute as list;
 pub use search::execute as search;
 pub use tag::execute as tag;
 pub use tags::execute as tags;
-pub use watch::watch_cli;
 pub use dispatch::dispatch_command;
