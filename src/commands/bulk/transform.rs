@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 use std::path::PathBuf;
 
 use colored::Colorize;
@@ -80,6 +81,7 @@ pub fn transform_tags(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let all_pairs = db.list_all()?;
     let mut all_tags: HashSet<String> = HashSet::new();
@@ -98,7 +100,7 @@ pub fn transform_tags(
 
     if tags_to_transform.is_empty() {
         if !quiet {
-            println!("No tags found to transform.");
+            writeln!(writer, "No tags found to transform.")?;
         }
         return Ok(());
     }
@@ -130,17 +132,17 @@ pub fn transform_tags(
 
     if tag_mapping.is_empty() {
         if !quiet {
-            println!("No transformations to apply (all tags unchanged).");
+            writeln!(writer, "No transformations to apply (all tags unchanged).")?;
         }
         return Ok(());
     }
 
     if !conflicts.is_empty() && !quiet {
-        println!("{}", "Warning: Tag collisions detected:".yellow().bold());
+        writeln!(writer, "{}", "Warning: Tag collisions detected:".yellow().bold())?;
         for (new_tag, old_tags) in &conflicts {
-            println!("  {} ← {}", new_tag.cyan(), old_tags.join(", "));
+            writeln!(writer, "  {} ← {}", new_tag.cyan(), old_tags.join(", "))?;
         }
-        println!();
+        writeln!(writer)?;
     }
 
     let mut affected_files: HashSet<PathBuf> = HashSet::new();
@@ -151,22 +153,23 @@ pub fn transform_tags(
     }
 
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would transform {} tag(s) affecting {} file(s)",
             tag_mapping.len(),
             affected_files.len()
-        );
-        println!("\n{}", "Tag transformations:".bold());
+        )?;
+        writeln!(writer, "\n{}", "Tag transformations:".bold())?;
         let mut mappings: Vec<_> = tag_mapping.iter().collect();
         mappings.sort_by_key(|(old, _)| old.as_str());
         for (i, (old_tag, new_tag)) in mappings.iter().enumerate().take(20) {
-            println!("  {}. {} → {}", i + 1, old_tag, new_tag.cyan());
+            writeln!(writer, "  {}. {} → {}", i + 1, old_tag, new_tag.cyan())?;
         }
         if tag_mapping.len() > 20 {
-            println!("  ... and {} more", tag_mapping.len() - 20);
+            writeln!(writer, "  ... and {} more", tag_mapping.len() - 20)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
 
@@ -181,7 +184,7 @@ pub fn transform_tags(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -211,7 +214,7 @@ pub fn transform_tags(
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Transformed tags in: {}", pair.file.display());
+                    writeln!(writer, "✓ Transformed tags in: {}", pair.file.display())?;
                 }
             }
             Err(e) => {
@@ -224,7 +227,7 @@ pub fn transform_tags(
     }
 
     if !quiet {
-        summary.print("Transform Tags");
+        summary.print("Transform Tags", writer)?;
     }
 
     Ok(())
