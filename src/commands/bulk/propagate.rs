@@ -57,7 +57,7 @@ static DEFAULT_EXT_MAPPINGS: &[(&str, &[&str])] = &[
 ];
 
 /// Parse a directory-to-tag mapping string in "dir:tag" format
-fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
+pub(crate) fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
     let (dir, tag) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!("Invalid mapping format '{s}'. Expected 'dir:tag'"))
     })?;
@@ -65,7 +65,7 @@ fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
 }
 
 /// Parse an extension-to-tags mapping string in "ext:tag1,tag2" format
-fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
+pub(crate) fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
     let (ext, tags_str) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!(
             "Invalid mapping format '{s}'. Expected 'ext:tag1,tag2'"

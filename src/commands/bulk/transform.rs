@@ -34,7 +34,7 @@ pub enum TagTransformation {
 
 impl TagTransformation {
     /// Apply transformation to a tag
-    fn apply(&self, tag: &str) -> Result<String> {
+    pub(crate) fn apply(&self, tag: &str) -> Result<String> {
         Ok(match self {
             Self::Lowercase => tag.to_lowercase(),
             Self::Uppercase => tag.to_uppercase(),
