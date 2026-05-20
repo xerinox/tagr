@@ -53,160 +53,182 @@ use tagr::{
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Handle the db command - manage multiple databases
-#[allow(clippy::too_many_lines)]
 fn handle_db_command(
-    mut config: config::TagrConfig,
+    config: config::TagrConfig,
     command: &DbCommands,
     quiet: bool,
 ) -> Result<()> {
     match command {
-        DbCommands::Add { name, path } => {
-            if config.get_database(name).is_some() {
-                if !quiet {
-                    eprintln!("Error: Database '{name}' already exists");
-                }
-                return Err(TagrError::InvalidInput(format!(
-                    "Database '{name}' already exists"
-                )));
-            }
+        DbCommands::Add { name, path } => handle_db_add(config, name, path, quiet),
+        DbCommands::List => handle_db_list(&config, quiet),
+        DbCommands::Remove { name, delete_files } => handle_db_remove(config, name, *delete_files, quiet),
+        DbCommands::SetDefault { name } => handle_db_set_default(config, name, quiet),
+    }
+}
 
-            let resolved_path = if path.components().count() == 1 {
-                let data_dir = dirs::data_local_dir().ok_or_else(|| {
-                    TagrError::InvalidInput("Could not determine data directory".into())
-                })?;
-                data_dir.join("tagr").join(path)
-            } else {
-                path.clone()
-            };
-
-            config.add_database(name.clone(), resolved_path.clone())?;
-
-            if !resolved_path.exists() {
-                std::fs::create_dir_all(&resolved_path)?;
-            }
-
-            if !quiet {
-                println!("Database '{name}' added at {}", resolved_path.display());
-            }
-
-            if config.databases.len() == 1 {
-                config.set_default_database(name.clone())?;
-                if !quiet {
-                    println!("Set '{name}' as default database");
-                }
-            }
-
-            // Invalidate completion cache since database list changed
-            #[cfg(feature = "dynamic-completions")]
-            tagr::completions::invalidate_database_cache();
+fn handle_db_add(
+    mut config: config::TagrConfig,
+    name: &str,
+    path: &std::path::Path,
+    quiet: bool,
+) -> Result<()> {
+    if config.get_database(name).is_some() {
+        if !quiet {
+            eprintln!("Error: Database '{name}' already exists");
         }
-        DbCommands::List => {
-            if config.databases.is_empty() {
-                if !quiet {
-                    println!("No databases configured.");
-                    println!("Add one with: tagr db add <name> <path>");
-                }
-                return Ok(());
+        return Err(TagrError::InvalidInput(format!(
+            "Database '{name}' already exists"
+        )));
+    }
+
+    let resolved_path = if path.components().count() == 1 {
+        let data_dir = dirs::data_local_dir().ok_or_else(|| {
+            TagrError::InvalidInput("Could not determine data directory".into())
+        })?;
+        data_dir.join("tagr").join(path)
+    } else {
+        path.to_path_buf()
+    };
+
+    config.add_database(name.to_string(), resolved_path.clone())?;
+
+    if !resolved_path.exists() {
+        std::fs::create_dir_all(&resolved_path)?;
+    }
+
+    if !quiet {
+        println!("Database '{name}' added at {}", resolved_path.display());
+    }
+
+    if config.databases.len() == 1 {
+        config.set_default_database(name.to_string())?;
+        if !quiet {
+            println!("Set '{name}' as default database");
+        }
+    }
+
+    #[cfg(feature = "dynamic-completions")]
+    tagr::completions::invalidate_database_cache();
+    Ok(())
+}
+
+fn handle_db_list(config: &config::TagrConfig, quiet: bool) -> Result<()> {
+    if config.databases.is_empty() {
+        if !quiet {
+            println!("No databases configured.");
+            println!("Add one with: tagr db add <name> <path>");
+        }
+        return Ok(());
+    }
+
+    if !quiet {
+        println!("Configured databases:");
+    }
+
+    let default_db = config.get_default_database();
+    let mut db_names: Vec<_> = config.list_databases();
+    db_names.sort();
+
+    for name in db_names {
+        if let Some(path) = config.get_database(name) {
+            let is_default = default_db == Some(name);
+            let marker = if is_default { " (default)" } else { "" };
+
+            if quiet {
+                println!("{name}");
+            } else {
+                println!("  {} -> {}{}", name, path.display(), marker);
             }
+        }
+    }
+    Ok(())
+}
 
-            if !quiet {
-                println!("Configured databases:");
-            }
+fn handle_db_remove(
+    mut config: config::TagrConfig,
+    name: &str,
+    delete_files: bool,
+    quiet: bool,
+) -> Result<()> {
+    if config.get_database(name).is_none() {
+        if !quiet {
+            eprintln!("Error: Database '{name}' does not exist");
+        }
+        return Err(TagrError::InvalidInput(format!(
+            "Database '{name}' does not exist"
+        )));
+    }
 
-            let default_db = config.get_default_database();
-            let mut db_names: Vec<_> = config.list_databases();
-            db_names.sort();
+    let is_default = config.get_default_database().map(String::as_str) == Some(name);
+    if is_default && !quiet {
+        println!(
+            "Warning: Removing the default database. You'll need to set a new default."
+        );
+    }
 
-            for name in db_names {
-                if let Some(path) = config.get_database(name) {
-                    let is_default = default_db == Some(name);
-                    let marker = if is_default { " (default)" } else { "" };
+    let removed_path = config.remove_database(name)?;
 
-                    if quiet {
-                        println!("{name}");
-                    } else {
-                        println!("  {} -> {}{}", name, path.display(), marker);
+    if let Some(path) = removed_path {
+        if !quiet {
+            println!("Database '{name}' removed from configuration");
+        }
+
+        if delete_files {
+            if path.exists() {
+                match std::fs::remove_dir_all(&path) {
+                    Ok(()) => {
+                        if !quiet {
+                            println!("Database files deleted from {}", path.display());
+                        }
+                    }
+                    Err(e) => {
+                        if !quiet {
+                            eprintln!("Warning: Failed to delete database files: {e}");
+                        }
                     }
                 }
-            }
-        }
-        DbCommands::Remove { name, delete_files } => {
-            if config.get_database(name).is_none() {
-                if !quiet {
-                    eprintln!("Error: Database '{name}' does not exist");
-                }
-                return Err(TagrError::InvalidInput(format!(
-                    "Database '{name}' does not exist"
-                )));
-            }
-
-            let is_default = config.get_default_database() == Some(name);
-            if is_default && !quiet {
+            } else if !quiet {
                 println!(
-                    "Warning: Removing the default database. You'll need to set a new default."
+                    "Database files at {} do not exist (already deleted)",
+                    path.display()
                 );
             }
-
-            let removed_path = config.remove_database(name)?;
-
-            if let Some(path) = removed_path {
-                if !quiet {
-                    println!("Database '{name}' removed from configuration");
-                }
-
-                if *delete_files {
-                    if path.exists() {
-                        match std::fs::remove_dir_all(&path) {
-                            Ok(()) => {
-                                if !quiet {
-                                    println!("Database files deleted from {}", path.display());
-                                }
-                            }
-                            Err(e) => {
-                                if !quiet {
-                                    eprintln!("Warning: Failed to delete database files: {e}");
-                                }
-                            }
-                        }
-                    } else if !quiet {
-                        println!(
-                            "Database files at {} do not exist (already deleted)",
-                            path.display()
-                        );
-                    }
-                } else if !quiet {
-                    println!(
-                        "Note: Database files at {} were NOT deleted",
-                        path.display()
-                    );
-                }
-            }
-
-            if is_default {
-                config.default_database = None;
-                config.save()?;
-            }
-
-            // Invalidate completion cache since database list changed
-            #[cfg(feature = "dynamic-completions")]
-            tagr::completions::invalidate_database_cache();
+        } else if !quiet {
+            println!(
+                "Note: Database files at {} were NOT deleted",
+                path.display()
+            );
         }
-        DbCommands::SetDefault { name } => {
-            if config.get_database(name).is_none() {
-                if !quiet {
-                    eprintln!("Error: Database '{name}' does not exist");
-                }
-                return Err(TagrError::InvalidInput(format!(
-                    "Database '{name}' does not exist"
-                )));
-            }
+    }
 
-            config.set_default_database(name.clone())?;
+    if is_default {
+        config.default_database = None;
+        config.save()?;
+    }
 
-            if !quiet {
-                println!("Set '{name}' as default database");
-            }
+    #[cfg(feature = "dynamic-completions")]
+    tagr::completions::invalidate_database_cache();
+    Ok(())
+}
+
+fn handle_db_set_default(
+    mut config: config::TagrConfig,
+    name: &str,
+    quiet: bool,
+) -> Result<()> {
+    if config.get_database(name).is_none() {
+        if !quiet {
+            eprintln!("Error: Database '{name}' does not exist");
         }
+        return Err(TagrError::InvalidInput(format!(
+            "Database '{name}' does not exist"
+        )));
+    }
+
+    config.set_default_database(name.to_string())?;
+
+    if !quiet {
+        println!("Set '{name}' as default database");
     }
     Ok(())
 }
