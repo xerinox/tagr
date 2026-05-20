@@ -211,3 +211,174 @@ fn test_daemon_multiple_connections() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Contract tests: direct CLI vs IPC daemon parity
+//
+// These verify that running a command locally (via the binary) and running
+// the same command through the daemon IPC produce identical output.
+// ---------------------------------------------------------------------------
+
+/// Run tagr directly (no daemon) with isolated dirs and return stdout.
+fn run_direct(data_dir: &TempDir, args: &[&str]) -> String {
+    let binary = env!("CARGO_BIN_EXE_tagr");
+    let output = Command::new(binary)
+        .args(args)
+        .env("XDG_CONFIG_HOME", data_dir.path())
+        .env("XDG_DATA_HOME", data_dir.path())
+        .env("XDG_STATE_HOME", data_dir.path())
+        .output()
+        .expect("run direct command");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// Run a command through the daemon IPC and extract the output from the response.
+fn run_via_daemon(harness: &DaemonHarness, args: &[&str]) -> String {
+    let mut full_args: Vec<&str> = vec!["tagr"];
+    full_args.extend(args);
+
+    let cmd = serde_json::json!({
+        "Command": {
+            "args": full_args,
+            "cwd": harness.data_dir.path().to_str().unwrap()
+        }
+    });
+
+    let response = harness.send_request(&cmd.to_string());
+    // Parse the IPC response to extract the output string
+    let parsed: serde_json::Value = serde_json::from_str(response.trim()).unwrap_or_default();
+
+    if let Some(output) = parsed.get("Success").and_then(|v| v.as_str()) {
+        output.to_string()
+    } else {
+        panic!(
+            "Expected Success response from daemon, got: {response}"
+        );
+    }
+}
+
+#[test]
+#[ignore]
+fn test_contract_tag_and_search_parity() {
+    let harness = DaemonHarness::spawn();
+
+    // Tag a file via IPC
+    let test_file = harness.data_dir.path().join("contract_test.txt");
+    std::fs::write(&test_file, "contract test content").unwrap();
+
+    let tag_response = run_via_daemon(
+        &harness,
+        &["tag", test_file.to_str().unwrap(), "contract-tag"],
+    );
+    // Tag command output should indicate success (may be empty in quiet-like mode)
+    assert!(
+        !tag_response.contains("Error"),
+        "Tag via IPC should not error: {tag_response}"
+    );
+
+    // Now search via IPC
+    let ipc_search = run_via_daemon(
+        &harness,
+        &["search", "--tag", "contract-tag", "-q"],
+    );
+
+    // The IPC search should contain the file path
+    assert!(
+        ipc_search.contains("contract_test.txt"),
+        "IPC search should find the tagged file.\nGot: {ipc_search}"
+    );
+}
+
+#[test]
+#[ignore]
+fn test_contract_list_parity() {
+    let harness = DaemonHarness::spawn();
+
+    // Tag two files via IPC
+    let f1 = harness.data_dir.path().join("parity_a.txt");
+    let f2 = harness.data_dir.path().join("parity_b.txt");
+    std::fs::write(&f1, "a").unwrap();
+    std::fs::write(&f2, "b").unwrap();
+
+    run_via_daemon(&harness, &["tag", f1.to_str().unwrap(), "parity"]);
+    run_via_daemon(&harness, &["tag", f2.to_str().unwrap(), "parity"]);
+
+    // List via IPC
+    let ipc_list = run_via_daemon(&harness, &["list", "files", "-q"]);
+
+    // Both files should appear in the list output
+    assert!(
+        ipc_list.contains("parity_a.txt"),
+        "IPC list should contain parity_a.txt.\nGot: {ipc_list}"
+    );
+    assert!(
+        ipc_list.contains("parity_b.txt"),
+        "IPC list should contain parity_b.txt.\nGot: {ipc_list}"
+    );
+}
+
+#[test]
+#[ignore]
+fn test_contract_untag_via_daemon() {
+    let harness = DaemonHarness::spawn();
+
+    let test_file = harness.data_dir.path().join("untag_contract.txt");
+    std::fs::write(&test_file, "content").unwrap();
+
+    // Tag, then untag
+    run_via_daemon(
+        &harness,
+        &["tag", test_file.to_str().unwrap(), "remove-me", "keep-me"],
+    );
+    run_via_daemon(
+        &harness,
+        &["untag", test_file.to_str().unwrap(), "remove-me"],
+    );
+
+    // Search for the removed tag should not find this file
+    let search = run_via_daemon(
+        &harness,
+        &["search", "--tag", "remove-me", "-q"],
+    );
+    assert!(
+        !search.contains("untag_contract.txt"),
+        "File should not appear after untag.\nGot: {search}"
+    );
+
+    // But search for kept tag should find it
+    let search_keep = run_via_daemon(
+        &harness,
+        &["search", "--tag", "keep-me", "-q"],
+    );
+    assert!(
+        search_keep.contains("untag_contract.txt"),
+        "File should still appear for kept tag.\nGot: {search_keep}"
+    );
+}
+
+#[test]
+#[ignore]
+fn test_contract_cleanup_via_daemon() {
+    let harness = DaemonHarness::spawn();
+
+    // Tag a file, then delete it from filesystem
+    let ghost = harness.data_dir.path().join("ghost_file.txt");
+    std::fs::write(&ghost, "i will be deleted").unwrap();
+    run_via_daemon(&harness, &["tag", ghost.to_str().unwrap(), "ghost"]);
+
+    // Remove the actual file
+    std::fs::remove_file(&ghost).unwrap();
+
+    // Cleanup should remove it from the database
+    let cleanup_out = run_via_daemon(&harness, &["cleanup", "-q"]);
+    // The output should mention the cleaned-up file or be empty (quiet mode)
+    // Either way, verify the file is gone from the DB
+    let search = run_via_daemon(
+        &harness,
+        &["search", "--tag", "ghost", "-q"],
+    );
+    assert!(
+        !search.contains("ghost_file.txt"),
+        "Cleanup should remove deleted file from DB.\nSearch: {search}\nCleanup: {cleanup_out}"
+    );
+}

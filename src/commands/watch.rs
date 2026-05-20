@@ -161,11 +161,27 @@ pub fn watch_remove(
     quiet: bool,
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
+    let mut config = WatchConfig::load().unwrap_or_default();
+    let removed = remove_rule_from_config(&mut config, index)?;
+    config.save()?;
+
+    if !quiet {
+        writeln!(writer, "Removed rule {index}: patterns={:?} tags={:?}", removed.patterns, removed.tags)?;
+    }
+
+    Ok(())
+}
+
+/// Remove a rule by 1-based index from a config, returning the removed rule.
+///
+/// # Errors
+///
+/// Returns an error if the index is 0 or out of range.
+fn remove_rule_from_config(config: &mut WatchConfig, index: usize) -> anyhow::Result<WatchRule> {
     if index == 0 {
         anyhow::bail!("Rule index is 1-based. Use `tagr watch list` to see rule numbers.");
     }
 
-    let mut config = WatchConfig::load().unwrap_or_default();
     let zero_idx = index - 1;
 
     if zero_idx >= config.rules.len() {
@@ -177,14 +193,7 @@ pub fn watch_remove(
         );
     }
 
-    let removed = config.rules.remove(zero_idx);
-    config.save()?;
-
-    if !quiet {
-        writeln!(writer, "Removed rule {index}: patterns={:?} tags={:?}", removed.patterns, removed.tags)?;
-    }
-
-    Ok(())
+    Ok(config.rules.remove(zero_idx))
 }
 
 /// Handle `tagr watch list`
@@ -194,7 +203,13 @@ pub fn watch_list(
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
     let config = WatchConfig::load().unwrap_or_default();
+    format_rule_list(&config, writer)
+}
 
+/// Format a `WatchConfig` as a numbered table.
+///
+/// Extracted from `watch_list` so it can be tested without filesystem access.
+fn format_rule_list(config: &WatchConfig, writer: &mut impl Write) -> anyhow::Result<()> {
     if config.rules.is_empty() {
         writeln!(writer, "No watch rules configured.")?;
         writeln!(writer, "Use `tagr watch add <patterns> -t <tags>` to get started.")?;
@@ -419,6 +434,23 @@ mod tests {
         }
     }
 
+    fn make_rule(patterns: Vec<&str>, tags: Vec<&str>) -> WatchRule {
+        WatchRule {
+            patterns: patterns.into_iter().map(String::from).collect(),
+            tags: tags.into_iter().map(String::from).collect(),
+            filter: None,
+            vtags: vec![],
+            filter_by_tags: vec![],
+            filter_criteria: None,
+        }
+    }
+
+    fn make_config(rules: Vec<WatchRule>) -> WatchConfig {
+        WatchConfig { rules }
+    }
+
+    // ---- WatchAddArgs::to_rule ----
+
     #[test]
     fn test_to_rule_with_patterns_and_tags() {
         let args = make_add_args(vec!["~/docs/*.md"], vec!["docs", "markdown"]);
@@ -463,21 +495,182 @@ mod tests {
         assert_eq!(rule.patterns, vec!["/tmp/*.txt"]);
     }
 
+    // ---- format_rule_list ----
+
     #[test]
-    fn test_watch_list_empty() {
-        let mut buf = Vec::new();
-        // With default (empty) config, list shows help message
-        // This test would need a temp config dir to be fully isolated,
-        // but we can test the formatting logic via WatchConfig directly
+    fn test_list_empty_config() {
         let config = WatchConfig::default();
-        assert!(config.rules.is_empty());
-        // Just verify the function signature compiles with writer
-        let _ = writeln!(buf, "No watch rules configured.");
-        assert!(!buf.is_empty());
+        let mut buf = Vec::new();
+        format_rule_list(&config, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("No watch rules configured."));
+        assert!(output.contains("tagr watch add"));
     }
 
     #[test]
-    fn test_watch_remove_zero_index() {
+    fn test_list_single_rule() {
+        let config = make_config(vec![make_rule(vec!["~/docs/*.md"], vec!["docs"])]);
+        let mut buf = Vec::new();
+        format_rule_list(&config, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("#"));
+        assert!(output.contains("Patterns"));
+        assert!(output.contains("Tags"));
+        assert!(output.contains("Filter"));
+        assert!(output.contains("~/docs/*.md"));
+        assert!(output.contains("docs"));
+        // No filter → shows em-dash
+        assert!(output.contains("—"));
+    }
+
+    #[test]
+    fn test_list_with_filter() {
+        let mut rule = make_rule(vec!["~/src/*.rs"], vec!["rust"]);
+        rule.filter = Some("rust-src".into());
+        let config = make_config(vec![rule]);
+        let mut buf = Vec::new();
+        format_rule_list(&config, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("rust-src"));
+    }
+
+    #[test]
+    fn test_list_shows_vtags_and_filter_by_tags() {
+        let mut rule = make_rule(vec!["*.py"], vec!["python"]);
+        rule.vtags = vec!["size:small".into(), "modified:today".into()];
+        rule.filter_by_tags = vec!["code".into()];
+        let config = make_config(vec![rule]);
+        let mut buf = Vec::new();
+        format_rule_list(&config, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("vtags: size:small, modified:today"));
+        assert!(output.contains("filter-by-tags: code"));
+    }
+
+    #[test]
+    fn test_list_multiple_rules_numbered() {
+        let config = make_config(vec![
+            make_rule(vec!["*.rs"], vec!["rust"]),
+            make_rule(vec!["*.py"], vec!["python"]),
+            make_rule(vec!["*.md"], vec!["docs"]),
+        ]);
+        let mut buf = Vec::new();
+        format_rule_list(&config, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+
+        // Header + separator + 3 rules = 5 lines
+        assert!(lines.len() >= 5);
+        // Check 1-based numbering
+        assert!(lines[2].contains("  1"));
+        assert!(lines[3].contains("  2"));
+        assert!(lines[4].contains("  3"));
+    }
+
+    #[test]
+    fn test_list_truncates_long_patterns() {
+        let long_pattern = "a".repeat(40);
+        let config = make_config(vec![make_rule(vec![&long_pattern], vec!["t"])]);
+        let mut buf = Vec::new();
+        format_rule_list(&config, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        // Long pattern should be truncated with ellipsis
+        assert!(output.contains('…'));
+        assert!(!output.contains(&long_pattern));
+    }
+
+    #[test]
+    fn test_list_truncates_long_tags() {
+        let long_tag = "b".repeat(25);
+        let config = make_config(vec![make_rule(vec!["*.rs"], vec![&long_tag])]);
+        let mut buf = Vec::new();
+        format_rule_list(&config, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains('…'));
+    }
+
+    // ---- remove_rule_from_config ----
+
+    #[test]
+    fn test_remove_zero_index_error() {
+        let mut config = make_config(vec![make_rule(vec!["*.rs"], vec!["rust"])]);
+        let result = remove_rule_from_config(&mut config, 0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("1-based"));
+    }
+
+    #[test]
+    fn test_remove_out_of_range_error() {
+        let mut config = make_config(vec![make_rule(vec!["*.rs"], vec!["rust"])]);
+        let result = remove_rule_from_config(&mut config, 2);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("out of range"));
+        assert!(err.contains("1 rule"));
+    }
+
+    #[test]
+    fn test_remove_out_of_range_plural() {
+        let mut config = make_config(vec![
+            make_rule(vec!["*.rs"], vec!["rust"]),
+            make_rule(vec!["*.py"], vec!["python"]),
+        ]);
+        let result = remove_rule_from_config(&mut config, 5);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("2 rules"));
+    }
+
+    #[test]
+    fn test_remove_empty_config() {
+        let mut config = WatchConfig::default();
+        let result = remove_rule_from_config(&mut config, 1);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of range"));
+    }
+
+    #[test]
+    fn test_remove_first_rule() {
+        let mut config = make_config(vec![
+            make_rule(vec!["*.rs"], vec!["rust"]),
+            make_rule(vec!["*.py"], vec!["python"]),
+        ]);
+        let removed = remove_rule_from_config(&mut config, 1).unwrap();
+        assert_eq!(removed.tags, vec!["rust"]);
+        assert_eq!(config.rules.len(), 1);
+        assert_eq!(config.rules[0].tags, vec!["python"]);
+    }
+
+    #[test]
+    fn test_remove_last_rule() {
+        let mut config = make_config(vec![
+            make_rule(vec!["*.rs"], vec!["rust"]),
+            make_rule(vec!["*.py"], vec!["python"]),
+        ]);
+        let removed = remove_rule_from_config(&mut config, 2).unwrap();
+        assert_eq!(removed.tags, vec!["python"]);
+        assert_eq!(config.rules.len(), 1);
+        assert_eq!(config.rules[0].tags, vec!["rust"]);
+    }
+
+    #[test]
+    fn test_remove_only_rule() {
+        let mut config = make_config(vec![make_rule(vec!["*.md"], vec!["docs"])]);
+        let removed = remove_rule_from_config(&mut config, 1).unwrap();
+        assert_eq!(removed.tags, vec!["docs"]);
+        assert!(config.rules.is_empty());
+    }
+
+    // ---- watch_remove (integration with writer) ----
+
+    #[test]
+    fn test_watch_remove_zero_index_writer() {
         let mut buf = Vec::new();
         let result = watch_remove(0, true, &mut buf);
         assert!(result.is_err());
