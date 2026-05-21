@@ -1619,4 +1619,312 @@ mod tests {
         keys.sort();
         assert_eq!(keys, vec!["item0", "item2"]);
     }
+
+    // === execute_action tests ===
+
+    fn make_state_with_multi(count: usize) -> AppState {
+        AppState::new(
+            make_items(count),
+            true,
+            None,
+            None,
+            "> ".to_string(),
+            vec![],
+            None,
+        )
+    }
+
+    #[test]
+    fn test_execute_move_up_down() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(state.cursor, 0);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::MoveDown),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 1);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::MoveUp),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn test_execute_page_navigation() {
+        let mut state = make_state_with_multi(50);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::PageDown),
+            EventResult::Continue
+        );
+        assert!(state.cursor > 0);
+
+        let after_page_down = state.cursor;
+        assert_eq!(
+            state.execute_action(BrowseAction::PageUp),
+            EventResult::Continue
+        );
+        assert!(state.cursor < after_page_down);
+    }
+
+    #[test]
+    fn test_execute_jump_start_end() {
+        let mut state = make_state_with_multi(10);
+        state.cursor = 5;
+
+        assert_eq!(
+            state.execute_action(BrowseAction::JumpEnd),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 9);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::JumpStart),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn test_execute_preview_scroll() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(state.preview_scroll, 0);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ScrollPreviewDown),
+            EventResult::Continue
+        );
+        assert_eq!(state.preview_scroll, 1);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ScrollPreviewUp),
+            EventResult::Continue
+        );
+        assert_eq!(state.preview_scroll, 0);
+
+        // Saturating sub — doesn't underflow
+        assert_eq!(
+            state.execute_action(BrowseAction::ScrollPreviewUp),
+            EventResult::Continue
+        );
+        assert_eq!(state.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_execute_toggle_select() {
+        let mut state = make_state_with_multi(5);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ToggleSelect),
+            EventResult::Continue
+        );
+        assert!(state.is_selected(0));
+
+        // Moves cursor down after toggle
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn test_execute_enter_exit_search() {
+        let mut state = make_state_with_multi(5);
+        assert!(!state.search_active);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::EnterSearch),
+            EventResult::Continue
+        );
+        assert!(state.search_active);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ExitSearch),
+            EventResult::Continue
+        );
+        assert!(!state.search_active);
+    }
+
+    #[test]
+    fn test_execute_char_input() {
+        let mut state = make_state_with_multi(5);
+        state.search_active = true;
+
+        assert_eq!(
+            state.execute_action(BrowseAction::CharInput('r')),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "r");
+
+        assert_eq!(
+            state.execute_action(BrowseAction::CharInput('s')),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "rs");
+    }
+
+    #[test]
+    fn test_execute_backspace_delete() {
+        let mut state = make_state_with_multi(5);
+        state.query_push('a');
+        state.query_push('b');
+        state.query_push('c');
+
+        assert_eq!(
+            state.execute_action(BrowseAction::Backspace),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "ab");
+
+        // Delete at end = Ignored
+        assert_eq!(
+            state.execute_action(BrowseAction::Delete),
+            EventResult::Ignored
+        );
+
+        // Move cursor left, then delete works
+        state.query_cursor_left();
+        assert_eq!(
+            state.execute_action(BrowseAction::Delete),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "a");
+
+        // Backspace on empty = Ignored
+        state.query_clear();
+        assert_eq!(
+            state.execute_action(BrowseAction::Backspace),
+            EventResult::Ignored
+        );
+    }
+
+    #[test]
+    fn test_execute_clear_query() {
+        let mut state = make_state_with_multi(5);
+        state.query_push('t');
+        state.query_push('e');
+        state.query_push('s');
+        state.query_push('t');
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ClearQuery),
+            EventResult::QueryChanged
+        );
+        assert!(state.query.is_empty());
+        assert_eq!(state.query_cursor, 0);
+    }
+
+    #[test]
+    fn test_execute_delete_word() {
+        let mut state = make_state_with_multi(5);
+        // Type "hello world"
+        for c in "hello world".chars() {
+            state.query_push(c);
+        }
+
+        assert_eq!(
+            state.execute_action(BrowseAction::DeleteWord),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "hello ");
+    }
+
+    #[test]
+    fn test_execute_query_cursor_movement() {
+        let mut state = make_state_with_multi(5);
+        state.query_push('a');
+        state.query_push('b');
+        assert_eq!(state.query_cursor, 2);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::QueryCursorLeft),
+            EventResult::Continue
+        );
+        assert_eq!(state.query_cursor, 1);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::QueryCursorRight),
+            EventResult::Continue
+        );
+        assert_eq!(state.query_cursor, 2);
+    }
+
+    #[test]
+    fn test_execute_abort() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(
+            state.execute_action(BrowseAction::Abort),
+            EventResult::Abort
+        );
+    }
+
+    #[test]
+    fn test_execute_confirm_non_tag_phase() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(
+            state.execute_action(BrowseAction::Confirm),
+            EventResult::Confirm
+        );
+    }
+
+    #[test]
+    fn test_execute_show_help() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(state.mode, Mode::Normal);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ShowHelp),
+            EventResult::Continue
+        );
+        assert_eq!(state.mode, Mode::Help);
+    }
+
+    #[test]
+    fn test_execute_toggle_note_preview() {
+        let mut state = make_state_with_multi(5);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ToggleNotePreview),
+            EventResult::PreviewChanged
+        );
+    }
+
+    #[test]
+    fn test_execute_special_handling_action() {
+        let mut state = make_state_with_multi(5);
+
+        let result = state.execute_action(BrowseAction::OpenInEditor);
+        assert_eq!(
+            result,
+            EventResult::Action {
+                action: BrowseAction::OpenInEditor,
+                context: vec!["item0".to_string()]
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_input_action() {
+        let mut state = make_state_with_multi(5);
+
+        let result = state.execute_action(BrowseAction::AddTag);
+        assert_eq!(result, EventResult::Continue);
+        assert_eq!(state.mode, Mode::Input);
+        assert!(state.text_input_state().is_some());
+    }
+
+    #[test]
+    fn test_execute_focus_pane_non_tag_phase() {
+        let mut state = make_state_with_multi(5);
+
+        // FocusLeft/Right are no-ops outside tag selection phase
+        assert_eq!(
+            state.execute_action(BrowseAction::FocusLeft),
+            EventResult::Continue
+        );
+        assert_eq!(
+            state.execute_action(BrowseAction::FocusRight),
+            EventResult::Continue
+        );
+    }
 }

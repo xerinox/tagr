@@ -631,4 +631,267 @@ mod tests {
         );
         assert_eq!(result, EventResult::Abort);
     }
+
+    // === resolve_action / resolve_default_keybind tests ===
+
+    #[test]
+    fn test_resolve_default_navigation_keys() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &state),
+            Some(BrowseAction::MoveUp)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &state),
+            Some(BrowseAction::MoveDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE), &state),
+            Some(BrowseAction::PageUp)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE), &state),
+            Some(BrowseAction::PageDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE), &state),
+            Some(BrowseAction::JumpStart)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), &state),
+            Some(BrowseAction::JumpEnd)
+        );
+    }
+
+    #[test]
+    fn test_resolve_vim_navigation_requires_no_search() {
+        let mut state = make_state();
+
+        // j/k work when search is inactive
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &state),
+            Some(BrowseAction::MoveDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE), &state),
+            Some(BrowseAction::MoveUp)
+        );
+
+        // j/k become char input when search is active
+        state.search_active = true;
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &state),
+            Some(BrowseAction::CharInput('j'))
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE), &state),
+            Some(BrowseAction::CharInput('k'))
+        );
+    }
+
+    #[test]
+    fn test_resolve_ctrl_jk_always_navigates() {
+        let mut state = make_state();
+        state.search_active = true;
+
+        // Ctrl+j/k always navigate, even during search
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::MoveDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::MoveUp)
+        );
+    }
+
+    #[test]
+    fn test_resolve_esc_context_dependent() {
+        let mut state = make_state();
+
+        // Esc without search = abort
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &state),
+            Some(BrowseAction::Abort)
+        );
+
+        // Esc during search = exit search
+        state.search_active = true;
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ExitSearch)
+        );
+    }
+
+    #[test]
+    fn test_resolve_enter_context_dependent() {
+        let mut state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state),
+            Some(BrowseAction::Confirm)
+        );
+
+        state.search_active = true;
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ExitSearch)
+        );
+    }
+
+    #[test]
+    fn test_resolve_search_text_input() {
+        let mut state = make_state();
+        state.search_active = true;
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), &state),
+            Some(BrowseAction::CharInput('a'))
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT),
+                &state
+            ),
+            Some(BrowseAction::CharInput('A'))
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), &state),
+            Some(BrowseAction::Backspace)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE), &state),
+            Some(BrowseAction::Delete)
+        );
+    }
+
+    #[test]
+    fn test_resolve_search_editing_shortcuts() {
+        let mut state = make_state();
+        state.search_active = true;
+
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::ClearQuery)
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::DeleteWord)
+        );
+    }
+
+    #[test]
+    fn test_resolve_no_text_input_without_search() {
+        let state = make_state();
+
+        // Regular chars produce None when search is inactive (except mapped keys)
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), &state),
+            None
+        );
+        // Backspace also None without search
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), &state),
+            None
+        );
+    }
+
+    #[test]
+    fn test_resolve_selection_and_misc() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ToggleSelect)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ToggleExclude)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE), &state),
+            Some(BrowseAction::EnterSearch)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE), &state),
+            Some(BrowseAction::ShowHelp)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE), &state),
+            Some(BrowseAction::ShowHelp)
+        );
+    }
+
+    #[test]
+    fn test_resolve_preview_scroll() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT), &state),
+            Some(BrowseAction::ScrollPreviewUp)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT), &state),
+            Some(BrowseAction::ScrollPreviewDown)
+        );
+    }
+
+    #[test]
+    fn test_resolve_custom_bind_overrides_default() {
+        let state = make_state();
+        let mut binds = KeybindMap::new();
+        // Override Tab (normally ToggleSelect) with add_tag
+        binds.insert(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            "add_tag".to_string(),
+        );
+
+        let result = resolve_action(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &binds,
+            &state,
+        );
+        assert_eq!(result, Some(BrowseAction::AddTag));
+    }
+
+    #[test]
+    fn test_resolve_invalid_custom_bind_falls_through() {
+        let state = make_state();
+        let mut binds = KeybindMap::new();
+        binds.insert(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            "not_a_real_action".to_string(),
+        );
+
+        // Invalid action string falls through to default binding
+        let result = resolve_action(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &binds,
+            &state,
+        );
+        assert_eq!(result, Some(BrowseAction::ToggleSelect));
+    }
+
+    #[test]
+    fn test_resolve_unbound_key_returns_none() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE), &state),
+            None
+        );
+    }
 }
