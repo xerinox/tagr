@@ -17,6 +17,7 @@
 
 use crate::watch::{WatchConfig, WatchRule};
 use clap::{Args, Subcommand};
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -134,6 +135,25 @@ pub fn watch_add(
         .to_rule()
         .ok_or_else(|| anyhow::anyhow!("No file patterns provided. Usage: tagr watch add <patterns> -t <tags>"))?;
 
+    // Detect likely shell glob expansion: many literal paths with a common
+    // parent and extension suggest the user forgot to quote the pattern.
+    if !quiet && looks_like_shell_expansion(&rule.patterns) {
+        writeln!(
+            writer,
+            "Warning: It looks like your shell expanded the glob pattern into {} individual files.",
+            rule.patterns.len(),
+        )?;
+        writeln!(
+            writer,
+            "  This works, but a quoted glob is more flexible (catches future files too)."
+        )?;
+        writeln!(
+            writer,
+            "  Example: tagr watch add '~/notes/*.org' -t notes:org"
+        )?;
+        writeln!(writer)?;
+    }
+
     let mut watch_config = WatchConfig::load().unwrap_or_default();
     watch_config.append_rule(rule.clone())?;
 
@@ -147,6 +167,30 @@ pub fn watch_add(
 
     ensure_daemon_running(app_config, quiet, writer)?;
     Ok(())
+}
+
+/// Heuristic: if 5+ patterns share the same parent directory and none contain
+/// glob characters, the shell probably expanded a wildcard before tagr saw it.
+fn looks_like_shell_expansion(patterns: &[String]) -> bool {
+    const THRESHOLD: usize = 5;
+    if patterns.len() < THRESHOLD {
+        return false;
+    }
+
+    let has_any_glob = patterns.iter().any(|p| {
+        p.contains('*') || p.contains('?') || p.contains('[') || p.contains('{')
+    });
+    if has_any_glob {
+        return false;
+    }
+
+    // Check if they share a common parent directory
+    let parents: HashSet<&std::path::Path> = patterns
+        .iter()
+        .filter_map(|p| std::path::Path::new(p).parent())
+        .collect();
+
+    parents.len() == 1
 }
 
 /// Handle `tagr watch remove`

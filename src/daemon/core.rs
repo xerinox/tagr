@@ -102,6 +102,10 @@ async fn async_run(db: &Database) -> Result<()> {
     println!("Loaded config: {} rules", current_config.rules.len());
     add_new_watch_roots(&mut watcher, &current_config, &mut watched_roots);
 
+    // Retroactively tag existing files that match the initial rules.
+    let initial_work = retroactive_scan(&current_config, db, &mut filter_evaluator);
+    spawn_tag_work(initial_work, db);
+
     println!("Daemon ready.");
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -224,6 +228,8 @@ fn handle_event(
                 *config = new_config;
                 println!("Config reloaded: {} rules", config.rules.len());
                 add_new_watch_roots(watcher, config, watched_roots);
+                // Retroactively tag files matching new/changed rules.
+                return retroactive_scan(config, db, filter_evaluator);
             }
             Err(e) => eprintln!("Failed to reload watch config: {}", e),
         }
@@ -346,6 +352,9 @@ fn add_new_watch_roots(
 
 /// Extract the non-glob prefix of a pattern as the directory to watch.
 /// Expands a leading `~/` to the user's home directory.
+///
+/// For literal file paths (no glob characters), returns the parent directory
+/// so that inotify watches the containing directory rather than a single file.
 fn glob_parent(pattern: &str) -> PathBuf {
     let expanded = if pattern.starts_with("~/") {
         dirs::home_dir()
@@ -358,6 +367,15 @@ fn glob_parent(pattern: &str) -> PathBuf {
     let path = PathBuf::from(&expanded);
     let mut p = path.as_path();
 
+    let s = p.to_string_lossy();
+    let has_glob = s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{');
+
+    if !has_glob {
+        // Literal path — watch the parent directory so we catch sibling
+        // creates and modifications, not just a single file.
+        return p.parent().map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    }
+
     loop {
         let s = p.to_string_lossy();
         if !s.contains('*') && !s.contains('?') && !s.contains('[') && !s.contains('{') {
@@ -367,6 +385,113 @@ fn glob_parent(pattern: &str) -> PathBuf {
             Some(parent) => p = parent,
             None => return PathBuf::from("."),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Retroactive scanning
+// ---------------------------------------------------------------------------
+
+/// Scan the filesystem for files that match the configured watch rules and
+/// return `(path, tags)` pairs for files that don't already have the required
+/// tags.  This is called on daemon startup and on every config reload so that
+/// existing files are tagged immediately — the user doesn't have to modify a
+/// file just to trigger the rule.
+fn retroactive_scan(
+    config: &WatchConfig,
+    db: &Database,
+    filter_evaluator: &mut FilterEvaluator,
+) -> Vec<(PathBuf, Vec<String>)> {
+    let mut work: Vec<(PathBuf, Vec<String>)> = Vec::new();
+
+    for rule in &config.rules {
+        if rule.tags.is_empty() {
+            continue;
+        }
+
+        for pattern in &rule.patterns {
+            let expanded = expand_tilde(pattern);
+            let has_glob = expanded.contains('*')
+                || expanded.contains('?')
+                || expanded.contains('[')
+                || expanded.contains('{');
+
+            let paths: Vec<PathBuf> = if has_glob {
+                // Expand the glob to concrete file paths.
+                glob::glob(&expanded)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|r| r.ok())
+                    .filter(|p| p.is_file())
+                    .collect()
+            } else {
+                // Literal path — treat it as a single file.
+                let p = PathBuf::from(&expanded);
+                if p.is_file() { vec![p] } else { vec![] }
+            };
+
+            for path in &paths {
+                // Skip if the file already carries all the rule's tags.
+                if let Ok(Some(existing)) = db.get_tags(path) {
+                    if rule.tags.iter().all(|t| existing.contains(t)) {
+                        continue;
+                    }
+                }
+
+                // Honour filter criteria if any.
+                if let Some(criteria) = &rule.filter_criteria {
+                    if !filter_evaluator.matches(path, criteria, db) {
+                        continue;
+                    }
+                }
+
+                work.push((path.clone(), rule.tags.clone()));
+            }
+        }
+    }
+
+    if !work.is_empty() {
+        println!("Retroactive scan: {} files to tag", work.len());
+    }
+
+    work
+}
+
+/// Spawn tag operations as blocking tasks so the event loop stays responsive.
+fn spawn_tag_work(work: Vec<(PathBuf, Vec<String>)>, db: &Database) {
+    for (path, tags) in work {
+        let db_ref = db.clone();
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                let mut stdout = std::io::stdout();
+                crate::commands::tag::execute(
+                    &db_ref,
+                    Some(path.clone()),
+                    &tags,
+                    false,
+                    true,
+                    &mut stdout,
+                )
+                .map_err(|e| (path, e))
+            })
+            .await;
+            match result {
+                Ok(Err((path, e))) => eprintln!("Retroactive tag failed for {:?}: {}", path, e),
+                Err(e) => eprintln!("Spawn error: {}", e),
+                Ok(Ok(())) => {}
+            }
+        });
+    }
+}
+
+/// Expand a leading `~/` to the user's home directory.
+fn expand_tilde(pattern: &str) -> String {
+    if pattern.starts_with("~/") {
+        dirs::home_dir()
+            .map(|h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1))
+            .unwrap_or_else(|| pattern.to_string())
+    } else {
+        pattern.to_string()
     }
 }
 
@@ -546,8 +671,10 @@ mod tests {
 
     #[test]
     fn test_glob_parent_no_glob() {
+        // Literal file path → returns parent directory so we watch the dir,
+        // not the individual file.
         let result = glob_parent("/home/user/docs/readme.md");
-        assert_eq!(result, PathBuf::from("/home/user/docs/readme.md"));
+        assert_eq!(result, PathBuf::from("/home/user/docs"));
     }
 
     #[test]
