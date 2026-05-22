@@ -2,18 +2,21 @@
 
 use crate::db::Database;
 use crate::filters::{FilterCriteria, FilterManager, get_filter_path};
-use crate::ipc::{IpcRequest, IpcResponse, get_ipc_socket_path};
+use crate::ipc::get_ipc_socket_path;
+use crate::ipc::wire::{
+    self, ClientMessage, Request, Response, ServerEvent, ServerMessage,
+    WireFilePair, WireNoteEntry, WireTagInfo,
+};
 use crate::watch::matcher::{FilterEvaluator, matches_patterns};
 use crate::watch::{WatchConfig, WatchRule};
-use anyhow::{Context, Result};
-use interprocess::local_socket::tokio::prelude::LocalSocketStream;
+use anyhow::Result;
 use interprocess::local_socket::traits::tokio::Listener;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+use tokio::sync::mpsc;
 
 /// Guard that removes the IPC socket file when dropped.
 /// Ensures cleanup happens on normal exit, IPC shutdown, signal, or panic.
@@ -23,6 +26,24 @@ impl Drop for SocketGuard {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
     }
+}
+
+/// Unique identifier for each IPC connection.
+type ConnId = u64;
+
+/// All event sources feed into this enum via a single mpsc channel.
+enum DaemonEvent {
+    /// A filesystem event from the notify watcher.
+    FsEvent(std::result::Result<Event, notify::Error>),
+    /// A framed message arrived from an IPC connection.
+    ClientMsg { conn_id: ConnId, msg: ClientMessage },
+    /// A connection was closed (EOF or error).
+    ClientDisconnect { conn_id: ConnId },
+    /// A new IPC connection was accepted.
+    NewConnection {
+        conn_id: ConnId,
+        writer_tx: mpsc::Sender<ServerMessage>,
+    },
 }
 
 /// Run the daemon event loop (blocking — starts its own async runtime).
@@ -62,25 +83,22 @@ async fn async_run(db: &Database) -> Result<()> {
         .name(socket_path.clone().to_fs_name::<GenericFilePath>()?)
         .create_tokio()?;
 
-    // Guard ensures socket is cleaned up on normal exit, signal, or panic.
     let _socket_guard = SocketGuard(socket_path.clone());
-
     println!("IPC socket: {:?}", socket_path);
 
-    // Setup the notify file watcher with an async channel.
-    let (tx, mut rx) = tokio::sync::mpsc::channel(256);
-    let tx_clone = tx.clone();
+    // Central event channel — all sources (FS watcher, IPC connections) feed here.
+    let (event_tx, mut event_rx) = mpsc::channel::<DaemonEvent>(512);
+
+    // Setup the notify file watcher, routing events into the central channel.
+    let fs_tx = event_tx.clone();
     let mut watcher = RecommendedWatcher::new(
         move |res| {
-            let _ = tx_clone.blocking_send(res);
+            let _ = fs_tx.blocking_send(DaemonEvent::FsEvent(res));
         },
         Config::default(),
     )?;
 
-    // Compute the canonical path to watch.toml so we can detect config changes.
     let config_path = WatchConfig::config_path().unwrap_or_else(|_| PathBuf::from("watch.toml"));
-
-    // Watch the config directory non-recursively so we notice when watch.toml changes.
     if let Some(config_dir) = config_path.parent() {
         if !config_dir.exists() {
             std::fs::create_dir_all(config_dir).ok();
@@ -90,41 +108,59 @@ async fn async_run(db: &Database) -> Result<()> {
         }
     }
 
-    // Load initial config and start watching the declared paths.
     let mut current_config = WatchConfig::load().unwrap_or_default();
     resolve_all_rules(&mut current_config.rules);
     let mut watched_roots: HashSet<PathBuf> = HashSet::new();
-    // Debounce: track the last time watch.toml was reloaded.
     let mut last_config_reload: Option<Instant> = None;
-    // Debounce: track last tag event per file path to suppress inotify event storms.
     let mut last_file_events: HashMap<PathBuf, Instant> = HashMap::new();
     let mut filter_evaluator = FilterEvaluator::new();
     println!("Loaded config: {} rules", current_config.rules.len());
     add_new_watch_roots(&mut watcher, &current_config, &mut watched_roots);
 
-    // Retroactively tag existing files that match the initial rules.
     let initial_work = retroactive_scan(&current_config, db, &mut filter_evaluator);
     spawn_tag_work(initial_work, db);
 
     println!("Daemon ready.");
 
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+    // Per-connection writers for sending responses and events back.
+    let mut conn_writers: HashMap<ConnId, mpsc::Sender<ServerMessage>> = HashMap::new();
+    // Connections that have subscribed to push events.
+    let mut subscribers: HashSet<ConnId> = HashSet::new();
+    let mut next_conn_id: ConnId = 0;
 
-    // Cross-platform Ctrl-C (SIGINT on Unix, Ctrl-C on Windows).
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::pin!(ctrl_c);
 
-    // SIGTERM on Unix; a never-completing future on other platforms.
     let sigterm = sigterm_or_pending();
     tokio::pin!(sigterm);
 
     loop {
         tokio::select! {
-            Some(res) = rx.recv() => {
-                match res {
-                    Ok(event) => {
+            // Accept new IPC connections.
+            Ok(conn) = listener.accept() => {
+                let conn_id = next_conn_id;
+                next_conn_id += 1;
+
+                // Per-connection channel for outbound messages.
+                let (writer_tx, writer_rx) = mpsc::channel::<ServerMessage>(64);
+
+                // Notify central loop about the new connection.
+                let _ = event_tx.send(DaemonEvent::NewConnection {
+                    conn_id,
+                    writer_tx: writer_tx.clone(),
+                }).await;
+
+                // Spawn the per-connection read/write tasks.
+                let read_tx = event_tx.clone();
+                tokio::spawn(connection_task(conn, conn_id, read_tx, writer_rx));
+            }
+
+            // Process all events from the central channel.
+            Some(event) = event_rx.recv() => {
+                match event {
+                    DaemonEvent::FsEvent(Ok(fs_event)) => {
                         let work = handle_event(
-                            event,
+                            fs_event,
                             &mut current_config,
                             &config_path,
                             &mut watcher,
@@ -134,44 +170,31 @@ async fn async_run(db: &Database) -> Result<()> {
                             db,
                             &mut filter_evaluator,
                         );
-                        // Spawn DB writes so the event loop (and IPC accept) stay responsive.
-                        for (path, tags) in work {
-                            let db_ref = db.clone();
-                            tokio::spawn(async move {
-                                println!("Auto-tagging {:?} with {:?}", path, tags);
-                                let result = tokio::task::spawn_blocking(move || {
-                                    let mut stdout = std::io::stdout();
-                                    crate::commands::tag::execute(
-                                        &db_ref,
-                                        Some(path.clone()),
-                                        &tags,
-                                        false,
-                                        true,
-                                        &mut stdout,
-                                    )
-                                    .map_err(|e| (path, e))
-                                })
-                                .await;
-                                match result {
-                                    Ok(Err((path, e))) => eprintln!("Auto-tag failed for {:?}: {}", path, e),
-                                    Err(e) => eprintln!("Spawn error: {}", e),
-                                    Ok(Ok(())) => {}
-                                }
-                            });
+                        spawn_tag_work_with_events(work, db, &subscribers, &conn_writers);
+                    }
+                    DaemonEvent::FsEvent(Err(e)) => {
+                        eprintln!("Watcher error: {}", e);
+                    }
+                    DaemonEvent::NewConnection { conn_id, writer_tx } => {
+                        conn_writers.insert(conn_id, writer_tx);
+                    }
+                    DaemonEvent::ClientMsg { conn_id, msg } => {
+                        let should_shutdown = handle_client_message(
+                            conn_id, msg, db,
+                            &conn_writers, &mut subscribers,
+                        ).await;
+                        if should_shutdown {
+                            println!("Shutdown requested via IPC.");
+                            break;
                         }
                     }
-                    Err(e) => eprintln!("Watcher error: {}", e),
+                    DaemonEvent::ClientDisconnect { conn_id } => {
+                        conn_writers.remove(&conn_id);
+                        subscribers.remove(&conn_id);
+                    }
                 }
             }
-            Ok(conn) = listener.accept() => {
-                let db_ref = db.clone();
-                let tx = shutdown_tx.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = handle_ipc_connection(conn, &db_ref, tx).await {
-                        eprintln!("IPC error: {}", e);
-                    }
-                });
-            }
+
             _ = &mut ctrl_c => {
                 println!("Received SIGINT. Stopping daemon.");
                 break;
@@ -180,16 +203,139 @@ async fn async_run(db: &Database) -> Result<()> {
                 println!("Received SIGTERM. Stopping daemon.");
                 break;
             }
-            _ = shutdown_rx.recv() => {
-                println!("Shutdown requested. Stopping daemon.");
-                break;
-            }
         }
     }
 
-    // SocketGuard removes the socket file on drop, which happens here
-    // before the sled DB is dropped — giving callers a reliable sync point.
     Ok(())
+}
+
+/// Per-connection task: splits the stream into a reader and writer.
+/// The reader decodes `ClientMessage` frames and forwards them to the central
+/// event channel. The writer receives `ServerMessage`s from its own mpsc
+/// channel and encodes them onto the wire.
+async fn connection_task(
+    conn: interprocess::local_socket::tokio::prelude::LocalSocketStream,
+    conn_id: ConnId,
+    event_tx: mpsc::Sender<DaemonEvent>,
+    mut writer_rx: mpsc::Receiver<ServerMessage>,
+) {
+    let (reader, writer) = tokio::io::split(conn);
+
+    // Writer task: drains the per-connection channel and sends frames.
+    let write_handle = tokio::spawn(async move {
+        let mut writer = writer;
+        while let Some(msg) = writer_rx.recv().await {
+            if wire::write_frame(&mut writer, &msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Reader loop: decode frames and forward to central event channel.
+    let mut reader = reader;
+    loop {
+        let frame_result: std::result::Result<Option<ClientMessage>, _> =
+            wire::read_frame(&mut reader).await;
+        match frame_result {
+            Ok(Some(msg)) => {
+                if event_tx
+                    .send(DaemonEvent::ClientMsg { conn_id, msg })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            // EOF or frame error — client disconnected.
+            Ok(None) | Err(_) => break,
+        }
+    }
+
+    let _ = event_tx.send(DaemonEvent::ClientDisconnect { conn_id }).await;
+    write_handle.abort();
+}
+
+/// Process a single client message: dispatch request or manage subscriptions.
+/// Returns `true` if the daemon should shut down.
+async fn handle_client_message(
+    conn_id: ConnId,
+    msg: ClientMessage,
+    db: &Database,
+    conn_writers: &HashMap<ConnId, mpsc::Sender<ServerMessage>>,
+    subscribers: &mut HashSet<ConnId>,
+) -> bool {
+    match msg {
+        ClientMessage::Request { id, payload } => {
+            let (response, should_shutdown) = execute_wire_request(payload, db);
+            if let Some(tx) = conn_writers.get(&conn_id) {
+                let _ = tx.send(ServerMessage::Response { id, payload: response }).await;
+            }
+            should_shutdown
+        }
+        ClientMessage::Subscribe => {
+            subscribers.insert(conn_id);
+            false
+        }
+        ClientMessage::Unsubscribe => {
+            subscribers.remove(&conn_id);
+            false
+        }
+    }
+}
+
+/// Broadcast a `ServerEvent` to all subscribed connections.
+/// Silently drops events for connections whose channel is full or closed.
+fn broadcast_event(
+    event: &ServerEvent,
+    subscribers: &HashSet<ConnId>,
+    conn_writers: &HashMap<ConnId, mpsc::Sender<ServerMessage>>,
+) {
+    let msg = ServerMessage::Event(event.clone());
+    for &conn_id in subscribers {
+        if let Some(tx) = conn_writers.get(&conn_id) {
+            // Non-blocking: if the channel is full we drop the event rather
+            // than blocking the central loop.
+            let _ = tx.try_send(msg.clone());
+        }
+    }
+}
+
+/// Like `spawn_tag_work` but also broadcasts `FileTagged` events to subscribers.
+fn spawn_tag_work_with_events(
+    work: Vec<(PathBuf, Vec<String>)>,
+    db: &Database,
+    subscribers: &HashSet<ConnId>,
+    conn_writers: &HashMap<ConnId, mpsc::Sender<ServerMessage>>,
+) {
+    for (path, tags) in work {
+        let db_ref = db.clone();
+        let event = ServerEvent::FileTagged {
+            file: path.to_string_lossy().into_owned(),
+            tags: tags.clone(),
+        };
+        broadcast_event(&event, subscribers, conn_writers);
+        tokio::spawn(async move {
+            println!("Auto-tagging {:?} with {:?}", path, tags);
+            let result = tokio::task::spawn_blocking(move || {
+                let mut stdout = std::io::stdout();
+                crate::commands::tag::execute(
+                    &db_ref,
+                    Some(path.clone()),
+                    &tags,
+                    false,
+                    true,
+                    &mut stdout,
+                )
+                .map_err(|e| (path, e))
+            })
+            .await;
+            match result {
+                Ok(Err((path, e))) => eprintln!("Auto-tag failed for {:?}: {}", path, e),
+                Err(e) => eprintln!("Spawn error: {}", e),
+                Ok(Ok(())) => {}
+            }
+        });
+    }
 }
 
 /// Handle a single filesystem event.
@@ -496,157 +642,161 @@ fn expand_tilde(pattern: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// IPC
+// IPC — Wire protocol request dispatch
 // ---------------------------------------------------------------------------
 
-async fn handle_ipc_connection(
-    conn: LocalSocketStream,
-    db: &Database,
-    shutdown_tx: tokio::sync::mpsc::Sender<()>,
-) -> Result<()> {
-    let (reader, mut writer) = tokio::io::split(conn);
-    let mut reader = TokioBufReader::new(reader);
-
-    let mut line = String::new();
-    reader.read_line(&mut line).await?;
-    if line.is_empty() {
-        return Ok(());
-    }
-
-    let req: IpcRequest = serde_json::from_str(&line).context("Failed to parse IPC request")?;
-    let (resp, should_shutdown) = execute_ipc_command(req, db);
-
-    let resp_str = serde_json::to_string(&resp)?;
-    writer.write_all(resp_str.as_bytes()).await?;
-    writer.write_all(b"\n").await?;
-
-    if should_shutdown {
-        let _ = shutdown_tx.send(()).await;
-    }
-    Ok(())
-}
-
-fn execute_ipc_command(req: IpcRequest, db: &Database) -> (IpcResponse, bool) {
+/// Execute a wire protocol request and return the response.
+/// Returns `(Response, should_shutdown)`.
+fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
     match req {
-        IpcRequest::Ping => (IpcResponse::Pong, false),
-        IpcRequest::Shutdown => (IpcResponse::Ok, true),
+        Request::Ping => (Response::Pong, false),
+        Request::Shutdown => (Response::Ok, true),
 
-        IpcRequest::ListTags => {
+        Request::ListTags => {
             match db.list_all_tags() {
                 Ok(tag_names) => {
                     let tags: Vec<_> = tag_names
                         .into_iter()
                         .map(|name| {
-                            let file_count = db.find_by_tag(&name).map_or(0, |f| f.len());
-                            crate::ipc::TagInfo { name, file_count }
+                            let file_count = db.find_by_tag(&name).map_or(0, |f| f.len()) as u64;
+                            WireTagInfo { name, file_count }
                         })
                         .collect();
-                    (IpcResponse::Tags(tags), false)
+                    (Response::Tags(tags), false)
                 }
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::ListFiles => {
+        Request::ListFiles => {
             match db.list_all() {
-                Ok(pairs) => (IpcResponse::Files(pairs), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Ok(pairs) => {
+                    let wire_pairs = pairs.into_iter().map(WireFilePair::from).collect();
+                    (Response::Files(wire_pairs), false)
+                }
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::SearchFiles { params } => {
-            match execute_search(db, &params) {
-                Ok(pairs) => (IpcResponse::Files(pairs), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+        Request::SearchFiles { params } => {
+            let search_params = crate::cli::SearchParams::from(params);
+            match execute_search(db, &search_params) {
+                Ok(pairs) => {
+                    let wire_pairs = pairs.into_iter().map(WireFilePair::from).collect();
+                    (Response::Files(wire_pairs), false)
+                }
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::GetTags { file } => {
-            match db.get_tags(&file) {
-                Ok(Some(tags)) => (IpcResponse::FileTags(tags), false),
-                Ok(None) => (IpcResponse::FileTags(vec![]), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+        Request::GetTags { file } => {
+            let path = PathBuf::from(&file);
+            match db.get_tags(&path) {
+                Ok(Some(tags)) => (Response::FileTags(tags), false),
+                Ok(None) => (Response::FileTags(vec![]), false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::FindByTag { tag } => {
+        Request::FindByTag { tag } => {
             match db.find_by_tag(&tag) {
-                Ok(paths) => (IpcResponse::FilePaths(paths), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Ok(paths) => {
+                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                    (Response::FilePaths(string_paths), false)
+                }
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::FindByTags { tags, match_all } => {
+        Request::FindByTags { tags, match_all } => {
             let result = if match_all {
                 db.find_by_all_tags(&tags)
             } else {
                 db.find_by_any_tag(&tags)
             };
             match result {
-                Ok(paths) => (IpcResponse::FilePaths(paths), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Ok(paths) => {
+                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                    (Response::FilePaths(string_paths), false)
+                }
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::FindByTagRegex { pattern } => {
+        Request::FindByTagRegex { pattern } => {
             match db.find_by_tag_regex(&pattern) {
-                Ok(paths) => (IpcResponse::FilePaths(paths), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Ok(paths) => {
+                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                    (Response::FilePaths(string_paths), false)
+                }
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::ListAllPaths => {
+        Request::ListAllPaths => {
             match db.list_all_files() {
-                Ok(paths) => (IpcResponse::FilePaths(paths), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Ok(paths) => {
+                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                    (Response::FilePaths(string_paths), false)
+                }
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::ListNotes => {
+        Request::ListNotes => {
             match db.list_all_notes() {
                 Ok(notes) => {
                     let entries = notes
                         .into_iter()
-                        .map(|(path, note)| crate::ipc::NoteEntry { path, note })
+                        .map(|(path, note)| WireNoteEntry {
+                            path: path.to_string_lossy().into_owned(),
+                            content: note.content,
+                            created_at: note.metadata.created_at,
+                            updated_at: note.metadata.updated_at,
+                        })
                         .collect();
-                    (IpcResponse::Notes(entries), false)
+                    (Response::Notes(entries), false)
                 }
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::AddTags { file, tags } => {
+        Request::AddTags { file, tags } => {
+            let path = PathBuf::from(&file);
             let mut stdout = std::io::stdout();
-            match crate::commands::tag::execute(db, Some(file), &tags, false, true, &mut stdout) {
-                Ok(()) => (IpcResponse::Ok, false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            match crate::commands::tag::execute(db, Some(path), &tags, false, true, &mut stdout) {
+                Ok(()) => (Response::Ok, false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::SetTags { file, tags } => {
-            match db.insert(&file, tags) {
-                Ok(()) => (IpcResponse::Ok, false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+        Request::SetTags { file, tags } => {
+            let path = PathBuf::from(&file);
+            match db.insert(&path, tags) {
+                Ok(()) => (Response::Ok, false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::RemoveTags { file, tags, all } => {
+        Request::RemoveTags { file, tags, all } => {
+            let path = PathBuf::from(&file);
             let mut stdout = std::io::stdout();
-            match crate::commands::tag::untag(db, Some(file), &tags, all, true, &mut stdout) {
-                Ok(()) => (IpcResponse::Ok, false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            match crate::commands::tag::untag(db, Some(path), &tags, all, true, &mut stdout) {
+                Ok(()) => (Response::Ok, false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::DeleteFromDb { file } => {
-            match db.remove(&file) {
-                Ok(true) => (IpcResponse::Ok, false),
-                Ok(false) => (IpcResponse::Error(format!("File not found in database: {}", file.display())), false),
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+        Request::DeleteFromDb { file } => {
+            let path = PathBuf::from(&file);
+            match db.remove(&path) {
+                Ok(true) => (Response::Ok, false),
+                Ok(false) => (Response::Error(format!("File not found in database: {file}")), false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
 
-        IpcRequest::Cleanup => {
+        Request::Cleanup => {
             let mut removed = 0usize;
             match db.list_all() {
                 Ok(pairs) => {
@@ -655,9 +805,9 @@ fn execute_ipc_command(req: IpcRequest, db: &Database) -> (IpcResponse, bool) {
                             removed += 1;
                         }
                     }
-                    (IpcResponse::CleanupResult { removed }, false)
+                    (Response::CleanupResult { removed: removed as u64 }, false)
                 }
-                Err(e) => (IpcResponse::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false),
             }
         }
     }
@@ -691,7 +841,6 @@ fn execute_search(db: &Database, params: &crate::cli::SearchParams) -> std::resu
             .collect()
     };
 
-    // Apply file pattern filters
     if !params.file_patterns.is_empty() {
         results.retain(|pair| {
             let path_str = pair.file.to_string_lossy();
@@ -699,7 +848,6 @@ fn execute_search(db: &Database, params: &crate::cli::SearchParams) -> std::resu
         });
     }
 
-    // Apply exclude tags
     if !params.exclude_tags.is_empty() {
         results.retain(|pair| {
             !params.exclude_tags.iter().any(|ex| pair.tags.contains(ex))
@@ -712,7 +860,6 @@ fn execute_search(db: &Database, params: &crate::cli::SearchParams) -> std::resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ipc::{IpcRequest, IpcResponse};
     use crate::testing::TestDb;
 
     // ---- glob_parent tests ----
@@ -774,35 +921,35 @@ mod tests {
         );
     }
 
-    // ---- execute_ipc_command tests ----
+    // ---- execute_wire_request tests ----
 
     #[test]
-    fn test_execute_ipc_ping() {
-        let test_db = TestDb::new("ipc_ping");
-        let (resp, shutdown) = execute_ipc_command(IpcRequest::Ping, test_db.db());
+    fn test_execute_wire_ping() {
+        let test_db = TestDb::new("wire_ping");
+        let (resp, shutdown) = execute_wire_request(Request::Ping, test_db.db());
         assert!(!shutdown);
-        assert!(matches!(resp, IpcResponse::Pong));
+        assert!(matches!(resp, Response::Pong));
     }
 
     #[test]
-    fn test_execute_ipc_shutdown() {
-        let test_db = TestDb::new("ipc_shutdown");
-        let (resp, shutdown) = execute_ipc_command(IpcRequest::Shutdown, test_db.db());
+    fn test_execute_wire_shutdown() {
+        let test_db = TestDb::new("wire_shutdown");
+        let (resp, shutdown) = execute_wire_request(Request::Shutdown, test_db.db());
         assert!(shutdown);
-        assert!(matches!(resp, IpcResponse::Ok));
+        assert!(matches!(resp, Response::Ok));
     }
 
     #[test]
-    fn test_execute_ipc_list_tags() {
-        let test_db = TestDb::new("ipc_list_tags");
+    fn test_execute_wire_list_tags() {
+        let test_db = TestDb::new("wire_list_tags");
         let db = test_db.db();
 
-        let temp = crate::testing::TempFile::create("ipc_tags.txt").unwrap();
+        let temp = crate::testing::TempFile::create("wire_tags.txt").unwrap();
         db.insert(temp.path(), vec!["alpha".into(), "beta".into()]).unwrap();
 
-        let (resp, _) = execute_ipc_command(IpcRequest::ListTags, db);
+        let (resp, _) = execute_wire_request(Request::ListTags, db);
         match resp {
-            IpcResponse::Tags(tags) => {
+            Response::Tags(tags) => {
                 let names: Vec<_> = tags.iter().map(|t| t.name.as_str()).collect();
                 assert!(names.contains(&"alpha"));
                 assert!(names.contains(&"beta"));
@@ -812,16 +959,16 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_ipc_list_files() {
-        let test_db = TestDb::new("ipc_list_files");
+    fn test_execute_wire_list_files() {
+        let test_db = TestDb::new("wire_list_files");
         let db = test_db.db();
 
-        let temp = crate::testing::TempFile::create("ipc_files.txt").unwrap();
+        let temp = crate::testing::TempFile::create("wire_files.txt").unwrap();
         db.insert(temp.path(), vec!["tag1".into()]).unwrap();
 
-        let (resp, _) = execute_ipc_command(IpcRequest::ListFiles, db);
+        let (resp, _) = execute_wire_request(Request::ListFiles, db);
         match resp {
-            IpcResponse::Files(files) => {
+            Response::Files(files) => {
                 assert_eq!(files.len(), 1);
                 assert!(files[0].tags.contains(&"tag1".to_string()));
             }
@@ -830,19 +977,19 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_ipc_get_tags() {
-        let test_db = TestDb::new("ipc_get_tags");
+    fn test_execute_wire_get_tags() {
+        let test_db = TestDb::new("wire_get_tags");
         let db = test_db.db();
 
-        let temp = crate::testing::TempFile::create("ipc_gettags.txt").unwrap();
+        let temp = crate::testing::TempFile::create("wire_gettags.txt").unwrap();
         db.insert(temp.path(), vec!["x".into(), "y".into()]).unwrap();
 
-        let (resp, _) = execute_ipc_command(
-            IpcRequest::GetTags { file: temp.path().to_path_buf() },
+        let (resp, _) = execute_wire_request(
+            Request::GetTags { file: temp.path().to_string_lossy().into_owned() },
             db,
         );
         match resp {
-            IpcResponse::FileTags(tags) => {
+            Response::FileTags(tags) => {
                 assert!(tags.contains(&"x".to_string()));
                 assert!(tags.contains(&"y".to_string()));
             }
@@ -851,14 +998,14 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_ipc_get_tags_missing_file() {
-        let test_db = TestDb::new("ipc_get_tags_missing");
-        let (resp, _) = execute_ipc_command(
-            IpcRequest::GetTags { file: PathBuf::from("/nonexistent/file.txt") },
+    fn test_execute_wire_get_tags_missing_file() {
+        let test_db = TestDb::new("wire_get_tags_missing");
+        let (resp, _) = execute_wire_request(
+            Request::GetTags { file: "/nonexistent/file.txt".into() },
             test_db.db(),
         );
         match resp {
-            IpcResponse::FileTags(tags) => assert!(tags.is_empty()),
+            Response::FileTags(tags) => assert!(tags.is_empty()),
             _ => panic!("Expected empty FileTags, got: {resp:?}"),
         }
     }

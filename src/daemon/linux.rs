@@ -1,5 +1,5 @@
 use crate::daemon::traits::{DaemonManager, Result, DaemonError};
-use crate::ipc::{IpcRequest, IpcResponse};
+use crate::ipc::wire::{Request, Response};
 use crate::watch::WatchConfig;
 use async_trait::async_trait;
 use crate::daemon::client::send_request;
@@ -10,14 +10,10 @@ pub struct LinuxDaemonManager;
 #[async_trait]
 impl DaemonManager for LinuxDaemonManager {
     async fn ensure_daemon_running(&self, config: &WatchConfig) -> Result<()> {
-        // 1. Try ping
         if self.is_running().await? {
             return Ok(());
         }
 
-        // 2. Try starting via systemd
-        // Check if systemd is available and user unit exists? 
-        // We just try `systemctl --user start tagr.service`. If it fails, we fallback.
         let status = std::process::Command::new("systemctl")
             .arg("--user")
             .arg("start")
@@ -26,7 +22,6 @@ impl DaemonManager for LinuxDaemonManager {
             
         if let Ok(output) = status {
             if output.status.success() {
-                 // Wait a bit
                  for _ in 0..10 {
                      tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                      if self.is_running().await? {
@@ -36,17 +31,15 @@ impl DaemonManager for LinuxDaemonManager {
             }
         }
         
-        // 3. Fallback to manual spawn
-        // println!("Systemd start failed, falling back to manual spawn...");
         FallbackDaemonManager.ensure_daemon_running(config).await
     }
 
-    async fn send_command(&self, cmd: IpcRequest) -> Result<IpcResponse> {
+    async fn send_command(&self, cmd: Request) -> Result<Response> {
         send_request(cmd).await
     }
     
     async fn is_running(&self) -> Result<bool> {
-        match send_request(IpcRequest::Ping).await {
+        match send_request(Request::Ping).await {
             Ok(_) => Ok(true),
             Err(DaemonError::ConnectionFailed(_)) => Ok(false),
             Err(_) => Ok(false),

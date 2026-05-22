@@ -1,5 +1,5 @@
 use crate::daemon::traits::{DaemonManager, Result, DaemonError};
-use crate::ipc::{IpcRequest, IpcResponse};
+use crate::ipc::wire::{Request, Response};
 use crate::watch::WatchConfig;
 use async_trait::async_trait;
 use crate::daemon::client::send_request;
@@ -17,7 +17,6 @@ impl DaemonManager for FallbackDaemonManager {
 
         spawn_detached(&exe)?;
 
-        // Wait for daemon to be ready (IPC socket accepting connections)
         for _ in 0..30 {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             if self.is_running().await? {
@@ -28,12 +27,12 @@ impl DaemonManager for FallbackDaemonManager {
         Err(DaemonError::StartFailed("Timeout waiting for daemon to start".into()))
     }
 
-    async fn send_command(&self, cmd: IpcRequest) -> Result<IpcResponse> {
+    async fn send_command(&self, cmd: Request) -> Result<Response> {
         send_request(cmd).await
     }
 
     async fn is_running(&self) -> Result<bool> {
-        match send_request(IpcRequest::Ping).await {
+        match send_request(Request::Ping).await {
             Ok(_) => Ok(true),
             Err(DaemonError::ConnectionFailed(_)) => Ok(false),
             Err(e) => Err(e),

@@ -7,7 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::db::{Database, DbError, NoteRecord};
-use crate::ipc::{IpcError, IpcRequest, IpcResponse, NoteEntry, TagInfo};
+use crate::ipc::IpcError;
+use crate::ipc::wire::{Request, Response, WireTagInfo};
 use crate::Pair;
 
 /// Errors that can occur during data source operations.
@@ -54,22 +55,22 @@ impl DataSource {
     // -- Queries --
 
     /// List all tags with their file counts.
-    pub fn list_tags(&self) -> Result<Vec<TagInfo>> {
+    pub fn list_tags(&self) -> Result<Vec<WireTagInfo>> {
         match self {
             Self::Direct(db) => {
                 let tag_names = db.list_all_tags()?;
                 let tags = tag_names
                     .into_iter()
                     .map(|name| {
-                        let file_count = db.find_by_tag(&name).map_or(0, |f| f.len());
-                        TagInfo { name, file_count }
+                        let file_count = db.find_by_tag(&name).map_or(0, |f| f.len()) as u64;
+                        WireTagInfo { name, file_count }
                     })
                     .collect();
                 Ok(tags)
             }
-            Self::Remote { rt } => match self.send(rt, IpcRequest::ListTags)? {
-                IpcResponse::Tags(tags) => Ok(tags),
-                other => Err(unexpected(other)),
+            Self::Remote { rt } => match self.send(rt, Request::ListTags)? {
+                Response::Tags(tags) => Ok(tags),
+                other => Err(unexpected(&other)),
             },
         }
     }
@@ -79,7 +80,6 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.list_all_tags()?),
             Self::Remote { .. } => {
-                // Extract names from TagInfo
                 Ok(self.list_tags()?.into_iter().map(|t| t.name).collect())
             }
         }
@@ -89,9 +89,11 @@ impl DataSource {
     pub fn list_all(&self) -> Result<Vec<Pair>> {
         match self {
             Self::Direct(db) => Ok(db.list_all()?),
-            Self::Remote { rt } => match self.send(rt, IpcRequest::ListFiles)? {
-                IpcResponse::Files(pairs) => Ok(pairs),
-                other => Err(unexpected(other)),
+            Self::Remote { rt } => match self.send(rt, Request::ListFiles)? {
+                Response::Files(pairs) => {
+                    Ok(pairs.into_iter().map(Pair::from).collect())
+                }
+                other => Err(unexpected(&other)),
             },
         }
     }
@@ -100,9 +102,11 @@ impl DataSource {
     pub fn list_all_files(&self) -> Result<Vec<PathBuf>> {
         match self {
             Self::Direct(db) => Ok(db.list_all_files()?),
-            Self::Remote { rt } => match self.send(rt, IpcRequest::ListAllPaths)? {
-                IpcResponse::FilePaths(paths) => Ok(paths),
-                other => Err(unexpected(other)),
+            Self::Remote { rt } => match self.send(rt, Request::ListAllPaths)? {
+                Response::FilePaths(paths) => {
+                    Ok(paths.into_iter().map(PathBuf::from).collect())
+                }
+                other => Err(unexpected(&other)),
             },
         }
     }
@@ -112,13 +116,13 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.get_tags(file)?),
             Self::Remote { rt } => {
-                let req = IpcRequest::GetTags {
-                    file: file.as_ref().to_path_buf(),
+                let req = Request::GetTags {
+                    file: file.as_ref().to_string_lossy().into_owned(),
                 };
                 match self.send(rt, req)? {
-                    IpcResponse::FileTags(tags) if tags.is_empty() => Ok(None),
-                    IpcResponse::FileTags(tags) => Ok(Some(tags)),
-                    other => Err(unexpected(other)),
+                    Response::FileTags(tags) if tags.is_empty() => Ok(None),
+                    Response::FileTags(tags) => Ok(Some(tags)),
+                    other => Err(unexpected(&other)),
                 }
             }
         }
@@ -129,12 +133,14 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.find_by_tag(tag)?),
             Self::Remote { rt } => {
-                let req = IpcRequest::FindByTag {
+                let req = Request::FindByTag {
                     tag: tag.to_owned(),
                 };
                 match self.send(rt, req)? {
-                    IpcResponse::FilePaths(paths) => Ok(paths),
-                    other => Err(unexpected(other)),
+                    Response::FilePaths(paths) => {
+                        Ok(paths.into_iter().map(PathBuf::from).collect())
+                    }
+                    other => Err(unexpected(&other)),
                 }
             }
         }
@@ -145,13 +151,15 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.find_by_all_tags(tags)?),
             Self::Remote { rt } => {
-                let req = IpcRequest::FindByTags {
+                let req = Request::FindByTags {
                     tags: tags.to_vec(),
                     match_all: true,
                 };
                 match self.send(rt, req)? {
-                    IpcResponse::FilePaths(paths) => Ok(paths),
-                    other => Err(unexpected(other)),
+                    Response::FilePaths(paths) => {
+                        Ok(paths.into_iter().map(PathBuf::from).collect())
+                    }
+                    other => Err(unexpected(&other)),
                 }
             }
         }
@@ -162,13 +170,15 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.find_by_any_tag(tags)?),
             Self::Remote { rt } => {
-                let req = IpcRequest::FindByTags {
+                let req = Request::FindByTags {
                     tags: tags.to_vec(),
                     match_all: false,
                 };
                 match self.send(rt, req)? {
-                    IpcResponse::FilePaths(paths) => Ok(paths),
-                    other => Err(unexpected(other)),
+                    Response::FilePaths(paths) => {
+                        Ok(paths.into_iter().map(PathBuf::from).collect())
+                    }
+                    other => Err(unexpected(&other)),
                 }
             }
         }
@@ -179,12 +189,14 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.find_by_tag_regex(pattern)?),
             Self::Remote { rt } => {
-                let req = IpcRequest::FindByTagRegex {
+                let req = Request::FindByTagRegex {
                     pattern: pattern.to_owned(),
                 };
                 match self.send(rt, req)? {
-                    IpcResponse::FilePaths(paths) => Ok(paths),
-                    other => Err(unexpected(other)),
+                    Response::FilePaths(paths) => {
+                        Ok(paths.into_iter().map(PathBuf::from).collect())
+                    }
+                    other => Err(unexpected(&other)),
                 }
             }
         }
@@ -194,11 +206,19 @@ impl DataSource {
     pub fn list_all_notes(&self) -> Result<Vec<(PathBuf, NoteRecord)>> {
         match self {
             Self::Direct(db) => Ok(db.list_all_notes()?),
-            Self::Remote { rt } => match self.send(rt, IpcRequest::ListNotes)? {
-                IpcResponse::Notes(entries) => {
-                    Ok(entries.into_iter().map(|e| (e.path, e.note)).collect())
+            Self::Remote { rt } => match self.send(rt, Request::ListNotes)? {
+                Response::Notes(entries) => {
+                    Ok(entries
+                        .into_iter()
+                        .map(|e| {
+                            (
+                                PathBuf::from(e.path),
+                                NoteRecord::new(e.content),
+                            )
+                        })
+                        .collect())
                 }
-                other => Err(unexpected(other)),
+                other => Err(unexpected(&other)),
             },
         }
     }
@@ -210,14 +230,14 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.insert(file, tags)?),
             Self::Remote { rt } => {
-                let req = IpcRequest::SetTags {
-                    file: file.as_ref().to_path_buf(),
+                let req = Request::SetTags {
+                    file: file.as_ref().to_string_lossy().into_owned(),
                     tags,
                 };
                 match self.send(rt, req)? {
-                    IpcResponse::Ok => Ok(()),
-                    IpcResponse::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
-                    other => Err(unexpected(other)),
+                    Response::Ok => Ok(()),
+                    Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
+                    other => Err(unexpected(&other)),
                 }
             }
         }
@@ -228,14 +248,14 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.remove(file)?),
             Self::Remote { rt } => {
-                let req = IpcRequest::DeleteFromDb {
-                    file: file.as_ref().to_path_buf(),
+                let req = Request::DeleteFromDb {
+                    file: file.as_ref().to_string_lossy().into_owned(),
                 };
                 match self.send(rt, req)? {
-                    IpcResponse::Ok => Ok(true),
-                    IpcResponse::Error(e) if e.contains("not found") => Ok(false),
-                    IpcResponse::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
-                    other => Err(unexpected(other)),
+                    Response::Ok => Ok(true),
+                    Response::Error(e) if e.contains("not found") => Ok(false),
+                    Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
+                    other => Err(unexpected(&other)),
                 }
             }
         }
@@ -247,8 +267,8 @@ impl DataSource {
     fn send(
         &self,
         rt: &tokio::runtime::Runtime,
-        req: IpcRequest,
-    ) -> std::result::Result<IpcResponse, IpcError> {
+        req: Request,
+    ) -> std::result::Result<Response, IpcError> {
         use crate::daemon::client::send_request;
 
         rt.block_on(send_request(req)).map_err(|e| {
@@ -257,7 +277,7 @@ impl DataSource {
     }
 }
 
-fn unexpected(resp: IpcResponse) -> DataSourceError {
+fn unexpected(resp: &Response) -> DataSourceError {
     DataSourceError::UnexpectedResponse(format!("Unexpected IPC response: {resp:?}"))
 }
 

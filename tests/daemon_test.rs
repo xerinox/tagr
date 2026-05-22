@@ -1,12 +1,11 @@
 //! Integration tests for daemon mode.
 //!
-//! These tests spawn the tagr binary in daemon mode and verify IPC communication.
+//! These tests spawn the tagr binary in daemon mode and verify IPC communication
+//! using the binary wire protocol (wincode + length-prefixed framing).
 //! Each test uses an isolated XDG_RUNTIME_DIR to avoid conflicts with real daemons.
 
 #![allow(dead_code)]
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -19,6 +18,7 @@ struct DaemonHarness {
     config_dir: TempDir,
     data_dir: TempDir,
     socket_path: PathBuf,
+    rt: tokio::runtime::Runtime,
 }
 
 impl DaemonHarness {
@@ -32,7 +32,6 @@ impl DaemonHarness {
         let socket_path = runtime_dir.path().join("tagr_daemon.sock");
         let db_path = data_dir.path().join("test_db");
 
-        // Write a minimal config so the daemon can find a database
         let config_path = config_dir.path().join("tagr");
         std::fs::create_dir_all(&config_path).unwrap();
         let config_file = config_path.join("config.toml");
@@ -61,12 +60,15 @@ impl DaemonHarness {
             .spawn()
             .expect("failed to spawn daemon binary");
 
+        let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
+
         let mut harness = Self {
             child,
             runtime_dir,
             config_dir,
             data_dir,
             socket_path,
+            rt,
         };
 
         harness.wait_for_socket(Duration::from_secs(5));
@@ -81,7 +83,6 @@ impl DaemonHarness {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        // Read stderr for diagnostics
         let _ = self.child.kill();
         panic!(
             "Daemon socket did not appear at {:?} within {:?}",
@@ -89,30 +90,40 @@ impl DaemonHarness {
         );
     }
 
-    /// Send a JSON request and receive a JSON response via the Unix socket.
-    fn send_request(&self, request: &str) -> String {
-        let mut stream =
-            UnixStream::connect(&self.socket_path).expect("connect to daemon socket");
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+    /// Send a wire protocol request and receive the response.
+    fn send_request(&self, request: tagr::ipc::wire::Request) -> tagr::ipc::wire::Response {
+        use tagr::ipc::wire::{ClientMessage, ServerMessage, read_frame, write_frame};
+        use interprocess::local_socket::tokio::prelude::LocalSocketStream;
+        use interprocess::local_socket::traits::tokio::Stream;
+        use interprocess::local_socket::{GenericFilePath, ToFsName};
+        use std::sync::atomic::{AtomicU32, Ordering};
 
-        let msg = format!("{request}\n");
-        stream.write_all(msg.as_bytes()).expect("write request");
+        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
-        let mut reader = BufReader::new(stream);
-        let mut response = String::new();
-        reader.read_line(&mut response).expect("read response");
-        response
+        let socket_path = self.socket_path.clone();
+        self.rt.block_on(async {
+            let name = socket_path.to_fs_name::<GenericFilePath>().unwrap();
+            let conn = LocalSocketStream::connect(name).await.unwrap();
+            let (mut reader, mut writer) = tokio::io::split(conn);
+
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            let msg = ClientMessage::Request { id, payload: request };
+            write_frame(&mut writer, &msg).await.unwrap();
+
+            let server_msg: ServerMessage = read_frame(&mut reader).await.unwrap().unwrap();
+            match server_msg {
+                ServerMessage::Response { payload, .. } => payload,
+                ServerMessage::Event(_) => panic!("unexpected event"),
+            }
+        })
     }
 
-    /// Send typed IPC request
-    fn ping(&self) -> String {
-        self.send_request("\"Ping\"")
+    fn ping(&self) -> tagr::ipc::wire::Response {
+        self.send_request(tagr::ipc::wire::Request::Ping)
     }
 
-    fn shutdown(&self) -> String {
-        self.send_request("\"Shutdown\"")
+    fn shutdown(&self) -> tagr::ipc::wire::Response {
+        self.send_request(tagr::ipc::wire::Request::Shutdown)
     }
 }
 
@@ -129,8 +140,8 @@ fn test_daemon_ping_pong() {
     let harness = DaemonHarness::spawn();
     let response = harness.ping();
     assert!(
-        response.contains("Pong"),
-        "Expected Pong response to Ping, got: {response}"
+        matches!(response, tagr::ipc::wire::Response::Pong),
+        "Expected Pong response to Ping, got: {response:?}"
     );
 }
 
@@ -144,11 +155,10 @@ fn test_daemon_shutdown_cleans_up_socket() {
 
     let response = harness.shutdown();
     assert!(
-        response.contains("Ok"),
-        "Expected Ok response to Shutdown, got: {response}"
+        matches!(response, tagr::ipc::wire::Response::Ok),
+        "Expected Ok response to Shutdown, got: {response:?}"
     );
 
-    // Wait for socket removal
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
         if !socket.exists() {
@@ -161,258 +171,175 @@ fn test_daemon_shutdown_cleans_up_socket() {
 
 #[test]
 #[ignore]
-fn test_daemon_handles_invalid_json() {
-    let harness = DaemonHarness::spawn();
-    let _response = harness.send_request("this is not json");
-    // Daemon should not crash — it should return an error or close the connection
-    // The connection may just be closed (empty response) or return an error
-    // Either way, verify daemon is still alive after:
-    let ping_response = harness.ping();
-    assert!(
-        ping_response.contains("Pong"),
-        "Daemon should survive invalid JSON. Ping got: {ping_response}"
-    );
-}
-
-#[test]
-#[ignore]
-fn test_daemon_command_tag() {
-    let harness = DaemonHarness::spawn();
-
-    // Create a temp file to tag
-    let test_file = harness.data_dir.path().join("hello.txt");
-    std::fs::write(&test_file, "hello world").unwrap();
-
-    let cmd = serde_json::json!({
-        "AddTags": {
-            "file": test_file.to_str().unwrap(),
-            "tags": ["test-tag"]
-        }
-    });
-
-    let response = harness.send_request(&cmd.to_string());
-    assert!(
-        response.contains("Ok"),
-        "AddTags command should succeed, got: {response}"
-    );
-}
-
-#[test]
-#[ignore]
 fn test_daemon_multiple_connections() {
     let harness = DaemonHarness::spawn();
 
-    // Send multiple pings in quick succession
     for i in 0..5 {
         let response = harness.ping();
         assert!(
-            response.contains("Pong"),
-            "Ping {i} failed: {response}"
+            matches!(response, tagr::ipc::wire::Response::Pong),
+            "Ping {i} failed: {response:?}"
         );
     }
 }
 
 // ---------------------------------------------------------------------------
-// Contract tests: direct CLI vs IPC daemon parity
-//
-// These verify that running a command locally (via the binary) and running
-// the same command through the daemon IPC produce identical output.
+// Contract tests: typed wire protocol parity
 // ---------------------------------------------------------------------------
-
-/// Run tagr directly (no daemon) with isolated dirs and return stdout.
-fn run_direct(data_dir: &TempDir, args: &[&str]) -> String {
-    let binary = env!("CARGO_BIN_EXE_tagr");
-    let output = Command::new(binary)
-        .args(args)
-        .env("XDG_CONFIG_HOME", data_dir.path())
-        .env("XDG_DATA_HOME", data_dir.path())
-        .env("XDG_STATE_HOME", data_dir.path())
-        .output()
-        .expect("run direct command");
-    String::from_utf8(output.stdout).unwrap()
-}
-
-/// Run a command through the daemon IPC using typed protocol.
-fn run_via_daemon(harness: &DaemonHarness, args: &[&str]) -> String {
-    // Convert CLI-style args to typed IPC requests
-    let request = match args {
-        ["tag", file, tags @ ..] => {
-            let tag_list: Vec<&str> = tags.to_vec();
-            serde_json::json!({
-                "AddTags": {
-                    "file": file,
-                    "tags": tag_list
-                }
-            })
-        }
-        ["search", rest @ ..] => {
-            // Extract tags from --tag / -t flags
-            let mut tags = Vec::new();
-            let mut i = 0;
-            while i < rest.len() {
-                match rest[i] {
-                    "--tag" | "-t" if i + 1 < rest.len() => {
-                        tags.push(rest[i + 1]);
-                        i += 2;
-                    }
-                    _ => i += 1,
-                }
-            }
-            serde_json::json!({
-                "SearchFiles": {
-                    "params": {
-                        "tags": tags,
-                        "tag_mode": "Any",
-                        "file_mode": "All",
-                        "virtual_mode": "All"
-                    }
-                }
-            })
-        }
-        ["list", "files", ..] => serde_json::json!("ListFiles"),
-        ["list", "tags", ..] => serde_json::json!("ListTags"),
-        ["untag", file, tags @ ..] => {
-            let tag_list: Vec<&str> = tags.to_vec();
-            serde_json::json!({
-                "RemoveTags": {
-                    "file": file,
-                    "tags": tag_list,
-                    "all": false
-                }
-            })
-        }
-        _ => panic!("Unsupported command in run_via_daemon: {args:?}"),
-    };
-
-    let response = harness.send_request(&request.to_string());
-    let parsed: serde_json::Value = serde_json::from_str(response.trim()).unwrap_or_default();
-
-    // Return a flattened string representation for assertion convenience
-    serde_json::to_string_pretty(&parsed).unwrap_or(response)
-}
 
 #[test]
 #[ignore]
 fn test_contract_tag_and_search_parity() {
+    use tagr::ipc::wire::{Request, Response};
+
     let harness = DaemonHarness::spawn();
 
-    // Tag a file via IPC
     let test_file = harness.data_dir.path().join("contract_test.txt");
     std::fs::write(&test_file, "contract test content").unwrap();
 
-    let tag_response = run_via_daemon(
-        &harness,
-        &["tag", test_file.to_str().unwrap(), "contract-tag"],
-    );
-    // Tag command output should indicate success (may be empty in quiet-like mode)
+    let tag_response = harness.send_request(Request::AddTags {
+        file: test_file.to_string_lossy().into_owned(),
+        tags: vec!["contract-tag".into()],
+    });
     assert!(
-        !tag_response.contains("Error"),
-        "Tag via IPC should not error: {tag_response}"
+        matches!(tag_response, Response::Ok),
+        "Tag via IPC should succeed: {tag_response:?}"
     );
 
-    // Now search via IPC
-    let ipc_search = run_via_daemon(
-        &harness,
-        &["search", "--tag", "contract-tag", "-q"],
-    );
-
-    // The IPC search should contain the file path
-    assert!(
-        ipc_search.contains("contract_test.txt"),
-        "IPC search should find the tagged file.\nGot: {ipc_search}"
-    );
+    let search_response = harness.send_request(Request::FindByTag {
+        tag: "contract-tag".into(),
+    });
+    match search_response {
+        Response::FilePaths(paths) => {
+            assert!(
+                paths.iter().any(|p| p.contains("contract_test.txt")),
+                "Search should find the tagged file. Got: {paths:?}"
+            );
+        }
+        other => panic!("Expected FilePaths response, got: {other:?}"),
+    }
 }
 
 #[test]
 #[ignore]
 fn test_contract_list_parity() {
+    use tagr::ipc::wire::{Request, Response};
+
     let harness = DaemonHarness::spawn();
 
-    // Tag two files via IPC
     let f1 = harness.data_dir.path().join("parity_a.txt");
     let f2 = harness.data_dir.path().join("parity_b.txt");
     std::fs::write(&f1, "a").unwrap();
     std::fs::write(&f2, "b").unwrap();
 
-    run_via_daemon(&harness, &["tag", f1.to_str().unwrap(), "parity"]);
-    run_via_daemon(&harness, &["tag", f2.to_str().unwrap(), "parity"]);
+    harness.send_request(Request::AddTags {
+        file: f1.to_string_lossy().into_owned(),
+        tags: vec!["parity".into()],
+    });
+    harness.send_request(Request::AddTags {
+        file: f2.to_string_lossy().into_owned(),
+        tags: vec!["parity".into()],
+    });
 
-    // List via IPC
-    let ipc_list = run_via_daemon(&harness, &["list", "files", "-q"]);
-
-    // Both files should appear in the list output
-    assert!(
-        ipc_list.contains("parity_a.txt"),
-        "IPC list should contain parity_a.txt.\nGot: {ipc_list}"
-    );
-    assert!(
-        ipc_list.contains("parity_b.txt"),
-        "IPC list should contain parity_b.txt.\nGot: {ipc_list}"
-    );
+    let response = harness.send_request(Request::ListFiles);
+    match response {
+        Response::Files(files) => {
+            let file_strs: Vec<_> = files.iter().map(|f| f.file.as_str()).collect();
+            assert!(
+                file_strs.iter().any(|f| f.contains("parity_a.txt")),
+                "List should contain parity_a.txt. Got: {file_strs:?}"
+            );
+            assert!(
+                file_strs.iter().any(|f| f.contains("parity_b.txt")),
+                "List should contain parity_b.txt. Got: {file_strs:?}"
+            );
+        }
+        other => panic!("Expected Files response, got: {other:?}"),
+    }
 }
 
 #[test]
 #[ignore]
 fn test_contract_untag_via_daemon() {
+    use tagr::ipc::wire::{Request, Response};
+
     let harness = DaemonHarness::spawn();
 
     let test_file = harness.data_dir.path().join("untag_contract.txt");
     std::fs::write(&test_file, "content").unwrap();
+    let file_str = test_file.to_string_lossy().into_owned();
 
-    // Tag, then untag
-    run_via_daemon(
-        &harness,
-        &["tag", test_file.to_str().unwrap(), "remove-me", "keep-me"],
-    );
-    run_via_daemon(
-        &harness,
-        &["untag", test_file.to_str().unwrap(), "remove-me"],
-    );
+    harness.send_request(Request::AddTags {
+        file: file_str.clone(),
+        tags: vec!["remove-me".into(), "keep-me".into()],
+    });
+    harness.send_request(Request::RemoveTags {
+        file: file_str,
+        tags: vec!["remove-me".into()],
+        all: false,
+    });
 
-    // Search for the removed tag should not find this file
-    let search = run_via_daemon(
-        &harness,
-        &["search", "--tag", "remove-me", "-q"],
-    );
-    assert!(
-        !search.contains("untag_contract.txt"),
-        "File should not appear after untag.\nGot: {search}"
-    );
+    let search = harness.send_request(Request::FindByTag {
+        tag: "remove-me".into(),
+    });
+    match search {
+        Response::FilePaths(paths) => {
+            assert!(
+                !paths.iter().any(|p| p.contains("untag_contract.txt")),
+                "File should not appear after untag. Got: {paths:?}"
+            );
+        }
+        other => panic!("Expected FilePaths, got: {other:?}"),
+    }
 
-    // But search for kept tag should find it
-    let search_keep = run_via_daemon(
-        &harness,
-        &["search", "--tag", "keep-me", "-q"],
-    );
-    assert!(
-        search_keep.contains("untag_contract.txt"),
-        "File should still appear for kept tag.\nGot: {search_keep}"
-    );
+    let search_keep = harness.send_request(Request::FindByTag {
+        tag: "keep-me".into(),
+    });
+    match search_keep {
+        Response::FilePaths(paths) => {
+            assert!(
+                paths.iter().any(|p| p.contains("untag_contract.txt")),
+                "File should still appear for kept tag. Got: {paths:?}"
+            );
+        }
+        other => panic!("Expected FilePaths, got: {other:?}"),
+    }
 }
 
 #[test]
 #[ignore]
 fn test_contract_cleanup_via_daemon() {
+    use tagr::ipc::wire::{Request, Response};
+
     let harness = DaemonHarness::spawn();
 
-    // Tag a file, then delete it from filesystem
     let ghost = harness.data_dir.path().join("ghost_file.txt");
     std::fs::write(&ghost, "i will be deleted").unwrap();
-    run_via_daemon(&harness, &["tag", ghost.to_str().unwrap(), "ghost"]);
+    harness.send_request(Request::AddTags {
+        file: ghost.to_string_lossy().into_owned(),
+        tags: vec!["ghost".into()],
+    });
 
-    // Remove the actual file
     std::fs::remove_file(&ghost).unwrap();
 
-    // Cleanup should remove it from the database
-    let cleanup_out = run_via_daemon(&harness, &["cleanup", "-q"]);
-    // The output should mention the cleaned-up file or be empty (quiet mode)
-    // Either way, verify the file is gone from the DB
-    let search = run_via_daemon(
-        &harness,
-        &["search", "--tag", "ghost", "-q"],
-    );
-    assert!(
-        !search.contains("ghost_file.txt"),
-        "Cleanup should remove deleted file from DB.\nSearch: {search}\nCleanup: {cleanup_out}"
-    );
+    let cleanup = harness.send_request(Request::Cleanup);
+    match cleanup {
+        Response::CleanupResult { removed } => {
+            assert!(removed >= 1, "Should have removed at least 1 entry, got: {removed}");
+        }
+        other => panic!("Expected CleanupResult, got: {other:?}"),
+    }
+
+    let search = harness.send_request(Request::FindByTag {
+        tag: "ghost".into(),
+    });
+    match search {
+        Response::FilePaths(paths) => {
+            assert!(
+                !paths.iter().any(|p| p.contains("ghost_file.txt")),
+                "Cleanup should remove deleted file from DB. Got: {paths:?}"
+            );
+        }
+        other => panic!("Expected FilePaths, got: {other:?}"),
+    }
 }

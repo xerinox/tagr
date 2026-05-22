@@ -383,7 +383,8 @@ pub fn watch_stop(
 ) -> anyhow::Result<()> {
     use crate::daemon::client::send_request;
     use crate::daemon::{DaemonManager, PlatformDaemonManager};
-    use crate::ipc::{IpcRequest, IpcResponse, get_ipc_socket_path};
+    use crate::ipc::get_ipc_socket_path;
+    use crate::ipc::wire::{Request, Response};
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("Failed to create async runtime: {e}"))?;
@@ -396,8 +397,8 @@ pub fn watch_stop(
         return Ok(());
     }
 
-    match rt.block_on(send_request(IpcRequest::Shutdown)) {
-        Ok(IpcResponse::Ok | IpcResponse::Error(_)) => {}
+    match rt.block_on(send_request(Request::Shutdown)) {
+        Ok(Response::Ok | Response::Error(_)) => {}
         Ok(_) => {} // unexpected response shape, but shutdown was sent
         Err(e) => anyhow::bail!("Failed to stop daemon: {e}"),
     }

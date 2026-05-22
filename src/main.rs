@@ -474,20 +474,21 @@ fn dispatch_via_ipc(
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
+    use std::path::PathBuf;
     use tagr::cli::Commands;
     use tagr::daemon::client::send_request;
-    use tagr::ipc::{IpcRequest, IpcResponse};
+    use tagr::ipc::wire::{Request, Response, WireSearchParams};
     use tagr::output;
 
     let req = match command {
         Commands::Search { .. } => {
             let params = command.get_search_params().unwrap_or_default();
-            IpcRequest::SearchFiles { params }
+            Request::SearchFiles { params: WireSearchParams::from(params) }
         }
         Commands::List { variant, .. } => {
             match variant {
-                tagr::cli::ListVariant::Tags => IpcRequest::ListTags,
-                tagr::cli::ListVariant::Files => IpcRequest::ListFiles,
+                tagr::cli::ListVariant::Tags => Request::ListTags,
+                tagr::cli::ListVariant::Files => Request::ListFiles,
             }
         }
         Commands::Tag { .. } => {
@@ -497,7 +498,10 @@ fn dispatch_via_ipc(
             let file = ctx.file.ok_or_else(|| {
                 TagrError::InvalidInput("No file specified".into())
             })?;
-            IpcRequest::AddTags { file, tags: ctx.tags }
+            Request::AddTags {
+                file: file.to_string_lossy().into_owned(),
+                tags: ctx.tags,
+            }
         }
         Commands::Untag { .. } => {
             let ctx = command.get_untag_context().ok_or_else(|| {
@@ -507,9 +511,13 @@ fn dispatch_via_ipc(
                 TagrError::InvalidInput("No file specified".into())
             })?;
             let tags: Vec<String> = ctx.tags.to_vec();
-            IpcRequest::RemoveTags { file, tags, all: ctx.all }
+            Request::RemoveTags {
+                file: file.to_string_lossy().into_owned(),
+                tags,
+                all: ctx.all,
+            }
         }
-        Commands::Cleanup { .. } => IpcRequest::Cleanup,
+        Commands::Cleanup { .. } => Request::Cleanup,
         Commands::Browse { .. } => {
             // TODO: browse via IPC handled in DataSource step
             return Err(TagrError::InvalidInput(
@@ -528,13 +536,13 @@ fn dispatch_via_ipc(
         .map_err(|e| TagrError::IoError(std::io::Error::other(e.to_string())))?;
 
     match resp {
-        IpcResponse::Pong => {
+        Response::Pong => {
             if !quiet { println!("pong"); }
         }
-        IpcResponse::Ok => {
+        Response::Ok => {
             // Mutation succeeded, nothing to print
         }
-        IpcResponse::Tags(tags) => {
+        Response::Tags(tags) => {
             for tag in &tags {
                 if quiet {
                     println!("{}", tag.name);
@@ -543,9 +551,10 @@ fn dispatch_via_ipc(
                 }
             }
         }
-        IpcResponse::Files(pairs) => {
+        Response::Files(pairs) => {
             for pair in &pairs {
-                let formatted = output::format_path(&pair.file, path_format);
+                let path = PathBuf::from(&pair.file);
+                let formatted = output::format_path(&path, path_format);
                 if quiet {
                     println!("{formatted}");
                 } else {
@@ -553,33 +562,35 @@ fn dispatch_via_ipc(
                 }
             }
         }
-        IpcResponse::FileTags(tags) => {
+        Response::FileTags(tags) => {
             for tag in &tags {
                 println!("{tag}");
             }
         }
-        IpcResponse::FilePaths(paths) => {
-            for path in &paths {
-                let formatted = output::format_path(path, path_format);
+        Response::FilePaths(paths) => {
+            for path_str in &paths {
+                let path = PathBuf::from(path_str);
+                let formatted = output::format_path(&path, path_format);
                 println!("{formatted}");
             }
         }
-        IpcResponse::Notes(entries) => {
+        Response::Notes(entries) => {
             for entry in &entries {
-                let formatted = output::format_path(&entry.path, path_format);
+                let path = PathBuf::from(&entry.path);
+                let formatted = output::format_path(&path, path_format);
                 if quiet {
                     println!("{formatted}");
                 } else {
-                    println!("{formatted}\t{}", entry.note.content.lines().next().unwrap_or(""));
+                    println!("{formatted}\t{}", entry.content.lines().next().unwrap_or(""));
                 }
             }
         }
-        IpcResponse::CleanupResult { removed } => {
+        Response::CleanupResult { removed } => {
             if !quiet {
                 println!("Removed {removed} stale entries");
             }
         }
-        IpcResponse::Error(err) => {
+        Response::Error(err) => {
             return Err(TagrError::InvalidInput(err));
         }
     }

@@ -1,6 +1,6 @@
 //! Traits for platform-agnostic daemon management.
 
-use crate::ipc::{IpcRequest, IpcResponse};
+use crate::ipc::wire::{Request, Response};
 use crate::watch::WatchConfig;
 use async_trait::async_trait;
 use thiserror::Error;
@@ -33,7 +33,7 @@ pub trait DaemonManager: Send + Sync {
 
     /// Send a command to the daemon.
     /// Implementations should handle connecting to the platform-specific IPC channel.
-    async fn send_command(&self, cmd: IpcRequest) -> Result<IpcResponse>;
+    async fn send_command(&self, cmd: Request) -> Result<Response>;
     
     /// Check if daemon is currently running/active
     async fn is_running(&self) -> Result<bool>;

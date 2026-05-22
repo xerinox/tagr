@@ -219,9 +219,24 @@ impl From<&crate::Pair> for WireFilePair {
     }
 }
 
+impl From<crate::Pair> for WireFilePair {
+    fn from(p: crate::Pair) -> Self {
+        Self {
+            file: p.file.to_string_lossy().into_owned(),
+            tags: p.tags,
+        }
+    }
+}
+
 impl From<&WireFilePair> for crate::Pair {
     fn from(w: &WireFilePair) -> Self {
         Self::new(w.file.clone().into(), w.tags.clone())
+    }
+}
+
+impl From<WireFilePair> for crate::Pair {
+    fn from(w: WireFilePair) -> Self {
+        Self::new(w.file.into(), w.tags)
     }
 }
 
@@ -240,6 +255,44 @@ impl From<&WireTagInfo> for crate::ipc::TagInfo {
         Self {
             name: w.name.clone(),
             file_count: w.file_count as usize,
+        }
+    }
+}
+
+impl From<crate::cli::SearchParams> for WireSearchParams {
+    fn from(p: crate::cli::SearchParams) -> Self {
+        Self {
+            tags: p.tags,
+            file_patterns: p.file_patterns,
+            virtual_tags: p.virtual_tags,
+            exclude_tags: p.exclude_tags,
+            regex_tag: p.regex_tag,
+            regex_file: p.regex_file,
+            glob_files: p.glob_files,
+            no_hierarchy: p.no_hierarchy,
+            query: p.query,
+            tag_mode: WireSearchMode::from(&p.tag_mode),
+            file_mode: WireSearchMode::from(&p.file_mode),
+            virtual_mode: WireSearchMode::from(&p.virtual_mode),
+        }
+    }
+}
+
+impl From<WireSearchParams> for crate::cli::SearchParams {
+    fn from(w: WireSearchParams) -> Self {
+        Self {
+            tags: w.tags,
+            file_patterns: w.file_patterns,
+            virtual_tags: w.virtual_tags,
+            exclude_tags: w.exclude_tags,
+            regex_tag: w.regex_tag,
+            regex_file: w.regex_file,
+            glob_files: w.glob_files,
+            no_hierarchy: w.no_hierarchy,
+            query: w.query,
+            tag_mode: crate::cli::SearchMode::from(&w.tag_mode),
+            file_mode: crate::cli::SearchMode::from(&w.file_mode),
+            virtual_mode: crate::cli::SearchMode::from(&w.virtual_mode),
         }
     }
 }
