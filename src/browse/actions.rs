@@ -6,7 +6,7 @@
 //! UI layer to decide how to present results to the user.
 
 use crate::browse::models::ActionOutcome;
-use crate::db::{Database, DbError};
+use crate::datasource::{DataSource, DataSourceError};
 use std::path::{Path, PathBuf};
 
 /// Execute tag addition on files (pure business logic)
@@ -25,10 +25,10 @@ use std::path::{Path, PathBuf};
 /// # Errors
 /// Returns `DbError` if database operations fail
 pub fn execute_add_tag(
-    db: &Database,
+    ds: &DataSource,
     files: &[PathBuf],
     new_tags: &[String],
-) -> Result<ActionOutcome, DbError> {
+) -> Result<ActionOutcome, DataSourceError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -41,7 +41,7 @@ pub fn execute_add_tag(
     let mut errors = Vec::new();
 
     for file in files {
-        match add_tags_to_file(db, file, new_tags) {
+        match add_tags_to_file(ds, file, new_tags) {
             Ok(true) => affected += 1,
             Ok(false) => {} // No change needed
             Err(e) => errors.push(format!("{}: {}", file.display(), e)),
@@ -68,8 +68,8 @@ pub fn execute_add_tag(
 }
 
 /// Helper: Add tags to a single file
-fn add_tags_to_file(db: &Database, file: &Path, new_tags: &[String]) -> Result<bool, DbError> {
-    let mut tags = db.get_tags(file)?.unwrap_or_default();
+fn add_tags_to_file(ds: &DataSource, file: &Path, new_tags: &[String]) -> Result<bool, DataSourceError> {
+    let mut tags = ds.get_tags(file)?.unwrap_or_default();
     let original_len = tags.len();
 
     for tag in new_tags {
@@ -79,7 +79,7 @@ fn add_tags_to_file(db: &Database, file: &Path, new_tags: &[String]) -> Result<b
     }
 
     if tags.len() > original_len {
-        db.insert(file, tags)?;
+        ds.insert(file, tags)?;
         Ok(true) // Changed
     } else {
         Ok(false) // No change
@@ -102,10 +102,10 @@ fn add_tags_to_file(db: &Database, file: &Path, new_tags: &[String]) -> Result<b
 /// # Errors
 /// Returns `DbError` if database operations fail
 pub fn execute_remove_tag(
-    db: &Database,
+    ds: &DataSource,
     files: &[PathBuf],
     tags_to_remove: &[String],
-) -> Result<ActionOutcome, DbError> {
+) -> Result<ActionOutcome, DataSourceError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -118,7 +118,7 @@ pub fn execute_remove_tag(
     let mut errors = Vec::new();
 
     for file in files {
-        match remove_tags_from_file(db, file, tags_to_remove) {
+        match remove_tags_from_file(ds, file, tags_to_remove) {
             Ok(true) => affected += 1,
             Ok(false) => {} // No change needed
             Err(e) => errors.push(format!("{}: {}", file.display(), e)),
@@ -152,11 +152,11 @@ pub fn execute_remove_tag(
 
 /// Helper: Remove tags from a single file
 fn remove_tags_from_file(
-    db: &Database,
+    ds: &DataSource,
     file: &Path,
     tags_to_remove: &[String],
-) -> Result<bool, DbError> {
-    let Some(mut tags) = db.get_tags(file)? else {
+) -> Result<bool, DataSourceError> {
+    let Some(mut tags) = ds.get_tags(file)? else {
         return Ok(false); // File has no tags
     };
 
@@ -164,7 +164,7 @@ fn remove_tags_from_file(
     tags.retain(|tag| !tags_to_remove.contains(tag));
 
     if tags.len() < original_len {
-        db.insert(file, tags)?;
+        ds.insert(file, tags)?;
         Ok(true) // Changed
     } else {
         Ok(false) // No change
@@ -185,7 +185,7 @@ fn remove_tags_from_file(
 ///
 /// # Errors
 /// Returns `DbError` if database operations fail
-pub fn execute_delete_from_db(db: &Database, files: &[PathBuf]) -> Result<ActionOutcome, DbError> {
+pub fn execute_delete_from_db(ds: &DataSource, files: &[PathBuf]) -> Result<ActionOutcome, DataSourceError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -194,7 +194,7 @@ pub fn execute_delete_from_db(db: &Database, files: &[PathBuf]) -> Result<Action
     let mut errors = Vec::new();
 
     for file in files {
-        match db.remove(file) {
+        match ds.remove(file) {
             Ok(true) => deleted += 1,
             Ok(false) => {} // File wasn't in database
             Err(e) => errors.push(format!("{}: {}", file.display(), e)),
@@ -414,17 +414,22 @@ mod tests {
     use super::*;
     use crate::testing::{TempFile, TestDb};
 
+    fn ds(db: &TestDb) -> DataSource {
+        DataSource::direct(db.db().clone())
+    }
+
     #[test]
     fn test_execute_add_tag_success() {
-        let db = TestDb::new("test_add_tag_success");
+        let test_db = TestDb::new("test_add_tag_success");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        db.db()
+        test_db.db()
             .insert(temp_file.path(), vec!["old".into()])
             .unwrap();
 
+        let source = ds(&test_db);
         let outcome = execute_add_tag(
-            db.db(),
+            &source,
             &[temp_file.path().to_path_buf()],
             &["new".to_string(), "tags".to_string()],
         )
@@ -435,7 +440,7 @@ mod tests {
             assert_eq!(affected_count, 1);
         }
 
-        let tags = db.db().get_tags(temp_file.path()).unwrap().unwrap();
+        let tags = test_db.db().get_tags(temp_file.path()).unwrap().unwrap();
         assert!(tags.contains(&"new".to_string()));
         assert!(tags.contains(&"tags".to_string()));
         assert!(tags.contains(&"old".to_string()));
@@ -443,21 +448,21 @@ mod tests {
 
     #[test]
     fn test_execute_add_tag_no_duplicates() {
-        let db = TestDb::new("test_add_tag_no_dup");
+        let test_db = TestDb::new("test_add_tag_no_dup");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        db.db()
+        test_db.db()
             .insert(temp_file.path(), vec!["existing".into()])
             .unwrap();
 
+        let source = ds(&test_db);
         let outcome = execute_add_tag(
-            db.db(),
+            &source,
             &[temp_file.path().to_path_buf()],
             &["existing".to_string()],
         )
         .unwrap();
 
-        // Should succeed but with 0 affected since tag already exists
         assert!(matches!(
             outcome,
             ActionOutcome::Success {
@@ -469,27 +474,29 @@ mod tests {
 
     #[test]
     fn test_execute_add_tag_empty_files() {
-        let db = TestDb::new("test_add_tag_empty");
+        let test_db = TestDb::new("test_add_tag_empty");
 
-        let outcome = execute_add_tag(db.db(), &[], &["tag".to_string()]).unwrap();
+        let source = ds(&test_db);
+        let outcome = execute_add_tag(&source, &[], &["tag".to_string()]).unwrap();
 
         assert!(matches!(outcome, ActionOutcome::Failed(_)));
     }
 
     #[test]
     fn test_execute_remove_tag_success() {
-        let db = TestDb::new("test_remove_tag_success");
+        let test_db = TestDb::new("test_remove_tag_success");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        db.db()
+        test_db.db()
             .insert(
                 temp_file.path(),
                 vec!["keep".into(), "remove".into(), "also_remove".into()],
             )
             .unwrap();
 
+        let source = ds(&test_db);
         let outcome = execute_remove_tag(
-            db.db(),
+            &source,
             &[temp_file.path().to_path_buf()],
             &["remove".to_string(), "also_remove".to_string()],
         )
@@ -500,22 +507,23 @@ mod tests {
             assert_eq!(affected_count, 1);
         }
 
-        let tags = db.db().get_tags(temp_file.path()).unwrap().unwrap();
+        let tags = test_db.db().get_tags(temp_file.path()).unwrap().unwrap();
         assert_eq!(tags.len(), 1);
         assert!(tags.contains(&"keep".to_string()));
     }
 
     #[test]
     fn test_execute_remove_tag_nonexistent() {
-        let db = TestDb::new("test_remove_tag_nonexistent");
+        let test_db = TestDb::new("test_remove_tag_nonexistent");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        db.db()
+        test_db.db()
             .insert(temp_file.path(), vec!["tag1".into()])
             .unwrap();
 
+        let source = ds(&test_db);
         let outcome = execute_remove_tag(
-            db.db(),
+            &source,
             &[temp_file.path().to_path_buf()],
             &["nonexistent".to_string()],
         )
@@ -526,26 +534,28 @@ mod tests {
 
     #[test]
     fn test_execute_delete_from_db_success() {
-        let db = TestDb::new("test_delete_success");
+        let test_db = TestDb::new("test_delete_success");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        db.db()
+        test_db.db()
             .insert(temp_file.path(), vec!["tag".into()])
             .unwrap();
-        assert!(db.db().contains(temp_file.path()).unwrap());
+        assert!(test_db.db().contains(temp_file.path()).unwrap());
 
-        let outcome = execute_delete_from_db(db.db(), &[temp_file.path().to_path_buf()]).unwrap();
+        let source = ds(&test_db);
+        let outcome = execute_delete_from_db(&source, &[temp_file.path().to_path_buf()]).unwrap();
 
         assert!(matches!(outcome, ActionOutcome::Success { .. }));
-        assert!(!db.db().contains(temp_file.path()).unwrap());
+        assert!(!test_db.db().contains(temp_file.path()).unwrap());
     }
 
     #[test]
     fn test_execute_delete_from_db_nonexistent() {
-        let db = TestDb::new("test_delete_nonexistent");
+        let test_db = TestDb::new("test_delete_nonexistent");
         let fake_file = PathBuf::from("/nonexistent/file.txt");
 
-        let outcome = execute_delete_from_db(db.db(), &[fake_file]).unwrap();
+        let source = ds(&test_db);
+        let outcome = execute_delete_from_db(&source, &[fake_file]).unwrap();
 
         assert!(matches!(outcome, ActionOutcome::Failed(_)));
     }
@@ -578,7 +588,7 @@ mod tests {
     #[test]
     fn test_execute_copy_files_invalid_dest() {
         let temp_file = TempFile::create("test.txt").unwrap();
-        let invalid_dest = temp_file.path(); // File, not directory
+        let invalid_dest = temp_file.path();
 
         let outcome = execute_copy_files(&[temp_file.path().to_path_buf()], invalid_dest, false);
 
@@ -587,40 +597,42 @@ mod tests {
 
     #[test]
     fn test_add_tags_to_file_no_change() {
-        let db = TestDb::new("test_add_no_change");
+        let test_db = TestDb::new("test_add_no_change");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        db.db()
+        test_db.db()
             .insert(temp_file.path(), vec!["tag1".into()])
             .unwrap();
 
-        let changed = add_tags_to_file(db.db(), temp_file.path(), &["tag1".to_string()]).unwrap();
+        let source = ds(&test_db);
+        let changed = add_tags_to_file(&source, temp_file.path(), &["tag1".to_string()]).unwrap();
 
         assert!(!changed);
     }
 
     #[test]
     fn test_remove_tags_from_file_no_tags() {
-        let db = TestDb::new("test_remove_no_tags");
+        let test_db = TestDb::new("test_remove_no_tags");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        db.db().insert(temp_file.path(), vec![]).unwrap();
+        test_db.db().insert(temp_file.path(), vec![]).unwrap();
 
+        let source = ds(&test_db);
         let changed =
-            remove_tags_from_file(db.db(), temp_file.path(), &["tag1".to_string()]).unwrap();
+            remove_tags_from_file(&source, temp_file.path(), &["tag1".to_string()]).unwrap();
 
         assert!(!changed);
     }
 
     #[test]
     fn test_multiple_files_partial_success() {
-        let db = TestDb::new("test_multi_partial");
+        let test_db = TestDb::new("test_multi_partial");
         let file1 = TempFile::create("file1.txt").unwrap();
         let file2 = TempFile::create("file2.txt").unwrap();
         let fake_file = PathBuf::from("/nonexistent/file.txt");
 
-        db.db().insert(file1.path(), vec!["tag1".into()]).unwrap();
-        db.db().insert(file2.path(), vec!["tag2".into()]).unwrap();
+        test_db.db().insert(file1.path(), vec!["tag1".into()]).unwrap();
+        test_db.db().insert(file2.path(), vec!["tag2".into()]).unwrap();
 
         let files = vec![
             file1.path().to_path_buf(),
@@ -628,7 +640,8 @@ mod tests {
             fake_file,
         ];
 
-        let outcome = execute_add_tag(db.db(), &files, &["new".to_string()]).unwrap();
+        let source = ds(&test_db);
+        let outcome = execute_add_tag(&source, &files, &["new".to_string()]).unwrap();
 
         assert!(matches!(outcome, ActionOutcome::Partial { .. }));
         if let ActionOutcome::Partial {

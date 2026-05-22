@@ -773,7 +773,8 @@ impl AppState {
 
         if has_notes_only {
             // Add files with notes but no tags
-            if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(db) {
+            let ds = crate::datasource::DataSource::direct((**db).clone());
+            if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(&ds) {
                 for item in notes_only_files {
                     if let Some(path_str) = item.as_file_path().and_then(|p| p.to_str()) {
                         file_set.insert(path_str.to_string());

@@ -5,7 +5,7 @@
 
 use crate::browse::{actions, models::ActionOutcome};
 use crate::commands::note::create_temp_note_file;
-use crate::db::Database;
+use crate::datasource::DataSource;
 use crate::keybinds::prompts::{PromptError, prompt_for_confirmation, prompt_for_input};
 use crate::keybinds::{ActionResult, BrowseAction};
 use std::path::PathBuf;
@@ -16,8 +16,8 @@ pub struct ActionContext<'a> {
     pub selected_files: &'a [PathBuf],
     /// The file under cursor (if any)
     pub current_file: Option<&'a PathBuf>,
-    /// Database reference
-    pub db: &'a Database,
+    /// Data source reference
+    pub ds: &'a DataSource,
 }
 
 /// Executes actions triggered by keybinds.
@@ -82,7 +82,7 @@ impl ActionExecutor {
             context.selected_files.to_vec()
         };
 
-        let outcome = actions::execute_add_tag(context.db, &files, &new_tags)?;
+        let outcome = actions::execute_add_tag(context.ds, &files, &new_tags)?;
 
         Ok(outcome.into())
     }
@@ -101,7 +101,7 @@ impl ActionExecutor {
 
         let mut all_tags = std::collections::HashSet::new();
         for file_path in &files {
-            if let Some(tags) = context.db.get_tags(file_path)? {
+            if let Some(tags) = context.ds.get_tags(file_path)? {
                 all_tags.extend(tags);
             }
         }
@@ -138,7 +138,7 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No valid tags selected".to_string()));
         }
 
-        let outcome = actions::execute_remove_tag(context.db, &files, &tags_to_remove)?;
+        let outcome = actions::execute_remove_tag(context.ds, &files, &tags_to_remove)?;
 
         Ok(outcome.into())
     }
@@ -162,7 +162,7 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("Deletion cancelled".to_string()));
         }
 
-        let outcome = actions::execute_delete_from_db(context.db, &files)?;
+        let outcome = actions::execute_delete_from_db(context.ds, &files)?;
 
         Ok(outcome.into())
     }
@@ -270,7 +270,7 @@ impl ActionExecutor {
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
         // Get existing note or create new one
-        let existing_note = context.db.get_note(file_to_edit)?;
+        let existing_note = context.ds.get_note(file_to_edit)?;
         let initial_content = existing_note
             .as_ref()
             .map(|n| n.content.clone())
@@ -305,7 +305,7 @@ impl ActionExecutor {
             crate::db::NoteRecord::new(updated_content)
         };
 
-        context.db.set_note(file_to_edit, &note)?;
+        context.ds.set_note(file_to_edit, &note)?;
 
         Ok(ActionResult::Message(format!(
             "✓ Updated note for {}",
@@ -414,9 +414,9 @@ pub enum ExecutorError {
     #[error("Action requires file selection")]
     NoSelection,
 
-    /// Database operation failed
-    #[error("Database error: {0}")]
-    Database(#[from] crate::db::DbError),
+    /// Data source operation failed
+    #[error("Data source error: {0}")]
+    DataSource(#[from] crate::datasource::DataSourceError),
 
     /// IO operation failed
     #[error("IO error: {0}")]
@@ -460,12 +460,13 @@ mod tests {
     #[test]
     fn test_executor_creation() {
         let executor = ActionExecutor::new();
-        let db = TestDb::new("test_executor_creation");
+        let test_db = TestDb::new("test_executor_creation");
+        let source = DataSource::direct(test_db.db().clone());
 
         let context = ActionContext {
             selected_files: &[],
             current_file: None,
-            db: db.db(),
+            ds: &source,
         };
 
         let result = executor.execute(&BrowseAction::Cancel, &context);
@@ -475,12 +476,13 @@ mod tests {
     #[test]
     fn test_action_requires_selection() {
         let executor = ActionExecutor::new();
-        let db = TestDb::new("test_action_requires_selection");
+        let test_db = TestDb::new("test_action_requires_selection");
+        let source = DataSource::direct(test_db.db().clone());
 
         let context = ActionContext {
             selected_files: &[],
             current_file: None,
-            db: db.db(),
+            ds: &source,
         };
 
         let result = executor.execute(&BrowseAction::RemoveTag, &context);

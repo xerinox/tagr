@@ -9,7 +9,7 @@
 
 use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
-use crate::db::{Database, DbError};
+use crate::datasource::{DataSource, DataSourceError};
 use crate::search::FilterExt; // Import trait for in-memory filtering
 use std::collections::{HashMap, HashSet};
 
@@ -26,17 +26,15 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Errors
 /// Returns `DbError` if database operations fail
-pub fn get_notes_only_files(db: &Database) -> Result<Vec<TagrItem>, DbError> {
-    let all_notes = db.list_all_notes()?;
+pub fn get_notes_only_files(ds: &DataSource) -> Result<Vec<TagrItem>, DataSourceError> {
+    let all_notes = ds.list_all_notes()?;
 
     #[allow(clippy::match_same_arms)]
-    let items: Result<Vec<TagrItem>, DbError> = all_notes
+    let items: Result<Vec<TagrItem>, DataSourceError> = all_notes
         .into_iter()
         .filter_map(|(path, _note)| {
-            // Get tags for this file
-            match db.get_tags(&path) {
+            match ds.get_tags(&path) {
                 Ok(Some(tags)) if tags.is_empty() => {
-                    // File has note but no tags - include it
                     let mut cache = crate::browse::models::MetadataCache::new();
                     let pair = crate::Pair {
                         file: path,
@@ -80,8 +78,8 @@ pub fn get_notes_only_files(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 ///     println!("{} ({} files)", tag.name, tag.metadata.file_count());
 /// }
 /// ```
-pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
-    let tag_names = db.list_all_tags()?;
+pub fn get_available_tags(ds: &DataSource) -> Result<Vec<TagrItem>, DataSourceError> {
+    let tag_names = ds.list_all_tags()?;
 
     // Load schema to consolidate aliases
     let schema = crate::schema::load_default_schema().ok();
@@ -92,9 +90,8 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
         for tag_name in tag_names {
             let canonical = schema.canonicalize(&tag_name);
-            let files = db.find_by_tag(&tag_name)?;
+            let files = ds.find_by_tag(&tag_name)?;
 
-            // Add unique file paths to the canonical tag's set
             let file_set = canonical_map.entry(canonical).or_default();
             for file_path in files {
                 if let Some(path_str) = file_path.to_str() {
@@ -103,7 +100,6 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
             }
         }
 
-        // Convert to TagrItem instances with unique file counts
         let mut tags: Vec<TagrItem> = canonical_map
             .into_iter()
             .map(|(canonical, file_set)| TagrItem::tag(canonical, file_set.len()))
@@ -111,8 +107,7 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
         tags.sort_by(|a, b| a.name.cmp(&b.name));
 
-        // Add notes-only virtual tag if there are files with notes but no tags
-        if let Ok(notes_only_files) = get_notes_only_files(db)
+        if let Ok(notes_only_files) = get_notes_only_files(ds)
             && !notes_only_files.is_empty()
         {
             tags.push(TagrItem::tag(
@@ -123,15 +118,13 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
         Ok(tags)
     } else {
-        // No schema - use original behavior
-        let mut tags: Result<Vec<TagrItem>, DbError> = tag_names
+        let mut tags: Result<Vec<TagrItem>, DataSourceError> = tag_names
             .into_iter()
-            .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
+            .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, ds }))
             .collect();
 
-        // Add notes-only virtual tag if there are files with notes but no tags
         if let Ok(mut tag_vec) = tags {
-            if let Ok(notes_only_files) = get_notes_only_files(db)
+            if let Ok(notes_only_files) = get_notes_only_files(ds)
                 && !notes_only_files.is_empty()
             {
                 tag_vec.push(TagrItem::tag(
@@ -171,13 +164,13 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 /// };
 /// let files = get_matching_files(&db, &params)?;
 /// ```
-pub fn get_matching_files(db: &Database, params: &SearchParams) -> Result<Vec<TagrItem>, DbError> {
-    let file_paths = crate::db::query::apply_search_params(db, params)?;
+pub fn get_matching_files(ds: &DataSource, params: &SearchParams) -> Result<Vec<TagrItem>, DataSourceError> {
+    let file_paths = ds.apply_search_params(params)?;
 
-    let items: Result<Vec<TagrItem>, DbError> = file_paths
+    let items: Result<Vec<TagrItem>, DataSourceError> = file_paths
         .into_iter()
         .map(|path| {
-            let tags = db.get_tags(&path)?.unwrap_or_default();
+            let tags = ds.get_tags(&path)?.unwrap_or_default();
             let pair = crate::Pair { file: path, tags };
 
             let mut cache = crate::browse::models::MetadataCache::new();
@@ -207,10 +200,10 @@ pub fn get_matching_files(db: &Database, params: &SearchParams) -> Result<Vec<Ta
 /// # Errors
 /// Returns `DbError` if database operations fail
 pub fn get_files_by_tags(
-    db: &Database,
+    ds: &DataSource,
     tags: &[String],
     mode: crate::browse::models::SearchMode,
-) -> Result<Vec<TagrItem>, DbError> {
+) -> Result<Vec<TagrItem>, DataSourceError> {
     let params = SearchParams {
         query: None,
         tags: tags.to_vec(),
@@ -226,7 +219,7 @@ pub fn get_files_by_tags(
         no_hierarchy: false,
     };
 
-    get_matching_files(db, &params)
+    get_matching_files(ds, &params)
 }
 
 /// Filter an existing collection of items in-memory using search parameters
@@ -279,6 +272,10 @@ mod tests {
     use crate::cli::SearchParams;
     use crate::testing::{TempFile, TestDb};
 
+    fn ds(db: &TestDb) -> DataSource {
+        DataSource::direct(db.db().clone())
+    }
+
     #[test]
     fn test_get_available_tags() {
         let test_db = TestDb::new("test_get_available_tags");
@@ -306,7 +303,8 @@ mod tests {
         db.insert_pair(&pair2).unwrap();
         db.insert_pair(&pair3).unwrap();
 
-        let tags = get_available_tags(db).unwrap();
+        let source = ds(&test_db);
+        let tags = get_available_tags(&source).unwrap();
 
         assert_eq!(tags.len(), 5);
 
@@ -337,7 +335,8 @@ mod tests {
         let db = test_db.db();
         db.clear().unwrap();
 
-        let tags = get_available_tags(db).unwrap();
+        let source = ds(&test_db);
+        let tags = get_available_tags(&source).unwrap();
         assert_eq!(tags.len(), 0);
     }
 
@@ -377,7 +376,8 @@ mod tests {
             no_hierarchy: false,
         };
 
-        let files = get_matching_files(db, &params).unwrap();
+        let source = ds(&test_db);
+        let files = get_matching_files(&source, &params).unwrap();
         assert_eq!(files.len(), 2);
 
         for item in &files {
@@ -410,8 +410,9 @@ mod tests {
         db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["go".into()]))
             .unwrap();
 
+        let source = ds(&test_db);
         let files =
-            get_files_by_tags(db, &["rust".into(), "python".into()], SearchMode::Any).unwrap();
+            get_files_by_tags(&source, &["rust".into(), "python".into()], SearchMode::Any).unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -435,7 +436,8 @@ mod tests {
         db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["web".into()]))
             .unwrap();
 
-        let files = get_files_by_tags(db, &["rust".into(), "web".into()], SearchMode::All).unwrap();
+        let source = ds(&test_db);
+        let files = get_files_by_tags(&source, &["rust".into(), "web".into()], SearchMode::All).unwrap();
         assert_eq!(files.len(), 1);
 
         let item = &files[0];
@@ -490,7 +492,8 @@ mod tests {
             no_hierarchy: false,
         };
 
-        let files = get_matching_files(db, &params).unwrap();
+        let source = ds(&test_db);
+        let files = get_matching_files(&source, &params).unwrap();
         assert_eq!(files.len(), 0);
     }
 
@@ -542,7 +545,8 @@ mod tests {
         ))
         .unwrap();
 
-        let notes_only = get_notes_only_files(db).unwrap();
+        let source = ds(&test_db);
+        let notes_only = get_notes_only_files(&source).unwrap();
 
         // Only file2 should be included
         assert_eq!(notes_only.len(), 1);

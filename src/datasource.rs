@@ -52,6 +52,18 @@ impl DataSource {
         Ok(Self::Remote { rt })
     }
 
+    /// Get reference to the inner database, if this is a direct data source.
+    ///
+    /// Returns `None` for remote data sources. Used by the TUI preview
+    /// system which needs direct database access for note previews.
+    #[must_use]
+    pub const fn as_database(&self) -> Option<&Database> {
+        match self {
+            Self::Direct(db) => Some(db),
+            Self::Remote { .. } => None,
+        }
+    }
+
     // -- Queries --
 
     /// List all tags with their file counts.
@@ -255,6 +267,64 @@ impl DataSource {
                     Response::Ok => Ok(true),
                     Response::Error(e) if e.contains("not found") => Ok(false),
                     Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
+                    other => Err(unexpected(&other)),
+                }
+            }
+        }
+    }
+
+    // -- Notes --
+
+    /// Get a note for a specific file.
+    pub fn get_note<P: AsRef<Path>>(&self, file: P) -> Result<Option<NoteRecord>> {
+        match self {
+            Self::Direct(db) => Ok(db.get_note(file)?),
+            Self::Remote { rt } => {
+                // No dedicated GetNote request yet — fetch all notes and filter
+                match self.send(rt, Request::ListNotes)? {
+                    Response::Notes(entries) => {
+                        let target = file.as_ref().to_string_lossy();
+                        Ok(entries.into_iter().find(|e| e.path == *target).map(|e| {
+                            NoteRecord::new(e.content)
+                        }))
+                    }
+                    other => Err(unexpected(&other)),
+                }
+            }
+        }
+    }
+
+    /// Set a note for a specific file.
+    pub fn set_note<P: AsRef<Path>>(&self, file: P, note: &NoteRecord) -> Result<()> {
+        match self {
+            Self::Direct(db) => Ok(db.set_note(file, note)?),
+            Self::Remote { .. } => {
+                // No dedicated SetNote wire request yet — not supported in Remote mode
+                Err(DataSourceError::UnexpectedResponse(
+                    "SetNote not yet supported via IPC".to_string(),
+                ))
+            }
+        }
+    }
+
+    // -- Search --
+
+    /// Apply search parameters and return matching file paths.
+    ///
+    /// For Direct mode, delegates to `db::query::apply_search_params`.
+    /// For Remote mode, sends a `SearchFiles` IPC request.
+    pub fn apply_search_params(&self, params: &crate::cli::SearchParams) -> Result<Vec<PathBuf>> {
+        match self {
+            Self::Direct(db) => {
+                Ok(crate::db::query::apply_search_params(db, params)?)
+            }
+            Self::Remote { rt } => {
+                let wire_params = crate::ipc::wire::WireSearchParams::from(params);
+                let req = Request::SearchFiles { params: wire_params };
+                match self.send(rt, req)? {
+                    Response::Files(pairs) => {
+                        Ok(pairs.into_iter().map(|p| PathBuf::from(p.file)).collect())
+                    }
                     other => Err(unexpected(&other)),
                 }
             }
