@@ -451,23 +451,8 @@ fn main() -> Result<()> {
                     ));
                 }
 
-                let args: Vec<String> = std::env::args().collect();
-                let cwd = std::env::current_dir()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                    .to_string_lossy()
-                    .to_string();
-
-                let req = tagr::ipc::IpcRequest::Command { args, cwd };
-                let resp = rt
-                    .block_on(tagr::daemon::client::send_request(req))
-                    .map_err(|e| TagrError::IoError(std::io::Error::other(e.to_string())))?;
-
-                match resp {
-                    tagr::ipc::IpcResponse::Success(out) => print!("{out}"),
-                    tagr::ipc::IpcResponse::Error(err) => {
-                        return Err(TagrError::InvalidInput(err));
-                    }
-                }
+                // Forward command to daemon via typed IPC and render locally.
+                dispatch_via_ipc(&rt, &command, path_format, quiet)?;
             }
             Err(other) => return Err(other.into()),
         }
@@ -480,5 +465,109 @@ fn main() -> Result<()> {
 /// held by another process (i.e. the daemon has the database open).
 fn is_db_lock_error(err: &tagr::db::DbError) -> bool {
     err.to_string().contains("could not acquire lock")
+}
+
+/// Forward a command to the daemon via typed IPC and render the response locally.
+fn dispatch_via_ipc(
+    rt: &tokio::runtime::Runtime,
+    command: &tagr::cli::Commands,
+    path_format: config::PathFormat,
+    quiet: bool,
+) -> Result<()> {
+    use tagr::cli::Commands;
+    use tagr::daemon::client::send_request;
+    use tagr::ipc::{IpcRequest, IpcResponse};
+    use tagr::output;
+
+    let req = match command {
+        Commands::Search { .. } => {
+            let params = command.get_search_params().unwrap_or_default();
+            IpcRequest::SearchFiles { params }
+        }
+        Commands::List { variant, .. } => {
+            match variant {
+                tagr::cli::ListVariant::Tags => IpcRequest::ListTags,
+                tagr::cli::ListVariant::Files => IpcRequest::ListFiles,
+            }
+        }
+        Commands::Tag { .. } => {
+            let ctx = command.get_tag_context().ok_or_else(|| {
+                TagrError::InvalidInput("Failed to extract tag context from command".into())
+            })?;
+            let file = ctx.file.ok_or_else(|| {
+                TagrError::InvalidInput("No file specified".into())
+            })?;
+            IpcRequest::AddTags { file, tags: ctx.tags }
+        }
+        Commands::Untag { .. } => {
+            let ctx = command.get_untag_context().ok_or_else(|| {
+                TagrError::InvalidInput("Failed to extract untag context from command".into())
+            })?;
+            let file = ctx.file.ok_or_else(|| {
+                TagrError::InvalidInput("No file specified".into())
+            })?;
+            let tags: Vec<String> = ctx.tags.to_vec();
+            IpcRequest::RemoveTags { file, tags, all: ctx.all }
+        }
+        Commands::Cleanup { .. } => IpcRequest::Cleanup,
+        Commands::Browse { .. } => {
+            // TODO: browse via IPC handled in DataSource step
+            return Err(TagrError::InvalidInput(
+                "Browse mode with daemon requires DataSource (not yet implemented)".into(),
+            ));
+        }
+        _ => {
+            return Err(TagrError::InvalidInput(
+                "This command is not supported while the daemon is running".into(),
+            ));
+        }
+    };
+
+    let resp = rt
+        .block_on(send_request(req))
+        .map_err(|e| TagrError::IoError(std::io::Error::other(e.to_string())))?;
+
+    match resp {
+        IpcResponse::Pong => {
+            if !quiet { println!("pong"); }
+        }
+        IpcResponse::Ok => {
+            // Mutation succeeded, nothing to print
+        }
+        IpcResponse::Tags(tags) => {
+            for tag in &tags {
+                if quiet {
+                    println!("{}", tag.name);
+                } else {
+                    println!("{} ({})", tag.name, tag.file_count);
+                }
+            }
+        }
+        IpcResponse::Files(pairs) => {
+            for pair in &pairs {
+                let formatted = output::format_path(&pair.file, path_format);
+                if quiet {
+                    println!("{formatted}");
+                } else {
+                    println!("{formatted}\t[{}]", pair.tags.join(", "));
+                }
+            }
+        }
+        IpcResponse::FileTags(tags) => {
+            for tag in &tags {
+                println!("{tag}");
+            }
+        }
+        IpcResponse::CleanupResult { removed } => {
+            if !quiet {
+                println!("Removed {removed} stale entries");
+            }
+        }
+        IpcResponse::Error(err) => {
+            return Err(TagrError::InvalidInput(err));
+        }
+    }
+
+    Ok(())
 }
 

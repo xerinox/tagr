@@ -129,8 +129,8 @@ fn test_daemon_ping_pong() {
     let harness = DaemonHarness::spawn();
     let response = harness.ping();
     assert!(
-        response.contains("Success"),
-        "Expected Success response to Ping, got: {response}"
+        response.contains("Pong"),
+        "Expected Pong response to Ping, got: {response}"
     );
 }
 
@@ -144,8 +144,8 @@ fn test_daemon_shutdown_cleans_up_socket() {
 
     let response = harness.shutdown();
     assert!(
-        response.contains("Success"),
-        "Expected Success response to Shutdown, got: {response}"
+        response.contains("Ok"),
+        "Expected Ok response to Shutdown, got: {response}"
     );
 
     // Wait for socket removal
@@ -169,7 +169,7 @@ fn test_daemon_handles_invalid_json() {
     // Either way, verify daemon is still alive after:
     let ping_response = harness.ping();
     assert!(
-        ping_response.contains("Success"),
+        ping_response.contains("Pong"),
         "Daemon should survive invalid JSON. Ping got: {ping_response}"
     );
 }
@@ -184,16 +184,16 @@ fn test_daemon_command_tag() {
     std::fs::write(&test_file, "hello world").unwrap();
 
     let cmd = serde_json::json!({
-        "Command": {
-            "args": ["tagr", "tag", test_file.to_str().unwrap(), "test-tag"],
-            "cwd": harness.data_dir.path().to_str().unwrap()
+        "AddTags": {
+            "file": test_file.to_str().unwrap(),
+            "tags": ["test-tag"]
         }
     });
 
     let response = harness.send_request(&cmd.to_string());
     assert!(
-        response.contains("Success"),
-        "Tag command should succeed, got: {response}"
+        response.contains("Ok"),
+        "AddTags command should succeed, got: {response}"
     );
 }
 
@@ -206,7 +206,7 @@ fn test_daemon_multiple_connections() {
     for i in 0..5 {
         let response = harness.ping();
         assert!(
-            response.contains("Success"),
+            response.contains("Pong"),
             "Ping {i} failed: {response}"
         );
     }
@@ -232,29 +232,63 @@ fn run_direct(data_dir: &TempDir, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// Run a command through the daemon IPC and extract the output from the response.
+/// Run a command through the daemon IPC using typed protocol.
 fn run_via_daemon(harness: &DaemonHarness, args: &[&str]) -> String {
-    let mut full_args: Vec<&str> = vec!["tagr"];
-    full_args.extend(args);
-
-    let cmd = serde_json::json!({
-        "Command": {
-            "args": full_args,
-            "cwd": harness.data_dir.path().to_str().unwrap()
+    // Convert CLI-style args to typed IPC requests
+    let request = match args {
+        ["tag", file, tags @ ..] => {
+            let tag_list: Vec<&str> = tags.to_vec();
+            serde_json::json!({
+                "AddTags": {
+                    "file": file,
+                    "tags": tag_list
+                }
+            })
         }
-    });
+        ["search", rest @ ..] => {
+            // Extract tags from --tag / -t flags
+            let mut tags = Vec::new();
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i] {
+                    "--tag" | "-t" if i + 1 < rest.len() => {
+                        tags.push(rest[i + 1]);
+                        i += 2;
+                    }
+                    _ => i += 1,
+                }
+            }
+            serde_json::json!({
+                "SearchFiles": {
+                    "params": {
+                        "tags": tags,
+                        "tag_mode": "Any",
+                        "file_mode": "All",
+                        "virtual_mode": "All"
+                    }
+                }
+            })
+        }
+        ["list", "files", ..] => serde_json::json!("ListFiles"),
+        ["list", "tags", ..] => serde_json::json!("ListTags"),
+        ["untag", file, tags @ ..] => {
+            let tag_list: Vec<&str> = tags.to_vec();
+            serde_json::json!({
+                "RemoveTags": {
+                    "file": file,
+                    "tags": tag_list,
+                    "all": false
+                }
+            })
+        }
+        _ => panic!("Unsupported command in run_via_daemon: {args:?}"),
+    };
 
-    let response = harness.send_request(&cmd.to_string());
-    // Parse the IPC response to extract the output string
+    let response = harness.send_request(&request.to_string());
     let parsed: serde_json::Value = serde_json::from_str(response.trim()).unwrap_or_default();
 
-    if let Some(output) = parsed.get("Success").and_then(|v| v.as_str()) {
-        output.to_string()
-    } else {
-        panic!(
-            "Expected Success response from daemon, got: {response}"
-        );
-    }
+    // Return a flattened string representation for assertion convenience
+    serde_json::to_string_pretty(&parsed).unwrap_or(response)
 }
 
 #[test]

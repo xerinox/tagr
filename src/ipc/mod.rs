@@ -1,7 +1,10 @@
-//! Inter-process communication for daemon-client fallback.
+//! Inter-process communication for daemon-client data exchange.
 //!
-//! When the database is locked by the daemon, CLI commands forward requests via IPC.
+//! The IPC protocol uses typed request/response messages so the daemon
+//! deals only in data — the CLI/TUI client handles all presentation.
 
+use crate::Pair;
+use crate::cli::SearchParams;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -26,38 +29,65 @@ pub enum IpcError {
 
 pub type Result<T> = std::result::Result<T, IpcError>;
 
-/// Generic command forwarding for database lock fallback.
+/// Typed IPC requests — the daemon matches on these and returns data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcRequest {
+    /// Health check
     Ping,
+    /// Graceful shutdown
     Shutdown,
-    Command {
-        args: Vec<String>,
-        cwd: String,
-    },
+
+    // -- Queries --
+    /// List all tags with file counts
+    ListTags,
+    /// List all file-tag pairs
+    ListFiles,
+    /// Search files matching criteria
+    SearchFiles { params: SearchParams },
+    /// Get tags for a single file
+    GetTags { file: PathBuf },
+
+    // -- Mutations --
+    /// Add tags to a file
+    AddTags { file: PathBuf, tags: Vec<String> },
+    /// Remove tags from a file (`all = true` removes every tag)
+    RemoveTags { file: PathBuf, tags: Vec<String>, all: bool },
+    /// Delete a file entry from the database
+    DeleteFromDb { file: PathBuf },
+    /// Run cleanup (remove missing files / empty tag entries)
+    Cleanup,
 }
 
-/// Response from daemon for a forwarded command.
+/// Tag with its associated file count.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TagInfo {
+    pub name: String,
+    pub file_count: usize,
+}
+
+/// Typed IPC responses — structured data, never formatted text.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcResponse {
-    /// Command executed successfully with output
-    Success(String),
-
-    /// Command failed with error message
+    /// Ping reply
+    Pong,
+    /// Mutation succeeded (no payload)
+    Ok,
+    /// List of tags with counts
+    Tags(Vec<TagInfo>),
+    /// List of file-tag pairs
+    Files(Vec<Pair>),
+    /// Tags for a single file
+    FileTags(Vec<String>),
+    /// Cleanup result
+    CleanupResult { removed: usize },
+    /// Error with description
     Error(String),
 }
 
 impl IpcResponse {
-    /// Check if response indicates success
+    /// Check if response indicates success (non-error)
     pub fn is_success(&self) -> bool {
-        matches!(self, IpcResponse::Success(_))
-    }
-
-    /// Extract output string or error message
-    pub fn as_str(&self) -> &str {
-        match self {
-            IpcResponse::Success(s) | IpcResponse::Error(s) => s,
-        }
+        !matches!(self, IpcResponse::Error(_))
     }
 }
 
@@ -90,17 +120,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ipc_response_success() {
-        let resp = IpcResponse::Success("test output".to_string());
-        assert!(resp.is_success());
-        assert_eq!(resp.as_str(), "test output");
-    }
-
-    #[test]
-    fn test_ipc_response_error() {
-        let resp = IpcResponse::Error("test error".to_string());
-        assert!(!resp.is_success());
-        assert_eq!(resp.as_str(), "test error");
+    fn test_ipc_response_success_variants() {
+        assert!(IpcResponse::Pong.is_success());
+        assert!(IpcResponse::Ok.is_success());
+        assert!(IpcResponse::Tags(vec![]).is_success());
+        assert!(IpcResponse::Files(vec![]).is_success());
+        assert!(!IpcResponse::Error("bad".into()).is_success());
     }
 
     #[test]
@@ -120,41 +145,78 @@ mod tests {
     }
 
     #[test]
-    fn test_ipc_request_command_serde_round_trip() {
-        let req = IpcRequest::Command {
-            args: vec!["tagr".into(), "search".into(), "-t".into(), "rust".into()],
-            cwd: "/home/user/projects".into(),
+    fn test_ipc_search_files_round_trip() {
+        let req = IpcRequest::SearchFiles {
+            params: SearchParams {
+                tags: vec!["rust".into(), "wasm".into()],
+                ..SearchParams::default()
+            },
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: IpcRequest = serde_json::from_str(&json).unwrap();
-
         match deserialized {
-            IpcRequest::Command { args, cwd } => {
-                assert_eq!(args, vec!["tagr", "search", "-t", "rust"]);
-                assert_eq!(cwd, "/home/user/projects");
+            IpcRequest::SearchFiles { params } => {
+                assert_eq!(params.tags, vec!["rust", "wasm"]);
             }
-            _ => panic!("Expected Command variant"),
+            _ => panic!("Expected SearchFiles variant"),
         }
     }
 
     #[test]
-    fn test_ipc_response_serde_round_trip() {
-        let success = IpcResponse::Success("file1.txt\nfile2.txt\n".into());
-        let json = serde_json::to_string(&success).unwrap();
-        let deserialized: IpcResponse = serde_json::from_str(&json).unwrap();
-        assert!(deserialized.is_success());
-        assert_eq!(deserialized.as_str(), "file1.txt\nfile2.txt\n");
+    fn test_ipc_add_tags_round_trip() {
+        let req = IpcRequest::AddTags {
+            file: PathBuf::from("/home/user/test.rs"),
+            tags: vec!["rust".into(), "src".into()],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: IpcRequest = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            IpcRequest::AddTags { file, tags } => {
+                assert_eq!(file, PathBuf::from("/home/user/test.rs"));
+                assert_eq!(tags, vec!["rust", "src"]);
+            }
+            _ => panic!("Expected AddTags variant"),
+        }
+    }
 
-        let error = IpcResponse::Error("not found".into());
-        let json = serde_json::to_string(&error).unwrap();
+    #[test]
+    fn test_ipc_tags_response_round_trip() {
+        let resp = IpcResponse::Tags(vec![
+            TagInfo { name: "rust".into(), file_count: 42 },
+            TagInfo { name: "python".into(), file_count: 7 },
+        ]);
+        let json = serde_json::to_string(&resp).unwrap();
         let deserialized: IpcResponse = serde_json::from_str(&json).unwrap();
-        assert!(!deserialized.is_success());
-        assert_eq!(deserialized.as_str(), "not found");
+        match deserialized {
+            IpcResponse::Tags(tags) => {
+                assert_eq!(tags.len(), 2);
+                assert_eq!(tags[0].name, "rust");
+                assert_eq!(tags[0].file_count, 42);
+            }
+            _ => panic!("Expected Tags variant"),
+        }
+    }
+
+    #[test]
+    fn test_ipc_files_response_round_trip() {
+        let resp = IpcResponse::Files(vec![
+            Pair::new(PathBuf::from("file1.txt"), vec!["a".into()]),
+            Pair::new(PathBuf::from("file2.txt"), vec!["b".into(), "c".into()]),
+        ]);
+        let json = serde_json::to_string(&resp).unwrap();
+        let deserialized: IpcResponse = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            IpcResponse::Files(files) => {
+                assert_eq!(files.len(), 2);
+                assert_eq!(files[0].file, PathBuf::from("file1.txt"));
+                assert_eq!(files[1].tags, vec!["b", "c"]);
+            }
+            _ => panic!("Expected Files variant"),
+        }
     }
 
     #[test]
     fn test_ipc_socket_path_is_valid() {
-        // This should succeed on any Unix/Windows platform
         if let Ok(path) = get_ipc_socket_path() {
             let path_str = path.to_string_lossy();
             assert!(path_str.contains("tagr_daemon"));

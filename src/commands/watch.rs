@@ -397,7 +397,8 @@ pub fn watch_stop(
     }
 
     match rt.block_on(send_request(IpcRequest::Shutdown)) {
-        Ok(IpcResponse::Success(_) | IpcResponse::Error(_)) => {}
+        Ok(IpcResponse::Ok | IpcResponse::Error(_)) => {}
+        Ok(_) => {} // unexpected response shape, but shutdown was sent
         Err(e) => anyhow::bail!("Failed to stop daemon: {e}"),
     }
 
