@@ -2,12 +2,19 @@
 //!
 //! The IPC protocol uses typed request/response messages so the daemon
 //! deals only in data — the CLI/TUI client handles all presentation.
+//!
+//! ## Modules
+//!
+//! - [`wire`] — Binary framed protocol (wincode + length-prefixed frames)
+//!   for persistent bidirectional connections.
 
 use crate::Pair;
 use crate::cli::SearchParams;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
+
+pub mod wire;
 
 #[derive(Debug, Error)]
 pub enum IpcError {
@@ -42,14 +49,26 @@ pub enum IpcRequest {
     ListTags,
     /// List all file-tag pairs
     ListFiles,
+    /// List just file paths (no tags)
+    ListAllPaths,
     /// Search files matching criteria
     SearchFiles { params: SearchParams },
     /// Get tags for a single file
     GetTags { file: PathBuf },
+    /// Find files with a specific tag
+    FindByTag { tag: String },
+    /// Find files matching multiple tags
+    FindByTags { tags: Vec<String>, match_all: bool },
+    /// Find files with tags matching a regex
+    FindByTagRegex { pattern: String },
+    /// List all files that have notes
+    ListNotes,
 
     // -- Mutations --
     /// Add tags to a file
     AddTags { file: PathBuf, tags: Vec<String> },
+    /// Replace all tags for a file
+    SetTags { file: PathBuf, tags: Vec<String> },
     /// Remove tags from a file (`all = true` removes every tag)
     RemoveTags { file: PathBuf, tags: Vec<String>, all: bool },
     /// Delete a file entry from the database
@@ -78,10 +97,21 @@ pub enum IpcResponse {
     Files(Vec<Pair>),
     /// Tags for a single file
     FileTags(Vec<String>),
+    /// List of file paths (no tags attached)
+    FilePaths(Vec<PathBuf>),
+    /// Notes with their file paths
+    Notes(Vec<NoteEntry>),
     /// Cleanup result
     CleanupResult { removed: usize },
     /// Error with description
     Error(String),
+}
+
+/// A note entry with its associated file path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteEntry {
+    pub path: PathBuf,
+    pub note: crate::db::NoteRecord,
 }
 
 impl IpcResponse {

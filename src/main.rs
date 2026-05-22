@@ -558,6 +558,22 @@ fn dispatch_via_ipc(
                 println!("{tag}");
             }
         }
+        IpcResponse::FilePaths(paths) => {
+            for path in &paths {
+                let formatted = output::format_path(path, path_format);
+                println!("{formatted}");
+            }
+        }
+        IpcResponse::Notes(entries) => {
+            for entry in &entries {
+                let formatted = output::format_path(&entry.path, path_format);
+                if quiet {
+                    println!("{formatted}");
+                } else {
+                    println!("{formatted}\t{}", entry.note.content.lines().next().unwrap_or(""));
+                }
+            }
+        }
         IpcResponse::CleanupResult { removed } => {
             if !quiet {
                 println!("Removed {removed} stale entries");

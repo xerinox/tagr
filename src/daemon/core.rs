@@ -569,9 +569,62 @@ fn execute_ipc_command(req: IpcRequest, db: &Database) -> (IpcResponse, bool) {
             }
         }
 
+        IpcRequest::FindByTag { tag } => {
+            match db.find_by_tag(&tag) {
+                Ok(paths) => (IpcResponse::FilePaths(paths), false),
+                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            }
+        }
+
+        IpcRequest::FindByTags { tags, match_all } => {
+            let result = if match_all {
+                db.find_by_all_tags(&tags)
+            } else {
+                db.find_by_any_tag(&tags)
+            };
+            match result {
+                Ok(paths) => (IpcResponse::FilePaths(paths), false),
+                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            }
+        }
+
+        IpcRequest::FindByTagRegex { pattern } => {
+            match db.find_by_tag_regex(&pattern) {
+                Ok(paths) => (IpcResponse::FilePaths(paths), false),
+                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            }
+        }
+
+        IpcRequest::ListAllPaths => {
+            match db.list_all_files() {
+                Ok(paths) => (IpcResponse::FilePaths(paths), false),
+                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            }
+        }
+
+        IpcRequest::ListNotes => {
+            match db.list_all_notes() {
+                Ok(notes) => {
+                    let entries = notes
+                        .into_iter()
+                        .map(|(path, note)| crate::ipc::NoteEntry { path, note })
+                        .collect();
+                    (IpcResponse::Notes(entries), false)
+                }
+                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            }
+        }
+
         IpcRequest::AddTags { file, tags } => {
             let mut stdout = std::io::stdout();
             match crate::commands::tag::execute(db, Some(file), &tags, false, true, &mut stdout) {
+                Ok(()) => (IpcResponse::Ok, false),
+                Err(e) => (IpcResponse::Error(e.to_string()), false),
+            }
+        }
+
+        IpcRequest::SetTags { file, tags } => {
+            match db.insert(&file, tags) {
                 Ok(()) => (IpcResponse::Ok, false),
                 Err(e) => (IpcResponse::Error(e.to_string()), false),
             }
