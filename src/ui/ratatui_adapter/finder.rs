@@ -671,12 +671,12 @@ impl RatatuiFinder {
                                     if let Ok(updated_content) = std::fs::read_to_string(&temp_path)
                                     {
                                         // Save or delete note based on content
-                                        if let Some(db) = state.database.as_ref().and_then(|ds| ds.as_database()) {
+                                        if let Some(ds) = state.database.as_ref() {
                                             let is_empty = updated_content.trim().is_empty();
 
                                             if is_empty && existing_note.is_some() {
                                                 // Delete note if content cleared
-                                                let _ = db.delete_note(&canonical_path);
+                                                let _ = ds.delete_note(&canonical_path);
                                                 state.note_cache.remove(&canonical_path);
 
                                                 // Update has_note metadata
@@ -711,7 +711,7 @@ impl RatatuiFinder {
                                                     crate::db::NoteRecord::new(updated_content)
                                                 };
 
-                                                let _ = db.set_note(&canonical_path, &note);
+                                                let _ = ds.set_note(&canonical_path, &note);
                                                 state.note_cache.insert(canonical_path.clone(), note);
 
                                                 // Update has_note metadata for the current item

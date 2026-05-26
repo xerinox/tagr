@@ -49,6 +49,7 @@ pub enum Request {
     ListAllPaths,
     SearchFiles { params: WireSearchParams },
     GetTags { file: String },
+    GetNote { file: String },
     FindByTag { tag: String },
     FindByTags { tags: Vec<String>, match_all: bool },
     FindByTagRegex { pattern: String },
@@ -58,6 +59,8 @@ pub enum Request {
     AddTags { file: String, tags: Vec<String> },
     SetTags { file: String, tags: Vec<String> },
     RemoveTags { file: String, tags: Vec<String>, all: bool },
+    SetNote { file: String, content: String },
+    DeleteNote { file: String },
     DeleteFromDb { file: String },
     Cleanup,
 }
@@ -81,6 +84,8 @@ pub enum Response {
     FileTags(Vec<String>),
     FilePaths(Vec<String>),
     Notes(Vec<WireNoteEntry>),
+    /// Single note response (None = no note for this file).
+    Note(Option<WireNoteEntry>),
     CleanupResult { removed: u64 },
     Error(String),
 }
@@ -94,6 +99,8 @@ pub enum ServerEvent {
     FileUntagged { file: String, tags: Vec<String> },
     /// A file entry was deleted from the database.
     FileRemoved { file: String },
+    /// A note was created/updated (content = Some) or deleted (content = None).
+    NoteChanged { file: String, content: Option<String> },
     /// watch.toml was reloaded.
     ConfigReloaded,
 }

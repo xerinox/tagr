@@ -277,9 +277,12 @@ async fn handle_client_message(
 ) -> bool {
     match msg {
         ClientMessage::Request { id, payload } => {
-            let (response, should_shutdown) = execute_wire_request(payload, db);
+            let (response, should_shutdown, event) = execute_wire_request(payload, db);
             if let Some(tx) = conn_writers.get(&conn_id) {
                 let _ = tx.send(ServerMessage::Response { id, payload: response }).await;
+            }
+            if let Some(evt) = event {
+                broadcast_event(&evt, subscribers, conn_writers);
             }
             should_shutdown
         }
@@ -644,11 +647,11 @@ fn expand_tilde(pattern: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Execute a wire protocol request and return the response.
-/// Returns `(Response, should_shutdown)`.
-fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
+/// Returns `(Response, should_shutdown, optional_event_to_broadcast)`.
+fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<ServerEvent>) {
     match req {
-        Request::Ping => (Response::Pong, false),
-        Request::Shutdown => (Response::Ok, true),
+        Request::Ping => (Response::Pong, false, None),
+        Request::Shutdown => (Response::Ok, true, None),
 
         Request::ListTags => {
             match db.list_all_tags() {
@@ -660,9 +663,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
                             WireTagInfo { name, file_count }
                         })
                         .collect();
-                    (Response::Tags(tags), false)
+                    (Response::Tags(tags), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -670,9 +673,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             match db.list_all() {
                 Ok(pairs) => {
                     let wire_pairs = pairs.into_iter().map(WireFilePair::from).collect();
-                    (Response::Files(wire_pairs), false)
+                    (Response::Files(wire_pairs), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -681,18 +684,34 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             match execute_search(db, &search_params) {
                 Ok(pairs) => {
                     let wire_pairs = pairs.into_iter().map(WireFilePair::from).collect();
-                    (Response::Files(wire_pairs), false)
+                    (Response::Files(wire_pairs), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
         Request::GetTags { file } => {
             let path = PathBuf::from(&file);
             match db.get_tags(&path) {
-                Ok(Some(tags)) => (Response::FileTags(tags), false),
-                Ok(None) => (Response::FileTags(vec![]), false),
-                Err(e) => (Response::Error(e.to_string()), false),
+                Ok(Some(tags)) => (Response::FileTags(tags), false, None),
+                Ok(None) => (Response::FileTags(vec![]), false, None),
+                Err(e) => (Response::Error(e.to_string()), false, None),
+            }
+        }
+
+        Request::GetNote { file } => {
+            let path = PathBuf::from(&file);
+            match db.get_note(&path) {
+                Ok(note) => {
+                    let wire = note.map(|n| WireNoteEntry {
+                        path: file,
+                        content: n.content,
+                        created_at: n.metadata.created_at,
+                        updated_at: n.metadata.updated_at,
+                    });
+                    (Response::Note(wire), false, None)
+                }
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -700,9 +719,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             match db.find_by_tag(&tag) {
                 Ok(paths) => {
                     let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false)
+                    (Response::FilePaths(string_paths), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -715,9 +734,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             match result {
                 Ok(paths) => {
                     let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false)
+                    (Response::FilePaths(string_paths), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -725,9 +744,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             match db.find_by_tag_regex(&pattern) {
                 Ok(paths) => {
                     let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false)
+                    (Response::FilePaths(string_paths), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -735,9 +754,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             match db.list_all_files() {
                 Ok(paths) => {
                     let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false)
+                    (Response::FilePaths(string_paths), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -753,9 +772,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
                             updated_at: note.metadata.updated_at,
                         })
                         .collect();
-                    (Response::Notes(entries), false)
+                    (Response::Notes(entries), false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -763,16 +782,16 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             let path = PathBuf::from(&file);
             let mut stdout = std::io::stdout();
             match crate::commands::tag::execute(db, Some(path), &tags, false, true, &mut stdout) {
-                Ok(()) => (Response::Ok, false),
-                Err(e) => (Response::Error(e.to_string()), false),
+                Ok(()) => (Response::Ok, false, None),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
         Request::SetTags { file, tags } => {
             let path = PathBuf::from(&file);
             match db.insert(&path, tags) {
-                Ok(()) => (Response::Ok, false),
-                Err(e) => (Response::Error(e.to_string()), false),
+                Ok(()) => (Response::Ok, false, None),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -780,17 +799,40 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
             let path = PathBuf::from(&file);
             let mut stdout = std::io::stdout();
             match crate::commands::tag::untag(db, Some(path), &tags, all, true, &mut stdout) {
-                Ok(()) => (Response::Ok, false),
-                Err(e) => (Response::Error(e.to_string()), false),
+                Ok(()) => (Response::Ok, false, None),
+                Err(e) => (Response::Error(e.to_string()), false, None),
+            }
+        }
+
+        Request::SetNote { file, content } => {
+            let path = PathBuf::from(&file);
+            let note = crate::db::NoteRecord::new(content.clone());
+            match db.set_note(&path, &note) {
+                Ok(()) => {
+                    let event = ServerEvent::NoteChanged { file, content: Some(content) };
+                    (Response::Ok, false, Some(event))
+                }
+                Err(e) => (Response::Error(e.to_string()), false, None),
+            }
+        }
+
+        Request::DeleteNote { file } => {
+            let path = PathBuf::from(&file);
+            match db.delete_note(&path) {
+                Ok(_) => {
+                    let event = ServerEvent::NoteChanged { file, content: None };
+                    (Response::Ok, false, Some(event))
+                }
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
         Request::DeleteFromDb { file } => {
             let path = PathBuf::from(&file);
             match db.remove(&path) {
-                Ok(true) => (Response::Ok, false),
-                Ok(false) => (Response::Error(format!("File not found in database: {file}")), false),
-                Err(e) => (Response::Error(e.to_string()), false),
+                Ok(true) => (Response::Ok, false, None),
+                Ok(false) => (Response::Error(format!("File not found in database: {file}")), false, None),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
 
@@ -803,9 +845,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool) {
                             removed += 1;
                         }
                     }
-                    (Response::CleanupResult { removed: removed as u64 }, false)
+                    (Response::CleanupResult { removed: removed as u64 }, false, None)
                 }
-                Err(e) => (Response::Error(e.to_string()), false),
+                Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
     }
@@ -924,7 +966,7 @@ mod tests {
     #[test]
     fn test_execute_wire_ping() {
         let test_db = TestDb::new("wire_ping");
-        let (resp, shutdown) = execute_wire_request(Request::Ping, test_db.db());
+        let (resp, shutdown, _) = execute_wire_request(Request::Ping, test_db.db());
         assert!(!shutdown);
         assert!(matches!(resp, Response::Pong));
     }
@@ -932,7 +974,7 @@ mod tests {
     #[test]
     fn test_execute_wire_shutdown() {
         let test_db = TestDb::new("wire_shutdown");
-        let (resp, shutdown) = execute_wire_request(Request::Shutdown, test_db.db());
+        let (resp, shutdown, _) = execute_wire_request(Request::Shutdown, test_db.db());
         assert!(shutdown);
         assert!(matches!(resp, Response::Ok));
     }
@@ -945,7 +987,7 @@ mod tests {
         let temp = crate::testing::TempFile::create("wire_tags.txt").unwrap();
         db.insert(temp.path(), vec!["alpha".into(), "beta".into()]).unwrap();
 
-        let (resp, _) = execute_wire_request(Request::ListTags, db);
+        let (resp, _, _) = execute_wire_request(Request::ListTags, db);
         match resp {
             Response::Tags(tags) => {
                 let names: Vec<_> = tags.iter().map(|t| t.name.as_str()).collect();
@@ -964,7 +1006,7 @@ mod tests {
         let temp = crate::testing::TempFile::create("wire_files.txt").unwrap();
         db.insert(temp.path(), vec!["tag1".into()]).unwrap();
 
-        let (resp, _) = execute_wire_request(Request::ListFiles, db);
+        let (resp, _, _) = execute_wire_request(Request::ListFiles, db);
         match resp {
             Response::Files(files) => {
                 assert_eq!(files.len(), 1);
@@ -982,7 +1024,7 @@ mod tests {
         let temp = crate::testing::TempFile::create("wire_gettags.txt").unwrap();
         db.insert(temp.path(), vec!["x".into(), "y".into()]).unwrap();
 
-        let (resp, _) = execute_wire_request(
+        let (resp, _, _) = execute_wire_request(
             Request::GetTags { file: temp.path().to_string_lossy().into_owned() },
             db,
         );
@@ -998,7 +1040,7 @@ mod tests {
     #[test]
     fn test_execute_wire_get_tags_missing_file() {
         let test_db = TestDb::new("wire_get_tags_missing");
-        let (resp, _) = execute_wire_request(
+        let (resp, _, _) = execute_wire_request(
             Request::GetTags { file: "/nonexistent/file.txt".into() },
             test_db.db(),
         );

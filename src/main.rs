@@ -603,6 +603,17 @@ fn dispatch_via_ipc(
                 }
             }
         }
+        Response::Note(note) => {
+            if let Some(entry) = note {
+                let path = PathBuf::from(&entry.path);
+                let formatted = output::format_path(&path, path_format);
+                if quiet {
+                    println!("{}", entry.content);
+                } else {
+                    println!("{formatted}\t{}", entry.content);
+                }
+            }
+        }
         Response::CleanupResult { removed } => {
             if !quiet {
                 println!("Removed {removed} stale entries");

@@ -289,14 +289,12 @@ impl DataSource {
         match self {
             Self::Direct(db) => Ok(db.get_note(file)?),
             Self::Remote { rt } => {
-                // No dedicated GetNote request yet — fetch all notes and filter
-                match self.send(rt, Request::ListNotes)? {
-                    Response::Notes(entries) => {
-                        let target = file.as_ref().to_string_lossy();
-                        Ok(entries.into_iter().find(|e| e.path == *target).map(|e| {
-                            NoteRecord::new(e.content)
-                        }))
-                    }
+                let req = Request::GetNote {
+                    file: file.as_ref().to_string_lossy().into_owned(),
+                };
+                match self.send(rt, req)? {
+                    Response::Note(Some(entry)) => Ok(Some(NoteRecord::new(entry.content))),
+                    Response::Note(None) => Ok(None),
                     other => Err(unexpected(&other)),
                 }
             }
@@ -307,11 +305,33 @@ impl DataSource {
     pub fn set_note<P: AsRef<Path>>(&self, file: P, note: &NoteRecord) -> Result<()> {
         match self {
             Self::Direct(db) => Ok(db.set_note(file, note)?),
-            Self::Remote { .. } => {
-                // No dedicated SetNote wire request yet — not supported in Remote mode
-                Err(DataSourceError::UnexpectedResponse(
-                    "SetNote not yet supported via IPC".to_string(),
-                ))
+            Self::Remote { rt } => {
+                let req = Request::SetNote {
+                    file: file.as_ref().to_string_lossy().into_owned(),
+                    content: note.content.clone(),
+                };
+                match self.send(rt, req)? {
+                    Response::Ok => Ok(()),
+                    Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
+                    other => Err(unexpected(&other)),
+                }
+            }
+        }
+    }
+
+    /// Delete a note for a specific file.
+    pub fn delete_note<P: AsRef<Path>>(&self, file: P) -> Result<bool> {
+        match self {
+            Self::Direct(db) => Ok(db.delete_note(file)?),
+            Self::Remote { rt } => {
+                let req = Request::DeleteNote {
+                    file: file.as_ref().to_string_lossy().into_owned(),
+                };
+                match self.send(rt, req)? {
+                    Response::Ok => Ok(true),
+                    Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
+                    other => Err(unexpected(&other)),
+                }
             }
         }
     }
