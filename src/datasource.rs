@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::db::{Database, DbError, NoteRecord};
 use crate::ipc::IpcError;
-use crate::ipc::wire::{Request, Response, WireTagInfo};
+use crate::ipc::wire::{Request, Response, ServerEvent, WireTagInfo};
 use crate::Pair;
 
 /// Errors that can occur during data source operations.
@@ -31,9 +31,10 @@ pub enum DataSource {
     /// Local database access (no daemon running).
     Direct(Database),
 
-    /// Remote access via IPC to the watch daemon.
+    /// Remote access via persistent IPC connection to the watch daemon.
     Remote {
         rt: tokio::runtime::Runtime,
+        client: crate::daemon::client::PersistentClient,
     },
 }
 
@@ -52,13 +53,22 @@ impl DataSource {
         Self::Direct(db)
     }
 
-    /// Create a remote data source that talks to the daemon over IPC.
+    /// Create a remote data source with a persistent daemon connection.
+    ///
+    /// Connects to the daemon, subscribes to push events, and returns
+    /// the `DataSource` plus an event receiver for `ServerEvent` pushes.
     ///
     /// # Errors
-    /// Returns an error if the tokio runtime cannot be created.
-    pub fn remote() -> std::result::Result<Self, std::io::Error> {
+    /// Returns an error if the runtime or connection cannot be established.
+    pub fn remote() -> std::result::Result<
+        (Self, tokio::sync::mpsc::Receiver<ServerEvent>),
+        std::io::Error,
+    > {
         let rt = tokio::runtime::Runtime::new()?;
-        Ok(Self::Remote { rt })
+        let (client, event_rx) = rt
+            .block_on(crate::daemon::client::PersistentClient::connect())
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        Ok((Self::Remote { rt, client }, event_rx))
     }
 
     /// Get reference to the inner database, if this is a direct data source.
@@ -89,7 +99,7 @@ impl DataSource {
                     .collect();
                 Ok(tags)
             }
-            Self::Remote { rt } => match self.send(rt, Request::ListTags)? {
+            Self::Remote { rt, client } => match self.send(rt, client, Request::ListTags)? {
                 Response::Tags(tags) => Ok(tags),
                 other => Err(unexpected(&other)),
             },
@@ -110,7 +120,7 @@ impl DataSource {
     pub fn list_all(&self) -> Result<Vec<Pair>> {
         match self {
             Self::Direct(db) => Ok(db.list_all()?),
-            Self::Remote { rt } => match self.send(rt, Request::ListFiles)? {
+            Self::Remote { rt, client } => match self.send(rt, client, Request::ListFiles)? {
                 Response::Files(pairs) => {
                     Ok(pairs.into_iter().map(Pair::from).collect())
                 }
@@ -123,7 +133,7 @@ impl DataSource {
     pub fn list_all_files(&self) -> Result<Vec<PathBuf>> {
         match self {
             Self::Direct(db) => Ok(db.list_all_files()?),
-            Self::Remote { rt } => match self.send(rt, Request::ListAllPaths)? {
+            Self::Remote { rt, client } => match self.send(rt, client, Request::ListAllPaths)? {
                 Response::FilePaths(paths) => {
                     Ok(paths.into_iter().map(PathBuf::from).collect())
                 }
@@ -136,11 +146,11 @@ impl DataSource {
     pub fn get_tags<P: AsRef<Path>>(&self, file: P) -> Result<Option<Vec<String>>> {
         match self {
             Self::Direct(db) => Ok(db.get_tags(file)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::GetTags {
                     file: file.as_ref().to_string_lossy().into_owned(),
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::FileTags(tags) if tags.is_empty() => Ok(None),
                     Response::FileTags(tags) => Ok(Some(tags)),
                     other => Err(unexpected(&other)),
@@ -153,11 +163,11 @@ impl DataSource {
     pub fn find_by_tag(&self, tag: &str) -> Result<Vec<PathBuf>> {
         match self {
             Self::Direct(db) => Ok(db.find_by_tag(tag)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::FindByTag {
                     tag: tag.to_owned(),
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::FilePaths(paths) => {
                         Ok(paths.into_iter().map(PathBuf::from).collect())
                     }
@@ -171,12 +181,12 @@ impl DataSource {
     pub fn find_by_all_tags(&self, tags: &[String]) -> Result<Vec<PathBuf>> {
         match self {
             Self::Direct(db) => Ok(db.find_by_all_tags(tags)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::FindByTags {
                     tags: tags.to_vec(),
                     match_all: true,
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::FilePaths(paths) => {
                         Ok(paths.into_iter().map(PathBuf::from).collect())
                     }
@@ -190,12 +200,12 @@ impl DataSource {
     pub fn find_by_any_tag(&self, tags: &[String]) -> Result<Vec<PathBuf>> {
         match self {
             Self::Direct(db) => Ok(db.find_by_any_tag(tags)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::FindByTags {
                     tags: tags.to_vec(),
                     match_all: false,
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::FilePaths(paths) => {
                         Ok(paths.into_iter().map(PathBuf::from).collect())
                     }
@@ -209,11 +219,11 @@ impl DataSource {
     pub fn find_by_tag_regex(&self, pattern: &str) -> Result<Vec<PathBuf>> {
         match self {
             Self::Direct(db) => Ok(db.find_by_tag_regex(pattern)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::FindByTagRegex {
                     pattern: pattern.to_owned(),
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::FilePaths(paths) => {
                         Ok(paths.into_iter().map(PathBuf::from).collect())
                     }
@@ -227,7 +237,7 @@ impl DataSource {
     pub fn list_all_notes(&self) -> Result<Vec<(PathBuf, NoteRecord)>> {
         match self {
             Self::Direct(db) => Ok(db.list_all_notes()?),
-            Self::Remote { rt } => match self.send(rt, Request::ListNotes)? {
+            Self::Remote { rt, client } => match self.send(rt, client, Request::ListNotes)? {
                 Response::Notes(entries) => {
                     Ok(entries
                         .into_iter()
@@ -250,12 +260,12 @@ impl DataSource {
     pub fn insert<P: AsRef<Path>>(&self, file: P, tags: Vec<String>) -> Result<()> {
         match self {
             Self::Direct(db) => Ok(db.insert(file, tags)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::SetTags {
                     file: file.as_ref().to_string_lossy().into_owned(),
                     tags,
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::Ok => Ok(()),
                     Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
                     other => Err(unexpected(&other)),
@@ -268,11 +278,11 @@ impl DataSource {
     pub fn remove<P: AsRef<Path>>(&self, file: P) -> Result<bool> {
         match self {
             Self::Direct(db) => Ok(db.remove(file)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::DeleteFromDb {
                     file: file.as_ref().to_string_lossy().into_owned(),
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::Ok => Ok(true),
                     Response::Error(e) if e.contains("not found") => Ok(false),
                     Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
@@ -288,11 +298,11 @@ impl DataSource {
     pub fn get_note<P: AsRef<Path>>(&self, file: P) -> Result<Option<NoteRecord>> {
         match self {
             Self::Direct(db) => Ok(db.get_note(file)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::GetNote {
                     file: file.as_ref().to_string_lossy().into_owned(),
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::Note(Some(entry)) => Ok(Some(NoteRecord::new(entry.content))),
                     Response::Note(None) => Ok(None),
                     other => Err(unexpected(&other)),
@@ -305,12 +315,12 @@ impl DataSource {
     pub fn set_note<P: AsRef<Path>>(&self, file: P, note: &NoteRecord) -> Result<()> {
         match self {
             Self::Direct(db) => Ok(db.set_note(file, note)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::SetNote {
                     file: file.as_ref().to_string_lossy().into_owned(),
                     content: note.content.clone(),
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::Ok => Ok(()),
                     Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
                     other => Err(unexpected(&other)),
@@ -323,11 +333,11 @@ impl DataSource {
     pub fn delete_note<P: AsRef<Path>>(&self, file: P) -> Result<bool> {
         match self {
             Self::Direct(db) => Ok(db.delete_note(file)?),
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let req = Request::DeleteNote {
                     file: file.as_ref().to_string_lossy().into_owned(),
                 };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::Ok => Ok(true),
                     Response::Error(e) => Err(DataSourceError::UnexpectedResponse(e)),
                     other => Err(unexpected(&other)),
@@ -347,10 +357,10 @@ impl DataSource {
             Self::Direct(db) => {
                 Ok(crate::db::query::apply_search_params(db, params)?)
             }
-            Self::Remote { rt } => {
+            Self::Remote { rt, client } => {
                 let wire_params = crate::ipc::wire::WireSearchParams::from(params);
                 let req = Request::SearchFiles { params: wire_params };
-                match self.send(rt, req)? {
+                match self.send(rt, client, req)? {
                     Response::Files(pairs) => {
                         Ok(pairs.into_iter().map(|p| PathBuf::from(p.file)).collect())
                     }
@@ -362,15 +372,14 @@ impl DataSource {
 
     // -- Internal --
 
-    /// Send a typed IPC request and return the response.
+    /// Send a typed IPC request via the persistent client and return the response.
     fn send(
         &self,
         rt: &tokio::runtime::Runtime,
+        client: &crate::daemon::client::PersistentClient,
         req: Request,
     ) -> std::result::Result<Response, IpcError> {
-        use crate::daemon::client::send_request;
-
-        rt.block_on(send_request(req)).map_err(|e| {
+        rt.block_on(client.request(req)).map_err(|e| {
             IpcError::RemoteError(e.to_string())
         })
     }
