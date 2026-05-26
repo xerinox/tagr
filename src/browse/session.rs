@@ -28,6 +28,8 @@
 //! │   └─ Keybind → execute_action() → Refresh → Loop
 //! ```
 
+use std::sync::Arc;
+
 use crate::browse::models::{ActionOutcome, SearchMode, TagrItem};
 use crate::browse::{actions, query};
 use crate::cli::SearchParams;
@@ -68,7 +70,7 @@ pub enum BrowseError {
 
 /// Browse session - manages unified browser state transitions
 pub struct BrowseSession {
-    ds: DataSource,
+    ds: Arc<DataSource>,
     config: BrowseConfig,
     current_phase: BrowserPhase,
     schema: Option<TagSchema>,
@@ -168,6 +170,7 @@ impl BrowseSession {
     ///
     /// Returns error if database queries fail
     pub fn new(ds: DataSource, config: BrowseConfig) -> Result<Self> {
+        let ds = Arc::new(ds);
         let current_phase = if let Some(ref search_params) = config.initial_search {
             let items = query::get_matching_files(&ds, search_params)?;
 
@@ -516,9 +519,9 @@ impl BrowseSession {
         Ok(())
     }
 
-    /// Get reference to data source
+    /// Get reference to data source (as Arc for sharing with TUI)
     #[must_use]
-    pub const fn data_source(&self) -> &DataSource {
+    pub fn data_source(&self) -> &Arc<DataSource> {
         &self.ds
     }
 

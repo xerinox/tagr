@@ -146,7 +146,7 @@ pub struct AppState {
     /// Tag schema for canonicalization (used in CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries
-    pub database: Option<std::sync::Arc<crate::db::Database>>,
+    pub database: Option<std::sync::Arc<crate::datasource::DataSource>>,
     /// Which pane has focus (during `TagSelection` phase)
     pub focused_pane: FocusPane,
     /// File preview items (live query results)
@@ -184,7 +184,7 @@ impl AppState {
         items: Vec<DisplayItem>,
         multi_select: bool,
         tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
-        database: Option<std::sync::Arc<crate::db::Database>>,
+        database: Option<std::sync::Arc<crate::datasource::DataSource>>,
         prompt: String,
         hints: Vec<KeyHint>,
         preview_config: Option<PreviewConfig>,
@@ -773,8 +773,7 @@ impl AppState {
 
         if has_notes_only {
             // Add files with notes but no tags
-            let ds = crate::datasource::DataSource::direct((**db).clone());
-            if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(&ds) {
+            if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(db.as_ref()) {
                 for item in notes_only_files {
                     if let Some(path_str) = item.as_file_path().and_then(|p| p.to_str()) {
                         file_set.insert(path_str.to_string());

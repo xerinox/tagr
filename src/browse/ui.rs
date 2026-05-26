@@ -35,6 +35,7 @@ use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input};
 use crate::ui::{DisplayItem, FinderConfig, FuzzyFinder};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// UI controller - unified browser loop for tags and files
 pub struct BrowseController<F: FuzzyFinder> {
@@ -323,8 +324,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
             .session
             .schema()
             .map(|s| std::sync::Arc::new(s.clone()));
-        let database = self.session.data_source().as_database()
-            .map(|db| std::sync::Arc::new(db.clone()));
+        let database = Some(Arc::clone(self.session.data_source()));
 
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)

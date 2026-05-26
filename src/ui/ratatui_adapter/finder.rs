@@ -683,7 +683,7 @@ impl RatatuiFinder {
                                     if let Ok(updated_content) = std::fs::read_to_string(&temp_path)
                                     {
                                         // Save or delete note based on content
-                                        if let Some(db) = &state.database {
+                                        if let Some(db) = state.database.as_ref().and_then(|ds| ds.as_database()) {
                                             let is_empty = updated_content.trim().is_empty();
 
                                             if is_empty && existing_note.is_some() {

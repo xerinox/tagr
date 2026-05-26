@@ -37,6 +37,15 @@ pub enum DataSource {
     },
 }
 
+impl std::fmt::Debug for DataSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Direct(_) => f.debug_tuple("Direct").field(&"<Database>").finish(),
+            Self::Remote { .. } => f.debug_struct("Remote").finish_non_exhaustive(),
+        }
+    }
+}
+
 impl DataSource {
     /// Create a direct data source wrapping an open database.
     pub fn direct(db: Database) -> Self {
