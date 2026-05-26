@@ -518,11 +518,29 @@ fn dispatch_via_ipc(
             }
         }
         Commands::Cleanup { .. } => Request::Cleanup,
-        Commands::Browse { .. } => {
-            // TODO: browse via IPC handled in DataSource step
-            return Err(TagrError::InvalidInput(
-                "Browse mode with daemon requires DataSource (not yet implemented)".into(),
-            ));
+        Commands::Browse { filter_args, .. } => {
+            let ctx = command.get_browse_context().ok_or_else(|| {
+                TagrError::InvalidInput("Failed to extract browse context from command".into())
+            })?;
+
+            let ds = tagr::datasource::DataSource::remote()
+                .map_err(|e| TagrError::InvalidInput(format!("Failed to create remote DataSource: {e}")))?;
+
+            let save_filter = filter_args
+                .save_filter
+                .as_ref()
+                .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
+
+            return commands::browse::execute(
+                ds,
+                ctx.search_params,
+                filter_args.filter.as_deref(),
+                save_filter,
+                ctx.execute_cmd,
+                Some(&ctx.preview_overrides),
+                path_format,
+                quiet,
+            );
         }
         _ => {
             return Err(TagrError::InvalidInput(

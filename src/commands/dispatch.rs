@@ -1,6 +1,7 @@
 use crate::cli::{AliasCommands, BulkCommands, Commands, TransformationType};
 use crate::cli::SearchParams;
 use crate::config::TagrConfig;
+use crate::datasource::DataSource;
 use crate::db::Database;
 use crate::commands;
 use crate::commands::bulk::{BatchFormat, CopyTagsConfig, TagTransformation};
@@ -73,8 +74,27 @@ pub fn dispatch_command(
              commands::filter::execute(command, quiet)?;
              Ok(())
         }
-        Commands::Browse { .. } => {
-            Err(TagrError::InvalidInput("Interactive browse mode not supported in daemon mode".into()))
+        Commands::Browse { filter_args, .. } => {
+            let ctx = command.get_browse_context().ok_or_else(|| {
+                TagrError::InvalidInput("Failed to extract browse context from command".into())
+            })?;
+
+            let save_filter = filter_args
+                .save_filter
+                .as_ref()
+                .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
+
+            commands::browse::execute(
+                DataSource::direct(db.clone()),
+                ctx.search_params,
+                filter_args.filter.as_deref(),
+                save_filter,
+                ctx.execute_cmd,
+                Some(&ctx.preview_overrides),
+                path_format,
+                quiet,
+            )?;
+            Ok(())
         }
         Commands::Config { .. } | Commands::Db { .. } | Commands::Completions { .. } | Commands::Watch { .. } => {
              Ok(())

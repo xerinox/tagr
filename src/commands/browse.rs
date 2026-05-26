@@ -9,7 +9,6 @@ use crate::{
     cli::{PreviewOverrides, SearchParams},
     config::{self, PreviewConfig},
     datasource::DataSource,
-    db::Database,
     filters::{FilterCriteria, FilterManager},
     keybinds::config::KeybindConfig,
     output,
@@ -33,7 +32,7 @@ impl From<config::PathFormat> for crate::browse::session::PathFormat {
 /// Returns an error if database operations fail or if the browse operation encounters issues
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn execute(
-    db: &Database,
+    ds: DataSource,
     mut search_params: Option<SearchParams>,
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
@@ -112,7 +111,7 @@ pub fn execute(
     };
 
     let session =
-        BrowseSession::new(DataSource::direct(db.clone()), config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
+        BrowseSession::new(ds, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
 
     let finder = RatatuiFinder::with_styled_preview(100); // Max 100 lines of syntax-highlighted preview
 
