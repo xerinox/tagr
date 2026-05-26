@@ -12,7 +12,8 @@ use crate::watch::{WatchConfig, WatchRule};
 use anyhow::Result;
 use interprocess::local_socket::traits::tokio::Listener;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode};
+use notify_debouncer_full::{DebouncedEvent, Debouncer, new_debouncer};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -33,8 +34,10 @@ type ConnId = u64;
 
 /// All event sources feed into this enum via a single mpsc channel.
 enum DaemonEvent {
-    /// A filesystem event from the notify watcher.
-    FsEvent(std::result::Result<Event, notify::Error>),
+    /// Debounced filesystem events from notify-debouncer-full.
+    FsEvents(Vec<DebouncedEvent>),
+    /// A debouncer error (e.g. watch failure).
+    FsError(Vec<notify::Error>),
     /// A framed message arrived from an IPC connection.
     ClientMsg { conn_id: ConnId, msg: ClientMessage },
     /// A connection was closed (EOF or error).
@@ -89,13 +92,21 @@ async fn async_run(db: &Database) -> Result<()> {
     // Central event channel — all sources (FS watcher, IPC connections) feed here.
     let (event_tx, mut event_rx) = mpsc::channel::<DaemonEvent>(512);
 
-    // Setup the notify file watcher, routing events into the central channel.
+    // Setup the debounced file watcher, routing events into the central channel.
     let fs_tx = event_tx.clone();
-    let mut watcher = RecommendedWatcher::new(
-        move |res| {
-            let _ = fs_tx.blocking_send(DaemonEvent::FsEvent(res));
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(500),
+        None,
+        move |result: notify_debouncer_full::DebounceEventResult| {
+            match result {
+                Ok(events) => {
+                    let _ = fs_tx.blocking_send(DaemonEvent::FsEvents(events));
+                }
+                Err(errors) => {
+                    let _ = fs_tx.blocking_send(DaemonEvent::FsError(errors));
+                }
+            }
         },
-        Config::default(),
     )?;
 
     let config_path = WatchConfig::config_path().unwrap_or_else(|_| PathBuf::from("watch.toml"));
@@ -103,7 +114,7 @@ async fn async_run(db: &Database) -> Result<()> {
         if !config_dir.exists() {
             std::fs::create_dir_all(config_dir).ok();
         }
-        if let Err(e) = watcher.watch(config_dir, RecursiveMode::NonRecursive) {
+        if let Err(e) = debouncer.watch(config_dir, RecursiveMode::NonRecursive) {
             eprintln!("Warning: could not watch config directory {:?}: {}", config_dir, e);
         }
     }
@@ -112,10 +123,9 @@ async fn async_run(db: &Database) -> Result<()> {
     resolve_all_rules(&mut current_config.rules);
     let mut watched_roots: HashSet<PathBuf> = HashSet::new();
     let mut last_config_reload: Option<Instant> = None;
-    let mut last_file_events: HashMap<PathBuf, Instant> = HashMap::new();
     let mut filter_evaluator = FilterEvaluator::new();
     println!("Loaded config: {} rules", current_config.rules.len());
-    add_new_watch_roots(&mut watcher, &current_config, &mut watched_roots);
+    add_new_watch_roots(&mut debouncer, &current_config, &mut watched_roots);
 
     let initial_work = retroactive_scan(&current_config, db, &mut filter_evaluator);
     spawn_tag_work(initial_work, db);
@@ -158,22 +168,23 @@ async fn async_run(db: &Database) -> Result<()> {
             // Process all events from the central channel.
             Some(event) = event_rx.recv() => {
                 match event {
-                    DaemonEvent::FsEvent(Ok(fs_event)) => {
-                        let work = handle_event(
-                            fs_event,
+                    DaemonEvent::FsEvents(debounced_events) => {
+                        let work = handle_debounced_events(
+                            debounced_events,
                             &mut current_config,
                             &config_path,
-                            &mut watcher,
+                            &mut debouncer,
                             &mut watched_roots,
                             &mut last_config_reload,
-                            &mut last_file_events,
                             db,
                             &mut filter_evaluator,
                         );
                         spawn_tag_work_with_events(work, db, &subscribers, &conn_writers);
                     }
-                    DaemonEvent::FsEvent(Err(e)) => {
-                        eprintln!("Watcher error: {}", e);
+                    DaemonEvent::FsError(errors) => {
+                        for e in &errors {
+                            eprintln!("Watcher error: {e}");
+                        }
                     }
                     DaemonEvent::NewConnection { conn_id, writer_tx } => {
                         conn_writers.insert(conn_id, writer_tx);
@@ -338,92 +349,79 @@ fn spawn_tag_work_with_events(
     }
 }
 
-/// Handle a single filesystem event.
+/// Handle a batch of debounced filesystem events.
 ///
 /// Returns a list of `(path, tags)` pairs that should be applied to the database.
 /// The caller is responsible for spawning the actual DB writes off the event loop
 /// so that IPC connections are never blocked.
 #[allow(clippy::too_many_arguments)]
-fn handle_event(
-    event: Event,
+fn handle_debounced_events(
+    events: Vec<DebouncedEvent>,
     config: &mut WatchConfig,
     config_path: &Path,
-    watcher: &mut RecommendedWatcher,
+    debouncer: &mut Debouncer<notify::RecommendedWatcher, notify_debouncer_full::NoCache>,
     watched_roots: &mut HashSet<PathBuf>,
     last_config_reload: &mut Option<Instant>,
-    last_file_events: &mut HashMap<PathBuf, Instant>,
     db: &Database,
     filter_evaluator: &mut FilterEvaluator,
 ) -> Vec<(PathBuf, Vec<String>)> {
-    // If any path in the event IS the config file, reload config — with debounce.
-    // A single `fs::write` to watch.toml triggers two inotify events
-    // (Modify(Data) + Access(Close(Write))); we suppress the second one.
-    if event.paths.iter().any(|p| p == config_path) {
-        let now = Instant::now();
-        let too_soon = last_config_reload
-            .map(|prev| now.duration_since(prev) < Duration::from_millis(500))
-            .unwrap_or(false);
-        if too_soon {
-            return vec![];
-        }
-        *last_config_reload = Some(now);
-        println!("watch.toml changed, reloading config...");
-        match WatchConfig::load() {
-            Ok(mut new_config) => {
-                resolve_all_rules(&mut new_config.rules);
-                *config = new_config;
-                println!("Config reloaded: {} rules", config.rules.len());
-                add_new_watch_roots(watcher, config, watched_roots);
-                // Retroactively tag files matching new/changed rules.
-                return retroactive_scan(config, db, filter_evaluator);
-            }
-            Err(e) => eprintln!("Failed to reload watch config: {}", e),
-        }
-        return vec![];
-    }
-
-    // For Create / Modify / Close-Write events, apply matching rules.
-    let is_relevant = matches!(
-        event.kind,
-        EventKind::Create(_)
-            | EventKind::Modify(_)
-            | EventKind::Access(notify::event::AccessKind::Close(
-                notify::event::AccessMode::Write
-            ))
-    );
-    if !is_relevant {
-        return vec![];
-    }
-
-    let now = Instant::now();
     let mut work: Vec<(PathBuf, Vec<String>)> = Vec::new();
-    for path in &event.paths {
-        // Debounce: skip if we already processed this path within 300ms.
-        // A single file operation (touch, write) fires 3–6 inotify events;
-        // we only need to act on the first one.
-        let too_soon = last_file_events
-            .get(path)
-            .map(|&prev| now.duration_since(prev) < Duration::from_millis(300))
-            .unwrap_or(false);
-        if too_soon {
+
+    for debounced in &events {
+        let event = &debounced.event;
+
+        // If any path in the event IS the config file, reload config — with debounce.
+        if event.paths.iter().any(|p| p == config_path) {
+            let now = Instant::now();
+            let too_soon = last_config_reload
+                .map(|prev| now.duration_since(prev) < Duration::from_millis(500))
+                .unwrap_or(false);
+            if too_soon {
+                continue;
+            }
+            *last_config_reload = Some(now);
+            println!("watch.toml changed, reloading config...");
+            match WatchConfig::load() {
+                Ok(mut new_config) => {
+                    resolve_all_rules(&mut new_config.rules);
+                    *config = new_config;
+                    println!("Config reloaded: {} rules", config.rules.len());
+                    add_new_watch_roots(debouncer, config, watched_roots);
+                    work.extend(retroactive_scan(config, db, filter_evaluator));
+                }
+                Err(e) => eprintln!("Failed to reload watch config: {e}"),
+            }
             continue;
         }
-        last_file_events.insert(path.clone(), now);
 
-        for rule in &config.rules {
-            if rule.tags.is_empty() {
-                continue;
-            }
-            if !matches_patterns(path, &rule.patterns) {
-                continue;
-            }
-            // Check vtags / filter_by_tags / saved-filter criteria when present.
-            if let Some(criteria) = &rule.filter_criteria {
-                if !filter_evaluator.matches(path, criteria, db) {
+        // For Create / Modify / Close-Write events, apply matching rules.
+        let is_relevant = matches!(
+            event.kind,
+            EventKind::Create(_)
+                | EventKind::Modify(_)
+                | EventKind::Access(notify::event::AccessKind::Close(
+                    notify::event::AccessMode::Write
+                ))
+        );
+        if !is_relevant {
+            continue;
+        }
+
+        for path in &event.paths {
+            for rule in &config.rules {
+                if rule.tags.is_empty() {
                     continue;
                 }
+                if !matches_patterns(path, &rule.patterns) {
+                    continue;
+                }
+                if let Some(criteria) = &rule.filter_criteria {
+                    if !filter_evaluator.matches(path, criteria, db) {
+                        continue;
+                    }
+                }
+                work.push((path.clone(), rule.tags.clone()));
             }
-            work.push((path.clone(), rule.tags.clone()));
         }
     }
     work
@@ -468,7 +466,7 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
 /// Register any watch roots from the config that are not yet watched.
 /// We never remove roots to avoid races; a daemon restart cleans up.
 fn add_new_watch_roots(
-    watcher: &mut RecommendedWatcher,
+    debouncer: &mut Debouncer<notify::RecommendedWatcher, notify_debouncer_full::NoCache>,
     config: &WatchConfig,
     watched: &mut HashSet<PathBuf>,
 ) {
@@ -486,7 +484,7 @@ fn add_new_watch_roots(
                 continue;
             }
             println!("Watching directory: {:?}", root);
-            match watcher.watch(&root, RecursiveMode::Recursive) {
+            match debouncer.watch(&root, RecursiveMode::Recursive) {
                 Ok(()) => {
                     watched.insert(root);
                 }
