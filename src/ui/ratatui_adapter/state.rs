@@ -243,16 +243,25 @@ impl AppState {
     pub fn load_note_cache(&mut self) {
         if let Some(ds) = &self.database {
             if let Ok(notes) = ds.list_all_notes() {
-                self.note_cache = notes.into_iter().collect();
+                self.note_cache.clear();
+                for (path, record) in notes {
+                    // Also insert canonical form so lookups never need a syscall
+                    if let Ok(canonical) = path.canonicalize() {
+                        if canonical != path {
+                            self.note_cache.insert(canonical, record.clone());
+                        }
+                    }
+                    self.note_cache.insert(path, record);
+                }
             }
         }
     }
 
-    /// Look up a cached note by path (tries canonical form too).
+    /// Look up a cached note by path. Both raw and canonical forms are
+    /// pre-indexed at load time, so this is a pure HashMap lookup with
+    /// no filesystem syscalls.
     pub fn cached_note(&self, path: &std::path::Path) -> Option<&crate::db::NoteRecord> {
-        self.note_cache
-            .get(path)
-            .or_else(|| path.canonicalize().ok().and_then(|c| self.note_cache.get(&c)))
+        self.note_cache.get(path)
     }
 
     /// Move cursor up

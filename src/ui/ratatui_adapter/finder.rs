@@ -974,8 +974,18 @@ impl RatatuiFinder {
                 crate::ipc::wire::ServerEvent::NoteChanged { file, content } => {
                     let path = std::path::PathBuf::from(&file);
                     if let Some(content) = content {
-                        state.note_cache.insert(path, crate::db::NoteRecord::new(content));
+                        let record = crate::db::NoteRecord::new(content);
+                        // Insert canonical form too for consistent lookups
+                        if let Ok(canonical) = path.canonicalize() {
+                            if canonical != path {
+                                state.note_cache.insert(canonical, record.clone());
+                            }
+                        }
+                        state.note_cache.insert(path, record);
                     } else {
+                        if let Ok(canonical) = path.canonicalize() {
+                            state.note_cache.remove(&canonical);
+                        }
                         state.note_cache.remove(&path);
                     }
                     // Invalidate preview cache so the note preview regenerates
