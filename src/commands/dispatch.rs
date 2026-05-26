@@ -86,6 +86,7 @@ pub fn dispatch_command(
 
             commands::browse::execute(
                 DataSource::direct(db.clone()),
+                None,
                 ctx.search_params,
                 filter_args.filter.as_deref(),
                 save_filter,

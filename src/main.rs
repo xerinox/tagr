@@ -523,7 +523,7 @@ fn dispatch_via_ipc(
                 TagrError::InvalidInput("Failed to extract browse context from command".into())
             })?;
 
-            let (ds, _event_rx) = tagr::datasource::DataSource::remote()
+            let (ds, event_rx) = tagr::datasource::DataSource::remote()
                 .map_err(|e| TagrError::InvalidInput(format!("Failed to create remote DataSource: {e}")))?;
 
             let save_filter = filter_args
@@ -533,6 +533,7 @@ fn dispatch_via_ipc(
 
             return commands::browse::execute(
                 ds,
+                Some(event_rx),
                 ctx.search_params,
                 filter_args.filter.as_deref(),
                 save_filter,

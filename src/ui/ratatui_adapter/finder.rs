@@ -43,6 +43,9 @@ pub struct RatatuiFinder {
     /// Native styled preview generator (preferred)
     styled_generator: Option<StyledPreviewGenerator>,
     theme: Theme,
+    /// Daemon event receiver for live updates (only in Remote mode).
+    /// Wrapped in RefCell to allow taking from &self (FuzzyFinder trait requires &self).
+    event_rx: std::cell::RefCell<Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>>,
 }
 
 impl RatatuiFinder {
@@ -53,6 +56,7 @@ impl RatatuiFinder {
             preview_provider: None,
             styled_generator: None,
             theme: Theme::default(),
+            event_rx: std::cell::RefCell::new(None),
         }
     }
 
@@ -63,6 +67,7 @@ impl RatatuiFinder {
             preview_provider: None,
             styled_generator: Some(StyledPreviewGenerator::new(max_lines)),
             theme: Theme::default(),
+            event_rx: std::cell::RefCell::new(None),
         }
     }
 
@@ -73,7 +78,18 @@ impl RatatuiFinder {
             preview_provider: Some(Arc::new(preview_provider)),
             styled_generator: None,
             theme: Theme::default(),
+            event_rx: std::cell::RefCell::new(None),
         }
+    }
+
+    /// Set the daemon event receiver for live updates in Remote mode.
+    #[must_use]
+    pub fn with_event_receiver(
+        self,
+        rx: tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>,
+    ) -> Self {
+        *self.event_rx.borrow_mut() = Some(rx);
+        self
     }
 
     /// Set custom theme
@@ -580,7 +596,13 @@ impl RatatuiFinder {
         let mut cached_preview_key: Option<String> = None;
         let mut cached_preview_mode: Option<crate::ui::ratatui_adapter::state::PreviewMode> = None;
 
+        // Take daemon event receiver out of RefCell (consumed for this run)
+        let mut daemon_event_rx = self.event_rx.borrow_mut().take();
+
         loop {
+            // Drain daemon events (non-blocking)
+            Self::drain_daemon_events(&mut daemon_event_rx, &mut state, &mut cached_preview_key, &mut cached_preview_mode);
+
             // Update preview if needed - prefer styled_generator (native ratatui) over preview_provider (ANSI)
             if let Some(preview_config) = &config.preview_config
                 && preview_config.enabled
@@ -924,6 +946,98 @@ impl RatatuiFinder {
                 direct_file_selection,
                 selected_tags,
             ))
+        }
+    }
+
+    /// Drain all pending daemon events and apply them to state.
+    /// Non-blocking — processes whatever is available right now.
+    fn drain_daemon_events(
+        event_rx: &mut Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>,
+        state: &mut AppState,
+        cached_preview_key: &mut Option<String>,
+        cached_preview_mode: &mut Option<crate::ui::ratatui_adapter::state::PreviewMode>,
+    ) {
+        let Some(rx) = event_rx else { return };
+
+        let mut tag_tree_dirty = false;
+        let mut file_preview_dirty = false;
+
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                crate::ipc::wire::ServerEvent::FileTagged { .. }
+                | crate::ipc::wire::ServerEvent::FileUntagged { .. }
+                | crate::ipc::wire::ServerEvent::FileRemoved { .. }
+                | crate::ipc::wire::ServerEvent::ConfigReloaded => {
+                    tag_tree_dirty = true;
+                    file_preview_dirty = true;
+                }
+                crate::ipc::wire::ServerEvent::NoteChanged { file, content } => {
+                    let path = std::path::PathBuf::from(&file);
+                    if let Some(content) = content {
+                        state.note_cache.insert(path, crate::db::NoteRecord::new(content));
+                    } else {
+                        state.note_cache.remove(&path);
+                    }
+                    // Invalidate preview cache so the note preview regenerates
+                    *cached_preview_key = None;
+                    *cached_preview_mode = None;
+                    file_preview_dirty = true;
+                }
+            }
+        }
+
+        if tag_tree_dirty {
+            // Rebuild tag tree from database
+            if let Some(ds) = &state.database {
+                if let Ok(all_tags) = ds.list_all_tags() {
+                    let tags_with_counts: Vec<(String, usize)> = all_tags
+                        .into_iter()
+                        .filter_map(|tag| {
+                            ds.find_by_tag(&tag).ok().map(|files| (tag, files.len()))
+                        })
+                        .collect();
+
+                    let display_map: std::collections::HashMap<String, String> =
+                        state.tag_schema.as_ref().map_or_else(
+                            || {
+                                tags_with_counts
+                                    .iter()
+                                    .map(|(tag, _)| (tag.clone(), tag.clone()))
+                                    .collect()
+                            },
+                            |schema| {
+                                tags_with_counts
+                                    .iter()
+                                    .map(|(tag, _)| {
+                                        let canonical = schema.canonicalize(tag);
+                                        let display = if canonical == tag.as_str() {
+                                            tag.clone()
+                                        } else {
+                                            format!("{tag} ({canonical})")
+                                        };
+                                        (tag.clone(), display)
+                                    })
+                                    .collect()
+                            },
+                        );
+
+                    if let Some(tree) = &mut state.tag_tree_state {
+                        tree.build_from_tags_with_display(&tags_with_counts, &display_map);
+                    }
+                }
+            }
+        }
+
+        if file_preview_dirty {
+            // Refresh has_note flags on file preview items
+            for item in &mut state.file_preview_items {
+                let path = std::path::Path::new(&item.key);
+                item.metadata.has_note = state.note_cache.contains_key(path);
+            }
+            for item in &mut state.file_preview_items_unfiltered {
+                let path = std::path::Path::new(&item.key);
+                item.metadata.has_note = state.note_cache.contains_key(path);
+            }
         }
     }
 }
