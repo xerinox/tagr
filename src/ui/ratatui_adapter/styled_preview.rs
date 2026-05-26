@@ -130,38 +130,44 @@ impl StyledPreview {
         }
     }
 
-    /// Highlight note content as markdown using syntect
+    /// Highlight note content as markdown using syntect.
+    /// Uses lazily-initialized static syntax/theme sets to avoid
+    /// reloading the ~200ms syntect bundles on every preview.
     #[cfg(feature = "syntax-highlighting")]
     fn highlight_markdown(content: &str) -> Vec<Line<'static>> {
+        use std::sync::LazyLock;
         use syntect::easy::HighlightLines;
         use syntect::highlighting::ThemeSet;
         use syntect::parsing::SyntaxSet;
 
-        let syntax_set = SyntaxSet::load_defaults_newlines();
-        let theme_set = ThemeSet::load_defaults();
+        static SYNTAX_SET: LazyLock<SyntaxSet> =
+            LazyLock::new(SyntaxSet::load_defaults_newlines);
+        static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
 
-        let syntax = syntax_set
+        let syntax = SYNTAX_SET
             .find_syntax_by_extension("md")
-            .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
+            .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
 
-        let theme = &theme_set.themes["base16-ocean.dark"];
+        let theme = &THEME_SET.themes["base16-ocean.dark"];
         let mut highlighter = HighlightLines::new(syntax, theme);
 
         content
             .lines()
             .map(|line| {
-                highlighter.highlight_line(line, &syntax_set).map_or_else(
-                    |_| Line::raw(line.to_string()),
-                    |ranges| {
-                        let spans: Vec<Span<'static>> = ranges
-                            .iter()
-                            .map(|(style, text)| {
-                                Span::styled(text.to_string(), syntect_to_ratatui(style))
-                            })
-                            .collect();
-                        Line::from(spans)
-                    },
-                )
+                highlighter
+                    .highlight_line(line, &SYNTAX_SET)
+                    .map_or_else(
+                        |_| Line::raw(line.to_string()),
+                        |ranges| {
+                            let spans: Vec<Span<'static>> = ranges
+                                .iter()
+                                .map(|(style, text)| {
+                                    Span::styled(text.to_string(), syntect_to_ratatui(style))
+                                })
+                                .collect();
+                            Line::from(spans)
+                        },
+                    )
             })
             .collect()
     }
