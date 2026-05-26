@@ -52,6 +52,9 @@ pub enum WatchCommands {
     Stop,
 }
 
+#[cfg(feature = "dynamic-completions")]
+use clap_complete::engine::ArgValueCompleter;
+
 /// Arguments for `tagr watch add`
 #[derive(Args, Debug, Clone)]
 pub struct WatchAddArgs {
@@ -60,18 +63,22 @@ pub struct WatchAddArgs {
 
     /// Tags to apply when files match
     #[arg(short = 't', long = "tag")]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
     pub tags: Vec<String>,
 
     /// Use a saved filter by name (recommended for complex criteria)
     #[arg(short = 'f', long = "filter")]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_filters)))]
     pub filter: Option<String>,
 
     /// Inline virtual-tag condition; can be repeated (e.g., `-V size:small`)
     #[arg(short = 'V', long = "vtag")]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_vtags)))]
     pub vtags: Vec<String>,
 
     /// Only trigger if the file already has this tag; can be repeated
     #[arg(long = "filter-by-tag")]
+    #[cfg_attr(feature = "dynamic-completions", arg(add = ArgValueCompleter::new(crate::completions::complete_tags)))]
     pub filter_by_tags: Vec<String>,
 }
 

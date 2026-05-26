@@ -125,9 +125,17 @@ impl CompletionCache {
 ///
 /// Call from: tag, untag, bulk operations, filter save/delete, db add/remove.
 /// This is a best-effort operation - failures don't affect the main command.
+/// Skipped entirely during tests to avoid corrupting the real cache.
 pub fn invalidate_cache(db: &crate::db::Database) {
-    // Best effort - don't fail the main operation if cache update fails
-    let _ = CompletionCache::refresh(db);
+    #[cfg(test)]
+    {
+        let _ = db;
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = CompletionCache::refresh(db);
+    }
 }
 
 /// Invalidate cache for filter changes only

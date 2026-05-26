@@ -555,9 +555,19 @@ impl RatatuiFinder {
             tag_tree_state.build_from_tags_with_display(&tags_with_counts, &display_map);
 
             // Pre-select tags from search criteria (e.g., from -t flag)
+            // For parent tags (e.g., "notes"), select children instead (notes:markdown, etc.)
+            // Only insert the tag itself if it's a leaf (no descendants), so parent-only
+            // nodes don't get stuck in selected_tags (they can't be deselected via toggle).
             if let Some(criteria) = &config.search_criteria {
                 for tag in &criteria.include_tags {
-                    tag_tree_state.selected_tags.insert(tag.clone());
+                    let descendants = tag_tree_state.get_all_descendant_tags(tag);
+                    if descendants.is_empty() {
+                        tag_tree_state.selected_tags.insert(tag.clone());
+                    } else {
+                        for child in descendants {
+                            tag_tree_state.selected_tags.insert(child);
+                        }
+                    }
                 }
             }
         }

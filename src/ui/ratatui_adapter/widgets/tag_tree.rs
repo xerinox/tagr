@@ -683,7 +683,13 @@ impl StatefulWidget for TagTree<'_> {
             }
 
             let is_selected = start + i == state.selected;
-            let is_tag_selected = state.selected_tags.contains(&node_ref.full_path);
+            // For parent nodes, derive selection state from children
+            let is_tag_selected = if node_ref.is_actual_tag {
+                state.selected_tags.contains(&node_ref.full_path)
+            } else {
+                let children = state.get_all_descendant_tags(&node_ref.full_path);
+                !children.is_empty() && children.iter().any(|c| state.selected_tags.contains(c))
+            };
             let is_tag_excluded = state.excluded_tags.contains(&node_ref.full_path);
 
             // Build the line with tree characters
