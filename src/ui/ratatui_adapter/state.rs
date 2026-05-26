@@ -13,7 +13,8 @@ use crate::ui::ratatui_adapter::widgets::{
 };
 use crate::ui::traits::PreviewConfig;
 use crate::ui::types::DisplayItem;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 /// Direction for cursor movement.
@@ -175,6 +176,8 @@ pub struct AppState {
     pub preview_mode: PreviewMode,
     /// File details for the details modal
     pub file_details: Option<FileDetails>,
+    /// Pre-loaded note cache to avoid per-file IPC round-trips
+    pub note_cache: HashMap<PathBuf, crate::db::NoteRecord>,
 }
 
 impl AppState {
@@ -232,7 +235,24 @@ impl AppState {
             preview_config,
             preview_mode: PreviewMode::File,
             file_details: None,
+            note_cache: HashMap::new(),
         }
+    }
+
+    /// Populate the note cache from the data source (single bulk fetch).
+    pub fn load_note_cache(&mut self) {
+        if let Some(ds) = &self.database {
+            if let Ok(notes) = ds.list_all_notes() {
+                self.note_cache = notes.into_iter().collect();
+            }
+        }
+    }
+
+    /// Look up a cached note by path (tries canonical form too).
+    pub fn cached_note(&self, path: &std::path::Path) -> Option<&crate::db::NoteRecord> {
+        self.note_cache
+            .get(path)
+            .or_else(|| path.canonicalize().ok().and_then(|c| self.note_cache.get(&c)))
     }
 
     /// Move cursor up
@@ -830,18 +850,7 @@ impl AppState {
         self.file_preview_items = files
             .iter()
             .map(|path| {
-                // Check if file has a note
-                let has_note = self
-                    .database
-                    .as_ref()
-                    .and_then(|db| {
-                        std::path::Path::new(path)
-                            .canonicalize()
-                            .ok()
-                            .and_then(|canonical| db.get_note(&canonical).ok().flatten())
-                    })
-                    .is_some();
-
+                let has_note = self.cached_note(std::path::Path::new(path)).is_some();
                 let mut item = DisplayItem::new(path.clone(), path.clone(), path.clone());
                 item.metadata.has_note = has_note;
                 item
@@ -1334,11 +1343,7 @@ impl AppState {
                 .flatten()
                 .unwrap_or_default();
 
-            let note = self
-                .database
-                .as_ref()
-                .and_then(|db| db.get_note(&path).ok())
-                .flatten();
+            let note = self.cached_note(&path).cloned();
 
             if let Ok(details) = FileDetails::from_path(&path, tags, note) {
                 self.enter_details(details);

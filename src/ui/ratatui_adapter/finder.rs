@@ -490,6 +490,7 @@ impl RatatuiFinder {
             hints,
             config.preview_config.clone(),
         );
+        state.load_note_cache();
         // Set available tags for autocomplete in text input modals
         state.available_tags.clone_from(&config.available_tags);
 
@@ -608,21 +609,9 @@ impl RatatuiFinder {
                                 })
                             }
                             PreviewMode::Note => {
-                                // Generate note preview from database
-                                // Notes are stored with canonical paths, so canonicalize before lookup
                                 let note_preview = state
-                                    .database
-                                    .as_ref()
-                                    .and_then(|db| {
-                                        Path::new(current_key).canonicalize().ok().and_then(
-                                            |canonical_path| {
-                                                db.get_note(&canonical_path).ok().flatten()
-                                            },
-                                        )
-                                    })
-                                    .map_or_else(StyledPreview::no_note, |note| {
-                                        StyledPreview::note(&note)
-                                    });
+                                    .cached_note(Path::new(current_key))
+                                    .map_or_else(StyledPreview::no_note, StyledPreview::note);
                                 Some(note_preview)
                             }
                         };
@@ -661,9 +650,8 @@ impl RatatuiFinder {
 
                             // Get existing note or create new one
                             let existing_note = state
-                                .database
-                                .as_ref()
-                                .and_then(|db| db.get_note(&canonical_path).ok().flatten());
+                                .cached_note(&canonical_path)
+                                .cloned();
 
                             let initial_content = existing_note
                                 .as_ref()
@@ -689,6 +677,7 @@ impl RatatuiFinder {
                                             if is_empty && existing_note.is_some() {
                                                 // Delete note if content cleared
                                                 let _ = db.delete_note(&canonical_path);
+                                                state.note_cache.remove(&canonical_path);
 
                                                 // Update has_note metadata
                                                 if state.is_tag_selection_phase() {
@@ -723,6 +712,7 @@ impl RatatuiFinder {
                                                 };
 
                                                 let _ = db.set_note(&canonical_path, &note);
+                                                state.note_cache.insert(canonical_path.clone(), note);
 
                                                 // Update has_note metadata for the current item
                                                 if state.is_tag_selection_phase() {
