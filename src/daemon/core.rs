@@ -277,12 +277,24 @@ async fn handle_client_message(
 ) -> bool {
     match msg {
         ClientMessage::Request { id, payload } => {
+            let is_tag_mutation = matches!(
+                payload,
+                Request::AddTags { .. } | Request::SetTags { .. } | Request::RemoveTags { .. }
+            );
             let (response, should_shutdown, event) = execute_wire_request(payload, db);
+            #[cfg(feature = "dynamic-completions")]
+            let tag_mutation_ok = is_tag_mutation && matches!(response, Response::Ok);
+            #[cfg(not(feature = "dynamic-completions"))]
+            let _ = is_tag_mutation;
             if let Some(tx) = conn_writers.get(&conn_id) {
                 let _ = tx.send(ServerMessage::Response { id, payload: response }).await;
             }
             if let Some(evt) = event {
                 broadcast_event(&evt, subscribers, conn_writers);
+            }
+            #[cfg(feature = "dynamic-completions")]
+            if tag_mutation_ok {
+                crate::completions::invalidate_cache(db);
             }
             should_shutdown
         }
@@ -328,6 +340,8 @@ fn spawn_tag_work_with_events(
             tags: tags.clone(),
         };
         broadcast_event(&event, subscribers, conn_writers);
+        #[cfg(feature = "dynamic-completions")]
+        let db_for_cache = db.clone();
         tokio::spawn(async move {
             println!("Auto-tagging {:?} with {:?}", path, tags);
             let result = tokio::task::spawn_blocking(move || {
@@ -346,7 +360,10 @@ fn spawn_tag_work_with_events(
             match result {
                 Ok(Err((path, e))) => eprintln!("Auto-tag failed for {:?}: {}", path, e),
                 Err(e) => eprintln!("Spawn error: {}", e),
-                Ok(Ok(())) => {}
+                Ok(Ok(())) => {
+                    #[cfg(feature = "dynamic-completions")]
+                    crate::completions::invalidate_cache(&db_for_cache);
+                }
             }
         });
     }
