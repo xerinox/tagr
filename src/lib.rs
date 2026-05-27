@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
 
+pub mod types;
 pub mod browse;
 pub mod cli;
 pub mod commands;
