@@ -30,10 +30,12 @@ mod tagr_path;
 mod filter_name;
 mod query;
 mod pair;
+mod note;
 mod error;
 
 pub use error::ValidationError;
 pub use filter_name::FilterName;
+pub use note::{NoteMeta, NoteRecord};
 pub use pair::Pair;
 pub use query::{MatchMode, QueryCriteria, TagExpr};
 pub use tag_name::TagName;

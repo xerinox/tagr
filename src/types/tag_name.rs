@@ -203,6 +203,22 @@ impl fmt::Display for TagName {
     }
 }
 
+impl TryFrom<&str> for TagName {
+    type Error = ValidationError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        Self::new(s)
+    }
+}
+
+impl TryFrom<String> for TagName {
+    type Error = ValidationError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Self::new(s)
+    }
+}
+
 /// Validates a tag name string, returning the first error found.
 fn validate_tag_name(s: &str) -> Result<(), ValidationError> {
     if s.is_empty() {

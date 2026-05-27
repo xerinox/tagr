@@ -26,6 +26,7 @@ pub mod patterns;
 pub mod preview;
 pub mod schema;
 pub mod search;
+pub mod store;
 pub mod ui;
 pub mod vtags;
 pub mod watch;

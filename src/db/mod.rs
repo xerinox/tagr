@@ -407,6 +407,47 @@ impl Database {
         Ok(tag_vec)
     }
 
+    /// List all tags with the number of files each tag is applied to.
+    ///
+    /// Iterates the reverse tag index, deserializing each value to count entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if database iteration or deserialization fails.
+    pub fn list_tags_with_counts(&self) -> Result<Vec<(String, usize)>, DbError> {
+        let mut results = Vec::new();
+        for item in &self.tags {
+            let (key, value) = item?;
+            let tag = String::from_utf8(key.to_vec())
+                .map_err(|e| DbError::SerializeError(format!("invalid UTF-8 in tag key: {e}")))?;
+            let (files, _): (Vec<String>, usize) =
+                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            results.push((tag, files.len()));
+        }
+        results.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(results)
+    }
+
+    /// Find tags that start with a given prefix string.
+    ///
+    /// Uses sled's `scan_prefix()` for O(log n + k) performance.
+    /// Powers hierarchy expansion, autocomplete, and alias resolution.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if database iteration fails.
+    pub fn find_tags_by_prefix(&self, prefix: &str) -> Result<Vec<String>, DbError> {
+        let mut tags = Vec::new();
+        for item in self.tags.scan_prefix(prefix.as_bytes()) {
+            let (key, _) = item?;
+            let tag = String::from_utf8(key.to_vec())
+                .map_err(|e| DbError::SerializeError(format!("invalid UTF-8 in tag key: {e}")))?;
+            tags.push(tag);
+        }
+        tags.sort();
+        Ok(tags)
+    }
+
     /// Get the number of entries in the database
     #[must_use]
     pub fn count(&self) -> usize {
