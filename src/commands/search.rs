@@ -10,6 +10,7 @@ use crate::{
     patterns::{PatternBuilder, PatternContext},
 };
 use std::path::PathBuf;
+use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -47,6 +48,7 @@ pub fn execute(
     filter_config: FilterConfig,
     explicit_flags: ExplicitFlags,
     output_config: OutputConfig,
+    writer: &mut impl Write,
 ) -> Result<()> {
     if let Some(name) = filter_config.apply {
         let filter_path = crate::filters::get_filter_path()?;
@@ -85,7 +87,7 @@ pub fn execute(
         manager.record_use(name)?;
 
         if !output_config.quiet {
-            println!("Using filter '{name}'");
+            writeln!(writer, "Using filter '{name}'")?;
         }
     }
 
@@ -134,20 +136,20 @@ pub fn execute(
     let files = query::apply_search_params(db, &params)?;
 
     if let Some(query) = &params.query {
-        print_results(db, &files, query, output_config.format, output_config.quiet);
+        print_results(db, &files, query, output_config.format, output_config.quiet, writer)?;
     } else if files.is_empty() {
         if !output_config.quiet {
             let criteria = build_criteria_description(&params);
-            println!("No files found matching {criteria}");
+            writeln!(writer, "No files found matching {criteria}")?;
         }
     } else {
         if !output_config.quiet {
             let description = build_search_description(&params);
-            println!("Found {} file(s) matching {}:", files.len(), description);
+            writeln!(writer, "Found {} file(s) matching {}:", files.len(), description)?;
         }
 
         for file in files {
-            print_file_with_tags(db, &file, output_config.format, output_config.quiet);
+            print_file_with_tags(db, &file, output_config.format, output_config.quiet, writer)?;
         }
     }
 
@@ -160,7 +162,7 @@ pub fn execute(
         manager.create(name, description.to_string(), criteria)?;
 
         if !output_config.quiet {
-            println!("\nSaved filter '{name}'");
+            writeln!(writer, "\nSaved filter '{name}'")?;
         }
     }
 
@@ -173,24 +175,27 @@ fn print_results(
     query: &str,
     path_format: config::PathFormat,
     quiet: bool,
-) {
+    writer: &mut impl Write,
+) -> Result<()> {
     if files.is_empty() {
         if !quiet {
-            println!("No files found matching query '{query}' (searched tags and filenames)");
+            writeln!(writer, "No files found matching query '{query}' (searched tags and filenames)")?;
         }
     } else {
         if !quiet {
-            println!(
+            writeln!(
+                writer,
                 "Found {} file(s) matching query '{}' (tags or filenames):",
                 files.len(),
                 query
-            );
+            )?;
         }
 
         for file in files {
-            print_file_with_tags(db, file, path_format, quiet);
+            print_file_with_tags(db, file, path_format, quiet, writer)?;
         }
     }
+    Ok(())
 }
 
 fn print_file_with_tags(
@@ -198,18 +203,20 @@ fn print_file_with_tags(
     file: &PathBuf,
     path_format: config::PathFormat,
     quiet: bool,
-) {
+    writer: &mut impl Write,
+) -> Result<()> {
     if let Ok(Some(tags)) = db.get_tags(file) {
         let formatted = output::file_with_tags(file, &tags, path_format, quiet);
-        println!("{formatted}");
+        writeln!(writer, "{formatted}")?;
     } else {
         let formatted = output::format_path(file, path_format);
         if quiet {
-            println!("{formatted}");
+            writeln!(writer, "{formatted}")?;
         } else {
-            println!("  {formatted}");
+            writeln!(writer, "  {formatted}")?;
         }
     }
+    Ok(())
 }
 
 fn build_criteria_description(params: &SearchParams) -> String {
@@ -287,6 +294,7 @@ mod tests {
                 format: config::PathFormat::Absolute,
                 quiet: true,
             },
+            &mut Vec::new(),
         )
         .expect_err("should error");
         match err {
@@ -331,6 +339,7 @@ mod tests {
                 format: config::PathFormat::Absolute,
                 quiet: true,
             },
+            &mut Vec::new(),
         );
         assert!(res.is_ok());
     }
@@ -369,6 +378,7 @@ mod tests {
                 format: config::PathFormat::Absolute,
                 quiet: true,
             },
+            &mut Vec::new(),
         )
         .expect_err("should error");
         match err {

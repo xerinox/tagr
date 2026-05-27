@@ -56,7 +56,7 @@ pub struct FinderConfig {
     /// Tag schema for canonicalization (used for CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries (used in tag selection phase)
-    pub database: Option<std::sync::Arc<crate::db::Database>>,
+    pub database: Option<std::sync::Arc<crate::datasource::DataSource>>,
 }
 
 impl FinderConfig {
@@ -128,7 +128,7 @@ impl FinderConfig {
 
     /// Set database for live file count queries
     #[must_use]
-    pub fn with_database(mut self, db: Option<std::sync::Arc<crate::db::Database>>) -> Self {
+    pub fn with_database(mut self, db: Option<std::sync::Arc<crate::datasource::DataSource>>) -> Self {
         self.database = db;
         self
     }

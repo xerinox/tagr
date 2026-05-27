@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 
 use colored::Colorize;
@@ -28,6 +29,7 @@ pub fn bulk_map_tags(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let content = std::fs::read_to_string(input_path).map_err(|e| {
         TagrError::InvalidInput(format!("Failed to read {}: {}", input_path.display(), e))
@@ -39,20 +41,20 @@ pub fn bulk_map_tags(
     };
     if mappings.is_empty() {
         if !quiet {
-            println!("No valid tag mappings found in input.");
+            writeln!(writer, "No valid tag mappings found in input.")?;
         }
         return Ok(());
     }
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!("Would apply {} tag mapping(s):", mappings.len());
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(writer, "Would apply {} tag mapping(s):", mappings.len())?;
         for (i, m) in mappings.iter().enumerate().take(15) {
-            println!("  {}. '{}' → '{}'", i + 1, m.from.cyan(), m.to.green());
+            writeln!(writer, "  {}. '{}' → '{}'", i + 1, m.from.cyan(), m.to.green())?;
         }
         if mappings.len() > 15 {
-            println!("  ... and {} more", mappings.len() - 15);
+            writeln!(writer, "  ... and {} more", mappings.len() - 15)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
     if !yes {
@@ -66,7 +68,7 @@ pub fn bulk_map_tags(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -75,7 +77,7 @@ pub fn bulk_map_tags(
         if mapping.from == mapping.to {
             summary.add_skip();
             if !quiet {
-                println!("⊘ Skipped (identical): '{}'", mapping.from);
+                writeln!(writer, "⊘ Skipped (identical): '{}'", mapping.from)?;
             }
             continue;
         }
@@ -83,7 +85,7 @@ pub fn bulk_map_tags(
         if files.is_empty() {
             summary.add_skip();
             if !quiet {
-                println!("⊘ Skipped (not found): '{}'", mapping.from);
+                writeln!(writer, "⊘ Skipped (not found): '{}'", mapping.from)?;
             }
             continue;
         }
@@ -127,12 +129,13 @@ pub fn bulk_map_tags(
                 Ok(()) => {
                     summary.add_success();
                     if !quiet {
-                        println!(
+                        writeln!(
+                            writer,
                             "✓ '{}' → '{}' in {}",
                             mapping.from,
                             mapping.to,
                             file.display()
-                        );
+                        )?;
                     }
                 }
                 Err(e) => {
@@ -151,7 +154,7 @@ pub fn bulk_map_tags(
         }
     }
     if !quiet {
-        summary.print("Map Tags");
+        summary.print("Map Tags", writer)?;
     }
     Ok(())
 }

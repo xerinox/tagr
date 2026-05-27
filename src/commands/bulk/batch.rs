@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use colored::Colorize;
@@ -81,6 +82,7 @@ pub fn batch_from_file(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let content = std::fs::read_to_string(input_path).map_err(|e| {
         TagrError::InvalidInput(format!("Failed to read {}: {}", input_path.display(), e))
@@ -92,25 +94,26 @@ pub fn batch_from_file(
     };
     if entries.is_empty() {
         if !quiet {
-            println!("No valid entries found in input.");
+            writeln!(writer, "No valid entries found in input.")?;
         }
         return Ok(());
     }
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!("Would apply tags to {} file(s)", entries.len());
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(writer, "Would apply tags to {} file(s)", entries.len())?;
         for (i, e) in entries.iter().enumerate().take(10) {
-            println!(
+            writeln!(
+                writer,
                 "  {}. {} <- [{}]",
                 i + 1,
                 e.file.display(),
                 e.tags.join(", ")
-            );
+            )?;
         }
         if entries.len() > 10 {
-            println!("  ... and {} more", entries.len() - 10);
+            writeln!(writer, "  ... and {} more", entries.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
     if !yes {
@@ -124,7 +127,7 @@ pub fn batch_from_file(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -139,7 +142,7 @@ pub fn batch_from_file(
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Tagged: {}", entry.file.display());
+                    writeln!(writer, "✓ Tagged: {}", entry.file.display())?;
                 }
             }
             Err(e) => {
@@ -151,7 +154,7 @@ pub fn batch_from_file(
         }
     }
     if !quiet {
-        summary.print("Batch From File");
+        summary.print("Batch From File", writer)?;
     }
     Ok(())
 }

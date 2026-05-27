@@ -41,7 +41,9 @@
 //! ```
 
 use clap::{Args, Parser, Subcommand, ValueEnum, ValueHint};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use crate::commands::watch::WatchCommands;
 
 // Dynamic completion support (behind feature flag)
 #[cfg(feature = "dynamic-completions")]
@@ -66,7 +68,7 @@ pub enum ListVariant {
 }
 
 /// Search mode for combining multiple criteria
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SearchMode {
     /// Match ANY of the criteria (OR logic)
     #[default]
@@ -76,7 +78,7 @@ pub enum SearchMode {
 }
 
 /// Parameters for search command
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct SearchParams {
     /// General query (for combined filename and tag search)
@@ -871,7 +873,7 @@ pub enum FilterCommands {
 }
 
 /// Shared arguments for commands that work with a database
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Default)]
 pub struct DbArgs {
     /// Database name to use (overrides default)
     #[arg(long = "db", value_name = "NAME")]
@@ -1220,6 +1222,13 @@ pub enum Commands {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+
+    /// Monitor files for changes and auto-tag them
+    #[command(visible_alias = "w")]
+    Watch {
+        #[command(subcommand)]
+        command: WatchCommands,
     },
 }
 

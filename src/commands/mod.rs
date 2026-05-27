@@ -13,6 +13,8 @@ pub mod note;
 pub mod search;
 pub mod tag;
 pub mod tags;
+pub mod watch;
+pub mod dispatch;
 
 // Re-export execute functions for convenience
 pub use alias::execute_alias_command as alias;
@@ -23,3 +25,4 @@ pub use list::execute as list;
 pub use search::execute as search;
 pub use tag::execute as tag;
 pub use tags::execute as tags;
+pub use dispatch::dispatch_command;

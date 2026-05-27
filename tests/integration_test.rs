@@ -114,6 +114,7 @@ fn test_e2e_bulk_tag_with_glob_file_patterns() {
         /*dry_run*/ false,
         /*yes*/ true,
         /*quiet*/ true,
+        &mut std::io::sink(),
     )
     .unwrap();
 
@@ -171,6 +172,7 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
         /*dry_run*/ false,
         /*yes*/ true,
         /*quiet*/ true,
+        &mut std::io::sink(),
     )
     .unwrap();
 
@@ -226,6 +228,7 @@ fn test_e2e_search_execute_with_glob_flag() {
             format: config::PathFormat::Absolute,
             quiet: true,
         },
+        &mut Vec::new(),
     );
     assert!(res.is_ok());
 }
@@ -271,9 +274,9 @@ fn test_tag_command_add_tags() {
 fn test_search_command_single_tag() {
     let test_db = TestDb::new("search_single");
 
-    let file1 = TestFile::create("file1.txt", "content1").unwrap();
-    let file2 = TestFile::create("file2.txt", "content2").unwrap();
-    let file3 = TestFile::create("file3.txt", "content3").unwrap();
+    let file1 = TestFile::create("search_single_file1.txt", "content1").unwrap();
+    let file2 = TestFile::create("search_single_file2.txt", "content2").unwrap();
+    let file3 = TestFile::create("search_single_file3.txt", "content3").unwrap();
 
     let file1_path = fs::canonicalize(file1.path()).unwrap();
     let file2_path = fs::canonicalize(file2.path()).unwrap();
@@ -1383,4 +1386,337 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
     let results = tagr::db::query::apply_search_params(db, &params).unwrap();
     assert_eq!(results.len(), 1);
     assert!(results[0].to_str().unwrap().contains("nohier2.rs"));
+}
+
+// ============================================================================
+// Command executor smoke tests — exercise execute() entry points
+// ============================================================================
+
+#[test]
+fn test_cleanup_execute_empty_db() {
+    let test_db = TestDb::new("cleanup_empty");
+    let mut out = Vec::new();
+    tagr::commands::cleanup::execute(test_db.db(), config::PathFormat::Absolute, false, &mut out)
+        .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("clean") || output.contains("No issues"));
+}
+
+#[test]
+fn test_cleanup_execute_missing_file() {
+    let test_db = TestDb::new("cleanup_exec_missing");
+    let db = test_db.db();
+    // Create a real file, insert it, then delete the file to simulate "missing"
+    let f = TestFile::create("cleanup_ghost_file.txt", "temp").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["orphan".into()])
+        .unwrap();
+    // Remove the file so cleanup detects it as missing
+    drop(f);
+    let _ = fs::remove_file(&canonical);
+    let mut out = Vec::new();
+    // quiet=true auto-deletes without TTY prompt
+    tagr::commands::cleanup::execute(db, config::PathFormat::Absolute, true, &mut out).unwrap();
+    assert_eq!(db.count(), 0, "missing file should be cleaned up");
+}
+
+#[test]
+fn test_cleanup_execute_all_files_exist() {
+    let test_db = TestDb::new("cleanup_exists");
+    let db = test_db.db();
+    let f = TestFile::create("cleanup_test_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let mut out = Vec::new();
+    tagr::commands::cleanup::execute(db, config::PathFormat::Absolute, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("clean") || output.contains("No issues"));
+    assert_eq!(db.count(), 1, "existing file should remain");
+}
+
+#[test]
+fn test_tags_list_empty_db() {
+    let test_db = TestDb::new("tags_list_empty");
+    let cmd = tagr::cli::TagsCommands::List { tree: false };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(test_db.db(), &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("No tags"));
+}
+
+#[test]
+fn test_tags_list_flat() {
+    let test_db = TestDb::new("tags_list_flat");
+    let db = test_db.db();
+    let f = TestFile::create("tags_list_file.txt", "x").unwrap();
+    db.insert(f.path().to_str().unwrap(), vec!["alpha".into(), "beta".into()])
+        .unwrap();
+    let cmd = tagr::cli::TagsCommands::List { tree: false };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(db, &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("alpha"));
+    assert!(output.contains("beta"));
+}
+
+#[test]
+fn test_tags_list_tree() {
+    let test_db = TestDb::new("tags_list_tree");
+    let db = test_db.db();
+    let f = TestFile::create("tags_tree_file.txt", "x").unwrap();
+    db.insert(
+        f.path().to_str().unwrap(),
+        vec!["lang".into(), "lang:rust".into()],
+    )
+    .unwrap();
+    let cmd = tagr::cli::TagsCommands::List { tree: true };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(db, &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("tree view"));
+    assert!(output.contains("lang"));
+}
+
+#[test]
+fn test_tags_list_quiet() {
+    let test_db = TestDb::new("tags_list_quiet");
+    let db = test_db.db();
+    let f = TestFile::create("tags_quiet_file.txt", "x").unwrap();
+    db.insert(f.path().to_str().unwrap(), vec!["alpha".into()])
+        .unwrap();
+    let cmd = tagr::cli::TagsCommands::List { tree: false };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(db, &cmd, true, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("alpha"));
+    // Quiet mode should NOT contain the "Tags in database:" header
+    assert!(!output.contains("Tags in database"));
+}
+
+#[test]
+fn test_tags_remove_existing() {
+    let test_db = TestDb::new("tags_remove_exec");
+    let db = test_db.db();
+    let f = TestFile::create("tags_remove_file.txt", "x").unwrap();
+    db.insert(
+        f.path().to_str().unwrap(),
+        vec!["remove-me".into(), "keep".into()],
+    )
+    .unwrap();
+    let cmd = tagr::cli::TagsCommands::Remove {
+        tag: "remove-me".into(),
+    };
+    let mut out = Vec::new();
+    // quiet=true bypasses dialoguer confirmation
+    tagr::commands::tags::execute(db, &cmd, true, &mut out).unwrap();
+    let tags = db.get_tags(f.path()).unwrap().unwrap();
+    assert!(!tags.contains(&"remove-me".into()));
+    assert!(tags.contains(&"keep".into()));
+}
+
+#[test]
+fn test_tags_remove_nonexistent() {
+    let test_db = TestDb::new("tags_remove_none");
+    let db = test_db.db();
+    let cmd = tagr::cli::TagsCommands::Remove {
+        tag: "ghost".into(),
+    };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(db, &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("not found"));
+}
+
+#[test]
+fn test_note_list_empty() {
+    use tagr::commands::note::{ListArgs, NoteSubcommand, OutputFormat};
+    let test_db = TestDb::new("note_list_empty");
+    let config = tagr::config::TagrConfig::default();
+    let cmd = NoteSubcommand::List(ListArgs {
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    cmd.execute(
+        test_db.db(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("No notes"));
+}
+
+#[test]
+fn test_note_add_and_show() {
+    use tagr::commands::note::{AddArgs, NoteSubcommand, OutputFormat, ShowArgs};
+    let test_db = TestDb::new("note_add_show");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_test_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    // Need the file in DB first
+    db.insert(canonical.to_str().unwrap(), vec!["tagged".into()])
+        .unwrap();
+    // Add a note
+    let add_cmd = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "test note content".into(),
+    });
+    let mut out = Vec::new();
+    add_cmd
+        .execute(db, &config, config::PathFormat::Absolute, &mut out)
+        .unwrap();
+
+    // Show the note
+    let show_cmd = NoteSubcommand::Show(ShowArgs {
+        files: vec![canonical.clone()],
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    show_cmd
+        .execute(db, &config, config::PathFormat::Absolute, &mut out)
+        .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("test note content"));
+}
+
+#[test]
+fn test_note_delete_dry_run() {
+    use tagr::commands::note::{AddArgs, DeleteArgs, NoteSubcommand};
+    let test_db = TestDb::new("note_del_dry");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_del_dry_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    // Add a note
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "to delete".into(),
+    });
+    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+        .unwrap();
+
+    // Dry-run delete
+    let del = NoteSubcommand::Delete(DeleteArgs {
+        files: vec![canonical.clone()],
+        dry_run: true,
+        yes: true,
+    });
+    let mut out = Vec::new();
+    del.execute(db, &config, config::PathFormat::Absolute, &mut out)
+        .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Would delete"));
+    // Note should still exist
+    assert!(db.get_note(&canonical).unwrap().is_some());
+}
+
+#[test]
+fn test_note_delete_applied() {
+    use tagr::commands::note::{AddArgs, DeleteArgs, NoteSubcommand};
+    let test_db = TestDb::new("note_del_apply");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_del_apply_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "to delete".into(),
+    });
+    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+        .unwrap();
+
+    let del = NoteSubcommand::Delete(DeleteArgs {
+        files: vec![canonical.clone()],
+        dry_run: false,
+        yes: true,
+    });
+    del.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+        .unwrap();
+    assert!(db.get_note(&canonical).unwrap().is_none(), "note should be deleted");
+}
+
+#[test]
+fn test_note_show_nonexistent() {
+    use tagr::commands::note::{NoteSubcommand, OutputFormat, ShowArgs};
+    let test_db = TestDb::new("note_show_none");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_show_none_file.txt", "x").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let cmd = NoteSubcommand::Show(ShowArgs {
+        files: vec![canonical],
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let result = cmd.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink());
+    assert!(result.is_err(), "showing note for file without note should error");
+}
+
+#[test]
+fn test_note_list_with_notes() {
+    use tagr::commands::note::{AddArgs, ListArgs, NoteSubcommand, OutputFormat};
+    let test_db = TestDb::new("note_list_notes");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_list_file.txt", "x").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "some note".into(),
+    });
+    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+        .unwrap();
+
+    let list = NoteSubcommand::List(ListArgs {
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    list.execute(db, &config, config::PathFormat::Absolute, &mut out)
+        .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("note_list_file"));
+}
+
+#[test]
+fn test_note_list_json_format() {
+    use tagr::commands::note::{AddArgs, ListArgs, NoteSubcommand, OutputFormat};
+    let test_db = TestDb::new("note_list_json");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_json_file.txt", "x").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "json test".into(),
+    });
+    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+        .unwrap();
+
+    let list = NoteSubcommand::List(ListArgs {
+        format: OutputFormat::Json,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    list.execute(db, &config, config::PathFormat::Absolute, &mut out)
+        .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    // Should be valid JSON
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(parsed.is_array());
 }

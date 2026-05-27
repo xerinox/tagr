@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use colored::Colorize;
@@ -56,7 +57,7 @@ static DEFAULT_EXT_MAPPINGS: &[(&str, &[&str])] = &[
 ];
 
 /// Parse a directory-to-tag mapping string in "dir:tag" format
-fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
+pub(crate) fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
     let (dir, tag) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!("Invalid mapping format '{s}'. Expected 'dir:tag'"))
     })?;
@@ -64,7 +65,7 @@ fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
 }
 
 /// Parse an extension-to-tags mapping string in "ext:tag1,tag2" format
-fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
+pub(crate) fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
     let (ext, tags_str) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!(
             "Invalid mapping format '{s}'. Expected 'ext:tag1,tag2'"
@@ -104,6 +105,7 @@ pub fn propagate_by_directory(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     // Parse custom mappings
     let custom_map: HashMap<String, String> = custom_mappings
@@ -126,7 +128,7 @@ pub fn propagate_by_directory(
 
     if files.is_empty() {
         if !quiet {
-            println!("No files found in database.");
+            writeln!(writer, "No files found in database.")?;
         }
         return Ok(());
     }
@@ -174,30 +176,32 @@ pub fn propagate_by_directory(
 
     if file_tags.is_empty() {
         if !quiet {
-            println!("No tags to apply.");
+            writeln!(writer, "No tags to apply.")?;
         }
         return Ok(());
     }
 
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would apply directory-based tags to {} file(s)",
             file_tags.len()
-        );
-        println!("\n{}", "Sample changes (up to 10):".bold());
+        )?;
+        writeln!(writer, "\n{}", "Sample changes (up to 10):".bold())?;
         for (i, (file, tags)) in file_tags.iter().enumerate().take(10) {
-            println!(
+            writeln!(
+                writer,
                 "  {}. {} → [{}]",
                 i + 1,
                 file.display(),
                 tags.join(", ").cyan()
-            );
+            )?;
         }
         if file_tags.len() > 10 {
-            println!("  ... and {} more", file_tags.len() - 10);
+            writeln!(writer, "  ... and {} more", file_tags.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
 
@@ -208,7 +212,7 @@ pub fn propagate_by_directory(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -220,7 +224,7 @@ pub fn propagate_by_directory(
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Tagged {}: [{}]", file.display(), tags.join(", "));
+                    writeln!(writer, "✓ Tagged {}: [{}]", file.display(), tags.join(", "))?;
                 }
             }
             Err(e) => {
@@ -233,7 +237,7 @@ pub fn propagate_by_directory(
     }
 
     if !quiet {
-        summary.print("Propagate by Directory");
+        summary.print("Propagate by Directory", writer)?;
     }
 
     Ok(())
@@ -260,6 +264,7 @@ pub fn propagate_by_extension(
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     // Build extension map
     let mut ext_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -306,30 +311,32 @@ pub fn propagate_by_extension(
 
     if file_tags.is_empty() {
         if !quiet {
-            println!("No files match any extension mappings.");
+            writeln!(writer, "No files match any extension mappings.")?;
         }
         return Ok(());
     }
 
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would apply extension-based tags to {} file(s)",
             file_tags.len()
-        );
-        println!("\n{}", "Sample changes (up to 10):".bold());
+        )?;
+        writeln!(writer, "\n{}", "Sample changes (up to 10):".bold())?;
         for (i, (file, tags)) in file_tags.iter().enumerate().take(10) {
-            println!(
+            writeln!(
+                writer,
                 "  {}. {} → [{}]",
                 i + 1,
                 file.display(),
                 tags.join(", ").cyan()
-            );
+            )?;
         }
         if file_tags.len() > 10 {
-            println!("  ... and {} more", file_tags.len() - 10);
+            writeln!(writer, "  ... and {} more", file_tags.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
         return Ok(());
     }
 
@@ -340,7 +347,7 @@ pub fn propagate_by_extension(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -352,7 +359,7 @@ pub fn propagate_by_extension(
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Tagged {}: [{}]", file.display(), tags.join(", "));
+                    writeln!(writer, "✓ Tagged {}: [{}]", file.display(), tags.join(", "))?;
                 }
             }
             Err(e) => {
@@ -365,7 +372,7 @@ pub fn propagate_by_extension(
     }
 
     if !quiet {
-        summary.print("Propagate by Extension");
+        summary.print("Propagate by Extension", writer)?;
     }
 
     Ok(())

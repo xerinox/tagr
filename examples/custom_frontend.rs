@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::io::{self, Write};
 use tagr::Pair;
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
+use tagr::datasource::DataSource;
 use tagr::db::Database;
 use tagr::ui::{DisplayItem, FinderConfig, FinderResult, FuzzyFinder, Result as UiResult};
 
@@ -255,7 +256,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create browse session
     let config = BrowseConfig::default();
-    let session = BrowseSession::new(&db, config)?;
+    let session = BrowseSession::new(DataSource::direct(db), config)?;
 
     // Run with chosen finder
     let result = match choice.trim() {

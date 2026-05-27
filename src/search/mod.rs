@@ -10,12 +10,13 @@
 //!
 //! ```no_run
 //! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
+//! use tagr::datasource::DataSource;
 //! use tagr::ui::ratatui_adapter::RatatuiFinder;
 //! # use tagr::db::Database;
 //!
-//! # fn example(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
+//! # fn example(db: Database) -> Result<(), Box<dyn std::error::Error>> {
 //! let config = BrowseConfig::default();
-//! let session = BrowseSession::new(db, config)?;
+//! let session = BrowseSession::new(DataSource::direct(db), config)?;
 //!
 //! let finder = RatatuiFinder::new();
 //!

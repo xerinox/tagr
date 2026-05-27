@@ -35,14 +35,15 @@ use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input};
 use crate::ui::{DisplayItem, FinderConfig, FuzzyFinder};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// UI controller - unified browser loop for tags and files
-pub struct BrowseController<'a, F: FuzzyFinder> {
-    session: BrowseSession<'a>,
+pub struct BrowseController<F: FuzzyFinder> {
+    session: BrowseSession,
     finder: F,
 }
 
-impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
+impl<F: FuzzyFinder> BrowseController<F> {
     /// Create new browser controller
     ///
     /// # Arguments
@@ -50,7 +51,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// * `session` - Browse session with state management
     /// * `finder` - UI adapter implementing `FuzzyFinder` trait
     #[must_use]
-    pub const fn new(session: BrowseSession<'a>, finder: F) -> Self {
+    pub const fn new(session: BrowseSession, finder: F) -> Self {
         Self { session, finder }
     }
 
@@ -323,7 +324,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
             .session
             .schema()
             .map(|s| std::sync::Arc::new(s.clone()));
-        let database = Some(std::sync::Arc::new(self.session.db().clone()));
+        let database = Some(Arc::clone(self.session.data_source()));
 
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
@@ -469,7 +470,9 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     .path
                     .canonicalize()
                     .ok()
-                    .and_then(|canonical| self.session.db().get_note(&canonical).ok().flatten())
+                    .and_then(|canonical| {
+                        self.session.data_source().get_note(&canonical).ok().flatten()
+                    })
                     .is_some();
 
                 let metadata = crate::ui::ItemMetadata {
@@ -602,7 +605,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_add_tag(self.session.db(), files, &tags)
+                actions::execute_add_tag(self.session.data_source(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "remove_tag" => {
@@ -612,7 +615,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_remove_tag(self.session.db(), files, &tags)
+                actions::execute_remove_tag(self.session.data_source(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "copy_files" => {
@@ -643,7 +646,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         files: &[PathBuf],
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
-            "delete_from_db" => actions::execute_delete_from_db(self.session.db(), files)
+            "delete_from_db" => actions::execute_delete_from_db(self.session.data_source(), files)
                 .map_err(|e| BrowseError::ActionFailed(e.to_string())),
             _ => Err(BrowseError::UnexpectedState(format!(
                 "Unknown action_id: {action_id}"
@@ -712,14 +715,15 @@ pub enum BrowseError {
     #[error("Unexpected state: {0}")]
     UnexpectedState(String),
 
-    #[error("Database error: {0}")]
-    Database(#[from] crate::db::DbError),
+    #[error("Data source error: {0}")]
+    DataSource(#[from] crate::datasource::DataSourceError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::browse::session::BrowseConfig;
+    use crate::datasource::DataSource;
     use crate::testing::TestDb;
     use crate::ui::FinderResult;
 
@@ -764,7 +768,7 @@ mod tests {
     fn test_controller_cancels_on_empty_tag_selection() {
         let db = TestDb::new("test_controller_cancel");
         let config = BrowseConfig::default();
-        let session = BrowseSession::new(db.db(), config).unwrap();
+        let session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
 
         let mock_finder = MockFinder::new(vec![FinderResult {
             selected: vec![],

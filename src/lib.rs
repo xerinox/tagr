@@ -13,9 +13,12 @@ pub mod cli;
 pub mod commands;
 pub mod completions;
 pub mod config;
+pub mod daemon;
+pub mod datasource;
 pub mod db;
 pub mod discovery;
 pub mod filters;
+pub mod ipc;
 pub mod keybinds;
 pub mod output;
 pub mod patterns;
@@ -24,6 +27,7 @@ pub mod schema;
 pub mod search;
 pub mod ui;
 pub mod vtags;
+pub mod watch;
 
 #[cfg(test)]
 pub mod testing;

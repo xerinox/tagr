@@ -138,20 +138,21 @@ impl NoteSubcommand {
         db: &Database,
         config: &TagrConfig,
         path_format: config::PathFormat,
+        writer: &mut impl Write,
     ) -> Result<(), NoteError> {
         match self {
-            Self::Edit(args) => execute_edit(args, db, config),
-            Self::Add(args) => execute_add(args, db, path_format),
-            Self::Show(args) => execute_show(args, db, path_format),
-            Self::Delete(args) => execute_delete(args, db, path_format),
-            Self::List(args) => execute_list(args, db, path_format),
-            Self::Search(args) => execute_search(args, db, path_format),
+            Self::Edit(args) => execute_edit(args, db, config, writer),
+            Self::Add(args) => execute_add(args, db, path_format, writer),
+            Self::Show(args) => execute_show(args, db, path_format, writer),
+            Self::Delete(args) => execute_delete(args, db, path_format, writer),
+            Self::List(args) => execute_list(args, db, path_format, writer),
+            Self::Search(args) => execute_search(args, db, path_format, writer),
         }
     }
 }
 
 /// Edit notes for files
-fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(), NoteError> {
+fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig, writer: &mut impl Write) -> Result<(), NoteError> {
     let editor = args
         .editor
         .clone()
@@ -208,7 +209,7 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
         };
 
         db.set_note(&canonical_path, &note)?;
-        println!("✓ Updated note for {}", file.display());
+        writeln!(writer, "✓ Updated note for {}", file.display())?;
     }
 
     Ok(())
@@ -219,6 +220,7 @@ fn execute_add(
     args: &AddArgs,
     db: &Database,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     let canonical_path = args.file.canonicalize().map_err(|e| {
         NoteError::Io(std::io::Error::new(
@@ -242,10 +244,11 @@ fn execute_add(
     };
 
     db.set_note(&canonical_path, &note)?;
-    println!(
+    writeln!(
+        writer,
         "✓ Added note entry to {}",
         output::format_path(&canonical_path, path_format)
-    );
+    )?;
 
     Ok(())
 }
@@ -255,6 +258,7 @@ fn execute_show(
     args: &ShowArgs,
     db: &Database,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     for file in &args.files {
         let canonical_path = file.canonicalize().map_err(|e| {
@@ -270,15 +274,16 @@ fn execute_show(
             match args.format {
                 OutputFormat::Text => {
                     if args.verbose {
-                        println!(
+                        writeln!(
+                            writer,
                             "File: {}",
                             output::format_path(&canonical_path, path_format)
-                        );
-                        println!("Created: {}", format_timestamp(note.metadata.created_at));
-                        println!("Updated: {}", format_timestamp(note.metadata.updated_at));
-                        println!("\n{}", note.content);
+                        )?;
+                        writeln!(writer, "Created: {}", format_timestamp(note.metadata.created_at))?;
+                        writeln!(writer, "Updated: {}", format_timestamp(note.metadata.updated_at))?;
+                        writeln!(writer, "\n{}", note.content)?;
                     } else {
-                        println!("{}", note.content);
+                        writeln!(writer, "{}", note.content)?;
                     }
                 }
                 OutputFormat::Json => {
@@ -290,10 +295,10 @@ fn execute_show(
                             "updated_at": note.metadata.updated_at,
                         },
                     });
-                    println!("{}", serde_json::to_string_pretty(&json)?);
+                    writeln!(writer, "{}", serde_json::to_string_pretty(&json)?)?;
                 }
                 OutputFormat::Quiet => {
-                    println!("{}", output::format_path(&canonical_path, path_format));
+                    writeln!(writer, "{}", output::format_path(&canonical_path, path_format))?;
                 }
             }
         } else {
@@ -312,6 +317,7 @@ fn execute_delete(
     args: &DeleteArgs,
     db: &Database,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     let mut files_to_delete = Vec::new();
 
@@ -329,14 +335,14 @@ fn execute_delete(
     }
 
     if files_to_delete.is_empty() {
-        println!("No notes to delete");
+        writeln!(writer, "No notes to delete")?;
         return Ok(());
     }
 
     if args.dry_run {
-        println!("Would delete notes for {} file(s):", files_to_delete.len());
+        writeln!(writer, "Would delete notes for {} file(s):", files_to_delete.len())?;
         for file in &files_to_delete {
-            println!("  - {}", output::format_path(file, path_format));
+            writeln!(writer, "  - {}", output::format_path(file, path_format))?;
         }
         return Ok(());
     }
@@ -349,7 +355,7 @@ fn execute_delete(
         std::io::stdin().read_line(&mut input)?;
 
         if !input.trim().eq_ignore_ascii_case("y") {
-            println!("Cancelled");
+            writeln!(writer, "Cancelled")?;
             return Ok(());
         }
     }
@@ -358,14 +364,15 @@ fn execute_delete(
     for file in &files_to_delete {
         if db.delete_note(file)? {
             deleted += 1;
-            println!(
+            writeln!(
+                writer,
                 "✓ Deleted note for {}",
                 output::format_path(file, path_format)
-            );
+            )?;
         }
     }
 
-    println!("Deleted {deleted} note(s)");
+    writeln!(writer, "Deleted {deleted} note(s)")?;
     Ok(())
 }
 
@@ -374,12 +381,13 @@ fn execute_list(
     args: &ListArgs,
     db: &Database,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     let all_notes = db.list_all_notes()?;
 
     if all_notes.is_empty() {
         if args.format != OutputFormat::Quiet {
-            println!("No notes found");
+            writeln!(writer, "No notes found")?;
         }
         return Ok(());
     }
@@ -387,17 +395,18 @@ fn execute_list(
     match args.format {
         OutputFormat::Text => {
             if args.verbose {
-                println!("Files with notes ({}):", all_notes.len());
+                writeln!(writer, "Files with notes ({}):", all_notes.len())?;
                 for (path, note) in &all_notes {
-                    println!(
+                    writeln!(
+                        writer,
                         "  {} [updated: {}]",
                         output::format_path(path, path_format),
                         format_timestamp(note.metadata.updated_at)
-                    );
+                    )?;
                 }
             } else {
                 for (path, _) in &all_notes {
-                    println!("{}", output::format_path(path, path_format));
+                    writeln!(writer, "{}", output::format_path(path, path_format))?;
                 }
             }
         }
@@ -412,11 +421,11 @@ fn execute_list(
                     })
                 })
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
+            writeln!(writer, "{}", serde_json::to_string_pretty(&json)?)?;
         }
         OutputFormat::Quiet => {
             for (path, _) in &all_notes {
-                println!("{}", output::format_path(path, path_format));
+                writeln!(writer, "{}", output::format_path(path, path_format))?;
             }
         }
     }
@@ -429,6 +438,7 @@ fn execute_search(
     args: &SearchArgs,
     db: &Database,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     let results = db.search_notes(&args.query)?;
 
@@ -442,10 +452,10 @@ fn execute_search(
     match args.format {
         OutputFormat::Text => {
             for (path, note) in &results {
-                println!("{}", output::format_path(path, path_format));
+                writeln!(writer, "{}", output::format_path(path, path_format))?;
                 if args.show_content {
                     let snippet = create_snippet(&note.content, &args.query, 100);
-                    println!("  {snippet}");
+                    writeln!(writer, "  {snippet}")?;
                 }
             }
         }
@@ -468,11 +478,11 @@ fn execute_search(
                     obj
                 })
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
+            writeln!(writer, "{}", serde_json::to_string_pretty(&json)?)?;
         }
         OutputFormat::Quiet => {
             for (path, _) in &results {
-                println!("{}", output::format_path(path, path_format));
+                writeln!(writer, "{}", output::format_path(path, path_format))?;
             }
         }
     }

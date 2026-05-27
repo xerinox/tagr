@@ -8,7 +8,7 @@ use crate::{
     },
     cli::{PreviewOverrides, SearchParams},
     config::{self, PreviewConfig},
-    db::Database,
+    datasource::DataSource,
     filters::{FilterCriteria, FilterManager},
     keybinds::config::KeybindConfig,
     output,
@@ -32,7 +32,8 @@ impl From<config::PathFormat> for crate::browse::session::PathFormat {
 /// Returns an error if database operations fail or if the browse operation encounters issues
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn execute(
-    db: &Database,
+    ds: DataSource,
+    event_rx: Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>,
     mut search_params: Option<SearchParams>,
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
@@ -111,9 +112,12 @@ pub fn execute(
     };
 
     let session =
-        BrowseSession::new(db, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
+        BrowseSession::new(ds, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
 
-    let finder = RatatuiFinder::with_styled_preview(100); // Max 100 lines of syntax-highlighted preview
+    let mut finder = RatatuiFinder::with_styled_preview(100);
+    if let Some(rx) = event_rx {
+        finder = finder.with_event_receiver(rx);
+    }
 
     let controller = BrowseController::new(session, finder);
 
