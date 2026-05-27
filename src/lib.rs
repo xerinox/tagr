@@ -24,8 +24,8 @@ pub mod keybinds;
 pub mod output;
 pub mod patterns;
 pub mod preview;
+pub mod query;
 pub mod schema;
-pub mod search;
 pub mod store;
 pub mod ui;
 pub mod vtags;
@@ -42,7 +42,7 @@ pub enum TagrError {
     DbError(#[from] db::DbError),
     /// Search error
     #[error("Search error: {0}")]
-    SearchError(#[from] search::SearchError),
+    SearchError(#[from] query::SearchError),
     /// Browse error
     #[error("Browse error: {0}")]
     BrowseError(String),
@@ -87,13 +87,5 @@ impl Pair {
     #[must_use]
     pub const fn new(file: PathBuf, tags: Vec<String>) -> Self {
         Self { file, tags }
-    }
-}
-
-impl search::AsFileTagPair for Pair {
-    fn as_pair(&self) -> search::FileTagPair<'_> {
-        // Convert PathBuf to &str - if invalid UTF-8, use empty string
-        let file_str = self.file.to_str().unwrap_or("");
-        search::FileTagPair::new(file_str, &self.tags)
     }
 }

@@ -10,7 +10,7 @@
 use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
 use crate::datasource::{DataSource, DataSourceError};
-use crate::search::FilterExt; // Import trait for in-memory filtering
+use crate::query::hierarchy;
 use std::collections::{HashMap, HashSet};
 
 /// Query files that have notes but no tags (notes-only files)
@@ -224,26 +224,69 @@ pub fn get_files_by_tags(
 
 /// Filter an existing collection of items in-memory using search parameters
 ///
-/// This function provides fast in-memory filtering without requiring database queries.
+/// Uses hierarchy-aware tag matching for include/exclude criteria.
 /// Useful for live filtering in the TUI as users type or adjust search criteria.
-///
-/// # Arguments
-/// * `items` - Collection of `TagrItem` to filter
-/// * `params` - Search parameters containing tag filters
-///
-/// # Returns
-/// Vector of references to items that match the search criteria
-///
-/// # Examples
-/// ```ignore
-/// let filtered: Vec<_> = filter_items_in_memory(&all_items, &params);
-/// ```
 #[must_use]
 pub fn filter_items_in_memory<'a>(
     items: &'a [TagrItem],
     params: &'a SearchParams,
 ) -> Vec<&'a TagrItem> {
-    items.apply_filter(params).collect()
+    items
+        .iter()
+        .filter(|item| {
+            let tags: &[String] = match &item.metadata {
+                crate::browse::models::ItemMetadata::File(fm) => &fm.tags,
+                crate::browse::models::ItemMetadata::Tag(_) => return true,
+            };
+
+            if params.tags.is_empty() && params.exclude_tags.is_empty() {
+                return true;
+            }
+
+            if params.no_hierarchy {
+                // Exact matching
+                if !params.tags.is_empty() {
+                    let has_match = match params.tag_mode {
+                        crate::cli::SearchMode::All => {
+                            params.tags.iter().all(|t| tags.contains(t))
+                        }
+                        crate::cli::SearchMode::Any => {
+                            params.tags.iter().any(|t| tags.contains(t))
+                        }
+                    };
+                    if !has_match {
+                        return false;
+                    }
+                }
+                if params.exclude_tags.iter().any(|t| tags.contains(t)) {
+                    return false;
+                }
+            } else {
+                // Hierarchy-aware matching
+                if !params.tags.is_empty() {
+                    let matches = match params.tag_mode {
+                        crate::cli::SearchMode::All => params.tags.iter().all(|pattern| {
+                            tags.iter()
+                                .any(|tag| hierarchy::pattern_matches(pattern, tag))
+                        }),
+                        crate::cli::SearchMode::Any => params.tags.iter().any(|pattern| {
+                            tags.iter()
+                                .any(|tag| hierarchy::pattern_matches(pattern, tag))
+                        }),
+                    };
+                    if !matches {
+                        return false;
+                    }
+                }
+
+                if !hierarchy::should_include_file(tags, &params.tags, &params.exclude_tags) {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .collect()
 }
 
 impl From<crate::browse::models::SearchMode> for crate::cli::SearchMode {

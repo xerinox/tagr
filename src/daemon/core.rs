@@ -872,8 +872,10 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
 
 /// Execute a search query and return matching file-tag pairs.
 fn execute_search(db: &Database, params: &crate::cli::SearchParams) -> std::result::Result<Vec<crate::Pair>, crate::db::DbError> {
-    use crate::search::expand_tags;
+    use crate::query::expand_tags;
+    use crate::store::DirectStore;
 
+    let store = DirectStore::new(db.clone());
     let schema = crate::schema::load_default_schema().ok().unwrap_or_default();
 
     if params.tags.is_empty() && params.file_patterns.is_empty() && params.virtual_tags.is_empty() {
@@ -883,7 +885,8 @@ fn execute_search(db: &Database, params: &crate::cli::SearchParams) -> std::resu
     let mut results: Vec<crate::Pair> = if params.tags.is_empty() {
         db.list_all()?
     } else {
-        let expanded = expand_tags(&params.tags, &schema, db, !params.no_hierarchy)?;
+        let expanded = expand_tags(&params.tags, &schema, &store, !params.no_hierarchy)
+            .map_err(|e| crate::db::DbError::InvalidInput(e.to_string()))?;
         let mut files = std::collections::HashSet::new();
         for tag in &expanded {
             for path in db.find_by_tag(tag)? {

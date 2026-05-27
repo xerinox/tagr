@@ -10,7 +10,7 @@
 
 use crate::db::Database;
 use crate::schema::types::TagSchema;
-use crate::types::{NoteRecord, Pair, QueryCriteria, TagExpr, TagName, TagrPath};
+use crate::types::{NoteRecord, Pair, QueryCriteria, TagName, TagrPath};
 
 use super::{Result, StoreError, TagStore};
 
@@ -296,79 +296,7 @@ impl TagStore for DirectStore {
             .collect()
     }
 
-    #[allow(clippy::too_many_lines)]
-    fn query(&self, criteria: &QueryCriteria, _schema: &TagSchema) -> Result<Vec<TagrPath>> {
-        // Flat-tag subset only — full pipeline (hierarchy, patterns, vtags) is Phase 3.
-        if criteria.is_empty() {
-            return self.list_all_files();
-        }
-
-        match &criteria.tag_expr {
-            None => self.list_all_files(),
-            Some(expr) => {
-                let files = match expr {
-                    TagExpr::Tag(tag) => self.find_by_tag(tag)?,
-                    TagExpr::And(exprs) => {
-                        let tags: Vec<&TagName> = exprs
-                            .iter()
-                            .filter_map(|e| match e {
-                                TagExpr::Tag(t) => Some(t),
-                                _ => None,
-                            })
-                            .collect();
-                        if tags.is_empty() {
-                            self.list_all_files()?
-                        } else {
-                            let owned: Vec<TagName> = tags.into_iter().cloned().collect();
-                            self.find_by_all_tags(&owned)?
-                        }
-                    }
-                    TagExpr::Or(exprs) => {
-                        let tags: Vec<&TagName> = exprs
-                            .iter()
-                            .filter_map(|e| match e {
-                                TagExpr::Tag(t) => Some(t),
-                                _ => None,
-                            })
-                            .collect();
-                        if tags.is_empty() {
-                            self.list_all_files()?
-                        } else {
-                            let owned: Vec<TagName> = tags.into_iter().cloned().collect();
-                            self.find_by_any_tag(&owned)?
-                        }
-                    }
-                    TagExpr::Not(_) => {
-                        // Not alone without positive tags — return all files,
-                        // filter will be applied below via matches_pair
-                        self.list_all_files()?
-                    }
-                };
-
-                // Apply full expression filtering (handles Not, mixed And/Or)
-                if needs_post_filter(expr) {
-                    let Ok(pairs) = self.list_all() else {
-                        return Ok(files);
-                    };
-
-                    Ok(pairs
-                        .into_iter()
-                        .filter(|p| criteria.matches_pair(p))
-                        .map(|p| p.file)
-                        .collect())
-                } else {
-                    Ok(files)
-                }
-            }
-        }
-    }
-}
-
-/// Check if a `TagExpr` contains `Not` nodes that require post-filtering.
-fn needs_post_filter(expr: &TagExpr) -> bool {
-    match expr {
-        TagExpr::Tag(_) => false,
-        TagExpr::Not(_) => true,
-        TagExpr::And(exprs) | TagExpr::Or(exprs) => exprs.iter().any(needs_post_filter),
+    fn query(&self, criteria: &QueryCriteria, schema: &TagSchema) -> Result<Vec<TagrPath>> {
+        crate::query::execute(self, criteria, schema)
     }
 }
