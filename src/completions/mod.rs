@@ -163,7 +163,7 @@ pub fn complete_databases(
     let current_lower = current_str.to_lowercase();
 
     if let Ok(config) = TagrConfig::load() {
-        let default_db = config.get_default_database().cloned();
+        let default_db = config.get_default_database().map(ToOwned::to_owned);
         return config
             .list_databases()
             .into_iter()

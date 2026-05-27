@@ -52,6 +52,10 @@ use tagr::{
 
 type Result<T> = std::result::Result<T, TagrError>;
 
+fn required_arg(name: &'static str) -> TagrError {
+    TagrError::InvalidInput(format!("Missing required argument '{name}'"))
+}
+
 /// Handle the db command - manage multiple databases
 fn handle_db_command(
     config: config::TagrConfig,
@@ -406,9 +410,10 @@ fn main() -> Result<()> {
             }
         }
     } else {
-        let db_name = command.get_db().or_else(|| {
-            config.get_default_database().cloned()
-        }).ok_or_else(|| TagrError::InvalidInput(
+        let db_name = command
+            .get_db()
+            .or_else(|| config.get_default_database().map(ToOwned::to_owned))
+            .ok_or_else(|| TagrError::InvalidInput(
             "No default database set. Use 'tagr db add <name> <path>' to create one, or specify --db <name>.".into()
         ))?;
 

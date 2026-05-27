@@ -113,7 +113,7 @@ See `src/db/mod.rs::insert_pair()` for the canonical pattern.
 
 ### Your Primary Objective
 
-**Your goal is NOT just to make the code compile.** Your primary objective is to write code that is **idiomatic, efficient, and provably memory-safe and thread-safe** according to Rust's formal guarantees.
+**Your goal is NOT just to make the code compile.** Your primary objective is to write code that is **idiomatic, understandable, readable, efficient, and provably memory-safe and thread-safe** according to Rust's formal guarantees.
 
 ### 1. The `unsafe` Keyword is FORBIDDEN
 
@@ -138,10 +138,11 @@ See `src/db/mod.rs::insert_pair()` for the canonical pattern.
 
 ### 4. Use Idiomatic Rust Concurrency Patterns
 
-- For shared, mutable state across threads, you **MUST use the canonical `Arc<Mutex<T>>` pattern.**
-- This pattern is required to safely combine thread-safe shared ownership (`Arc`) with thread-safe interior mutability (`Mutex`).
-- **Do not attempt to invent your own concurrency mechanisms** or use C-style patterns like global variables, as this will lead to data races.
-- When using `Arc<Mutex<T>>`, remember the correct usage: `Arc::clone()` to share ownership, `.lock()` to acquire the guard, and then let the guard go out of scope to release the lock.
+- Prefer standard Rust concurrency primitives (`Arc`, `Mutex`, `RwLock`, channels) over custom synchronization schemes.
+- For shared, mutable state, `Arc<Mutex<T>>` is the default baseline pattern: thread-safe shared ownership (`Arc`) plus interior mutability (`Mutex`).
+- Use alternatives intentionally when they better fit the workload (for example, `Arc<RwLock<T>>` for read-heavy access, channels for ownership transfer/message passing).
+- **Do not invent ad-hoc concurrency mechanisms** or use C-style global mutable state patterns, as they increase race and deadlock risk.
+- When using `Arc<Mutex<T>>`, use `Arc::clone()` to share ownership, acquire with `.lock()`, and keep lock scope as small as practical.
 
 ### 5. Reject C/C++ Patterns
 
@@ -168,6 +169,12 @@ See `src/db/mod.rs::insert_pair()` for the canonical pattern.
 6. **Function signatures**: Pass `&[T]` not `&Vec<T>`, use `&str` not `&String` for parameters. Use `Option<&[T]>` for optional slices (idiomatic over checking empty vec).
 
 7. **Iterator error handling**: Use `.collect::<Result<Vec<_>>>()` to propagate errors through iterator chains. Use `.enumerate()` for line numbers in parsing.
+
+8. **Optimize for readability first**: Prefer descriptive names, cohesive functions, and straightforward control flow. If a block needs heavy commenting to be understood, refactor it.
+
+9. **Apply DRY pragmatically**: Reuse existing helpers and centralize repeated business rules, parsing, validation, and formatting logic. Avoid over-abstraction for one-off logic; prioritize clarity and stable interfaces.
+
+10. **Quality bar for completion**: Treat a task as done only when code is correct, readable, and validated (build/tests/lints as applicable), with explicit error handling and behavior-preserving changes unless intentionally specified.
 
 ### CLI Design Patterns (clap v4)
 
@@ -321,7 +328,7 @@ threshold: f64,
 1. **Forbidden: `unwrap()` and `expect()`**: Production code must never use `.unwrap()` or `.expect()`. These are only acceptable in:
    - Example code explicitly marked as such
    - Test code where panics are intentional
-   - Situations where invariants are guaranteed (document why with a `// SAFETY:` comment)
+   - Situations where invariants are guaranteed (document why with a `// INVARIANT:` comment). Reserve `// SAFETY:` for `unsafe` blocks (which are forbidden in this project).
 
 2. **Explicit error propagation**: Use `Result<T, E>` for operations that can fail. Use the `?` operator to propagate errors up the call stack.
 
@@ -339,7 +346,15 @@ threshold: f64,
 
 ### Code Comments
 
-**Avoid redundant "what" comments** - code should be self-explanatory through clear naming and structure. Comments should explain **WHY**, not **WHAT**.
+**Avoid redundant "what" comments** - code should be self-explanatory through clear naming and structure. Comments should explain **intent and constraints**, not narrate obvious steps.
+
+Use comments for:
+- **Why** this approach exists (tradeoff, bug prevention, compatibility reason)
+- **Invariants/assumptions** that are not obvious from types alone
+- **Non-obvious edge-case handling** and failure behavior
+- **Performance rationale** when code is intentionally shaped for speed/memory
+
+Avoid comments that merely restate code mechanics ("get metadata", "loop files", "set value").
 
 ❌ **Bad - Redundant "what" comments:**
 ```rust
@@ -372,7 +387,15 @@ let content = fs::read_to_string(path).map_err(|e| {
 })?;
 ```
 
-When the code is clear, no comment is needed. Focus on meaningful function names, clear variable names, and logical structure.
+✅ **Good - Comments explain intent and constraints:**
+```rust
+// Keep this check before opening the file so large binary blobs never hit UTF-8 decoding.
+if metadata.len() > self.config.max_file_size {
+    return Err(PreviewError::FileTooLarge);
+}
+```
+
+When the code is clear, no comment is needed. Prefer better names and smaller functions over extra comments.
 
 ### Error Handling
 
