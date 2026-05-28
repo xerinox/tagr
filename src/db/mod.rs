@@ -15,11 +15,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub mod error;
-pub mod query;
 pub mod types;
 
 pub use error::DbError;
-pub use types::{NoteMeta, NoteRecord, PathKey, PathString};
+pub use types::{NoteMeta, NoteRecord, PathKey};
 
 /// Database wrapper that encapsulates all database operations
 ///
@@ -89,7 +88,8 @@ impl Database {
             return Err(DbError::FileNotFound(pair.file.display().to_string()));
         }
 
-        let file_path = PathString::new(&pair.file)?;
+        let file_path = pair.file.to_str()
+            .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))?;
 
         if let Some(old_tags) = self.get_tags(&pair.file)? {
             self.remove_from_tag_index(&file_path, &old_tags)?;
@@ -181,7 +181,8 @@ impl Database {
     /// Returns `DbError` if the path contains invalid UTF-8, database operations fail,
     /// or tag index cleanup fails.
     pub fn remove<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
-        let file_path = PathString::new(file.as_ref())?;
+        let file_path = file.as_ref().to_str()
+            .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))?;
 
         let key: Vec<u8> = PathKey::new(file.as_ref()).try_into()?;
 
