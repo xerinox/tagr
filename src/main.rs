@@ -48,6 +48,7 @@ use tagr::{
     cli::{Cli, Commands, ConfigCommands, DbCommands},
     commands, config,
     db::Database,
+    store::{DirectStore, StoreError},
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -429,14 +430,14 @@ fn main() -> Result<()> {
         // Try to open the DB directly first — this is the fast path and works
         // even when the daemon is running (sled allows a second reader only if
         // the lock is available).  If the DB lock is held (daemon has it open),
-        // the open will fail with an EWOULDBLOCK-style error; in that case we
-        // fall back to forwarding the command over IPC.
-        match Database::open(db_path) {
-            Ok(db) => {
+        // the open will fail with DatabaseLocked; in that case we fall back to
+        // forwarding the command over IPC.
+        match DirectStore::open(db_path) {
+            Ok(store) => {
                 let mut stdout = std::io::stdout();
-                commands::dispatch_command(&command, &db, &config, path_format, quiet, &mut stdout)?;
+                commands::dispatch_command(&command, store.inner(), &config, path_format, quiet, &mut stdout)?;
             }
-            Err(lock_err) if is_db_lock_error(&lock_err) => {
+            Err(StoreError::DatabaseLocked) => {
                 // DB is locked — forward to daemon if it is reachable.
                 let rt = tokio::runtime::Runtime::new().map_err(TagrError::IoError)?;
                 let daemon_running = rt.block_on(async {
@@ -454,17 +455,27 @@ fn main() -> Result<()> {
                 // Forward command to daemon via typed IPC and render locally.
                 dispatch_via_ipc(&rt, &command, path_format, quiet)?;
             }
-            Err(other) => return Err(other.into()),
+            Err(other) => return Err(store_error_to_tagr(other)),
         }
     }
 
     Ok(())
 }
 
-/// Returns `true` when a [`DbError`] is caused by the sled advisory lock being
-/// held by another process (i.e. the daemon has the database open).
-fn is_db_lock_error(err: &tagr::db::DbError) -> bool {
-    err.to_string().contains("could not acquire lock")
+/// Map a [`StoreError`] to [`TagrError`] for the main entry point.
+///
+/// Temporary bridge — will be removed when commands accept `&dyn TagStore`
+/// and return `StoreError` directly (Phase 5.2+).
+fn store_error_to_tagr(err: StoreError) -> TagrError {
+    match err {
+        StoreError::DatabaseLocked => TagrError::InvalidInput(
+            "Database is locked by another process.".into(),
+        ),
+        StoreError::IoFailed { context, source } => {
+            TagrError::InvalidInput(format!("{context}: {source}"))
+        }
+        other => TagrError::InvalidInput(other.to_string()),
+    }
 }
 
 /// Forward a command to the daemon via typed IPC and render the response locally.
