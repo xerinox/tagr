@@ -125,19 +125,6 @@ const fn default_width_percent() -> u8 {
     50
 }
 
-impl From<&PreviewConfig> for crate::ui::PreviewConfig {
-    fn from(config: &PreviewConfig) -> Self {
-        Self {
-            enabled: config.enabled,
-            max_file_size: config.max_file_size,
-            max_lines: config.max_lines,
-            syntax_highlighting: config.syntax_highlighting,
-            show_line_numbers: config.show_line_numbers,
-            position: config.position,
-            width_percent: config.width_percent,
-        }
-    }
-}
 
 /// Notes configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]

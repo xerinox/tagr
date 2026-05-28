@@ -1,7 +1,8 @@
 //! Core traits for UI abstraction layer
 
 use super::error::Result;
-use super::types::{DisplayItem, FinderResult, PreviewPosition};
+use super::types::{DisplayItem, FinderResult};
+use crate::config::PreviewConfig;
 
 /// Search criteria for refine search feature
 #[derive(Debug, Clone, Default)]
@@ -148,53 +149,6 @@ impl FinderConfig {
     pub fn with_database(mut self, db: Option<std::sync::Arc<dyn crate::store::TagStore>>) -> Self {
         self.database = db;
         self
-    }
-}
-
-/// Configuration for preview pane
-#[derive(Debug, Clone)]
-pub struct PreviewConfig {
-    /// Enable preview
-    pub enabled: bool,
-    /// Maximum file size to preview (bytes)
-    pub max_file_size: u64,
-    /// Maximum lines to display
-    pub max_lines: usize,
-    /// Enable syntax highlighting
-    pub syntax_highlighting: bool,
-    /// Show line numbers
-    pub show_line_numbers: bool,
-    /// Position of preview pane
-    pub position: PreviewPosition,
-    /// Width percentage (0-100)
-    pub width_percent: u8,
-}
-
-impl Default for PreviewConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_file_size: 5_242_880, // 5MB
-            max_lines: 50,
-            syntax_highlighting: true,
-            show_line_numbers: true,
-            position: PreviewPosition::Right,
-            width_percent: 50,
-        }
-    }
-}
-
-impl From<crate::config::PreviewConfig> for PreviewConfig {
-    fn from(cfg: crate::config::PreviewConfig) -> Self {
-        Self {
-            enabled: cfg.enabled,
-            max_file_size: cfg.max_file_size,
-            max_lines: cfg.max_lines,
-            syntax_highlighting: cfg.syntax_highlighting,
-            show_line_numbers: cfg.show_line_numbers,
-            position: cfg.position,
-            width_percent: cfg.width_percent,
-        }
     }
 }
 

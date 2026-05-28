@@ -10,7 +10,7 @@ use crate::ui::output::MessageLevel;
 use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
 };
-use crate::ui::traits::PreviewConfig;
+use crate::config::PreviewConfig;
 use crate::ui::types::DisplayItem;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

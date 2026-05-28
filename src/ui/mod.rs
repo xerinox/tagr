@@ -166,7 +166,8 @@ pub use error::{Result, UiError};
 pub use input::{DialoguerInput, InputError, UserInput};
 pub use output::{MessageLevel, OutputWriter, StatusBarWriter, StdoutWriter};
 pub use ratatui_adapter::{RatatuiFinder, RatatuiPreviewProvider};
+pub use crate::config::PreviewConfig;
 pub use traits::{
-    FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText, RefineSearchCriteria,
+    FinderConfig, FuzzyFinder, PreviewProvider, PreviewText, RefineSearchCriteria,
 };
 pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition, RefinedSearchCriteria};
