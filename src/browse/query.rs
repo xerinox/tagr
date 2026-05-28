@@ -7,14 +7,13 @@
 //! Functions here return domain models (`TagrItem`) rather than raw database
 //! types, making them suitable for direct use in browse workflows.
 
-use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
+use crate::browse::models::{MetadataCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
 use crate::db::query::search_params_to_criteria;
 use crate::store::{StoreError, TagStore};
 use crate::types::TagName;
 use crate::query::hierarchy;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 /// Query files that have notes but no tags (notes-only files)
 ///
@@ -38,15 +37,9 @@ pub fn get_notes_only_files(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreErr
         .filter_map(|(path, _note)| {
             match ds.get_tags(&path) {
                 Ok(Some(tags)) if tags.is_empty() => {
-                    let mut cache = crate::browse::models::MetadataCache::new();
-                    let pair = crate::Pair {
-                        file: PathBuf::from(path.as_str()),
-                        tags: vec![],
-                    };
-                    Some(Ok(TagrItem::from(PairWithCache {
-                        pair,
-                        cache: &mut cache,
-                    })))
+                    let mut cache = MetadataCache::new();
+                    let cached = cache.get_or_insert(path.as_path());
+                    Some(Ok(TagrItem::file(path, vec![], cached)))
                 }
                 Ok(Some(_)) => None,    // Has tags - exclude
                 Ok(None) => None,       // Not in files tree - exclude
@@ -177,18 +170,10 @@ pub fn get_matching_files(ds: &dyn TagStore, params: &SearchParams) -> Result<Ve
     let items: Result<Vec<TagrItem>, StoreError> = result_paths
         .into_iter()
         .map(|tagrpath| {
-            let tags: Vec<String> = ds
-                .get_tags(&tagrpath)?
-                .map(|tv| tv.into_iter().map(|t| t.to_string()).collect())
-                .unwrap_or_default();
-            let path = PathBuf::from(tagrpath.as_str());
-            let pair = crate::Pair { file: path, tags };
-
-            let mut cache = crate::browse::models::MetadataCache::new();
-            Ok(TagrItem::from(PairWithCache {
-                pair,
-                cache: &mut cache,
-            }))
+            let tags = ds.get_tags(&tagrpath)?.unwrap_or_default();
+            let mut cache = MetadataCache::new();
+            let cached = cache.get_or_insert(tagrpath.as_path());
+            Ok(TagrItem::file(tagrpath, tags, cached))
         })
         .collect();
 
@@ -245,7 +230,7 @@ pub fn filter_items_in_memory<'a>(
     items
         .iter()
         .filter(|item| {
-            let tags: &[String] = match &item.metadata {
+            let tags: &[TagName] = match &item.metadata {
                 crate::browse::models::ItemMetadata::File(fm) => &fm.tags,
                 crate::browse::models::ItemMetadata::Tag(_) => return true,
             };
@@ -259,17 +244,17 @@ pub fn filter_items_in_memory<'a>(
                 if !params.tags.is_empty() {
                     let has_match = match params.tag_mode {
                         crate::cli::SearchMode::All => {
-                            params.tags.iter().all(|t| tags.contains(t))
+                            params.tags.iter().all(|t| tags.iter().any(|tag| tag.as_str() == t))
                         }
                         crate::cli::SearchMode::Any => {
-                            params.tags.iter().any(|t| tags.contains(t))
+                            params.tags.iter().any(|t| tags.iter().any(|tag| tag.as_str() == t))
                         }
                     };
                     if !has_match {
                         return false;
                     }
                 }
-                if params.exclude_tags.iter().any(|t| tags.contains(t)) {
+                if params.exclude_tags.iter().any(|t| tags.iter().any(|tag| tag.as_str() == t)) {
                     return false;
                 }
             } else {
@@ -278,11 +263,11 @@ pub fn filter_items_in_memory<'a>(
                     let matches = match params.tag_mode {
                         crate::cli::SearchMode::All => params.tags.iter().all(|pattern| {
                             tags.iter()
-                                .any(|tag| hierarchy::pattern_matches(pattern, tag))
+                                .any(|tag| hierarchy::pattern_matches(pattern, tag.as_str()))
                         }),
                         crate::cli::SearchMode::Any => params.tags.iter().any(|pattern| {
                             tags.iter()
-                                .any(|tag| hierarchy::pattern_matches(pattern, tag))
+                                .any(|tag| hierarchy::pattern_matches(pattern, tag.as_str()))
                         }),
                     };
                     if !matches {
@@ -437,7 +422,7 @@ mod tests {
 
         for item in &files {
             if let crate::browse::models::ItemMetadata::File(ref file_meta) = item.metadata {
-                assert!(file_meta.tags.contains(&"rust".to_string()));
+                assert!(file_meta.tags.iter().any(|t| t.as_str() == "rust"));
                 assert!(file_meta.cached.exists);
             } else {
                 panic!("Expected File metadata");
@@ -497,8 +482,8 @@ mod tests {
 
         let item = &files[0];
         if let crate::browse::models::ItemMetadata::File(ref file_meta) = item.metadata {
-            assert!(file_meta.tags.contains(&"rust".to_string()));
-            assert!(file_meta.tags.contains(&"web".to_string()));
+            assert!(file_meta.tags.iter().any(|t| t.as_str() == "rust"));
+            assert!(file_meta.tags.iter().any(|t| t.as_str() == "web"));
         } else {
             panic!("Expected File metadata");
         }

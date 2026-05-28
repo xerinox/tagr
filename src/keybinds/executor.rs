@@ -75,12 +75,23 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No tags entered".to_string()));
         }
 
-        let new_tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+        let new_tags: Vec<crate::types::TagName> = input
+            .split_whitespace()
+            .filter_map(|s| crate::types::TagName::new(s).ok())
+            .collect();
 
-        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.iter().map(|p| (*p).clone()).collect()
+        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         } else {
-            context.selected_files.to_vec()
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         };
 
         let outcome = actions::execute_add_tag(context.ds, &files, &new_tags)?;
@@ -90,10 +101,18 @@ impl ActionExecutor {
 
     /// Execute the `RemoveTag` action.
     fn execute_remove_tag(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.iter().map(|p| (*p).clone()).collect()
+        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         } else {
-            context.selected_files.to_vec()
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         };
 
         if files.is_empty() {
@@ -101,11 +120,9 @@ impl ActionExecutor {
         }
 
         let mut all_tags = std::collections::HashSet::new();
-        for file_path in &files {
-            if let Some(tagrpath) = TagrPath::new(file_path).ok() {
-                if let Some(tags) = context.ds.get_tags(&tagrpath)? {
-                    all_tags.extend(tags.into_iter().map(|t| t.to_string()));
-                }
+        for file in &files {
+            if let Some(tags) = context.ds.get_tags(file)? {
+                all_tags.extend(tags.into_iter().map(|t| t.to_string()));
             }
         }
 
@@ -127,13 +144,14 @@ impl ActionExecutor {
             ));
         }
 
-        let tags_to_remove: Vec<String> = input
+        let tags_to_remove: Vec<crate::types::TagName> = input
             .split_whitespace()
             .filter_map(|s| {
-                s.parse::<usize>().map_or_else(
+                let tag_str = s.parse::<usize>().map_or_else(
                     |_| Some(s.to_string()),
                     |num| tag_list.get(num.saturating_sub(1)).cloned(),
-                )
+                );
+                tag_str.and_then(|t| crate::types::TagName::new(&t).ok())
             })
             .collect();
 
@@ -148,10 +166,18 @@ impl ActionExecutor {
 
     /// Execute the `DeleteFromDb` action.
     fn execute_delete_from_db(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.iter().map(|p| (*p).clone()).collect()
+        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         } else {
-            context.selected_files.to_vec()
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         };
 
         if files.is_empty() {
@@ -172,10 +198,18 @@ impl ActionExecutor {
 
     /// Execute the `OpenInDefault` action.
     fn execute_open_in_default(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.iter().map(|p| (*p).clone()).collect()
+        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         } else {
-            context.selected_files.to_vec()
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         };
 
         if files.is_empty() {
@@ -189,10 +223,18 @@ impl ActionExecutor {
 
     /// Execute the `OpenInEditor` action.
     fn execute_open_in_editor(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.iter().map(|p| (*p).clone()).collect()
+        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         } else {
-            context.selected_files.to_vec()
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         };
 
         if files.is_empty() {
@@ -208,10 +250,18 @@ impl ActionExecutor {
 
     /// Execute the `CopyPath` action.
     fn execute_copy_path(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.iter().map(|p| (*p).clone()).collect()
+        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         } else {
-            context.selected_files.to_vec()
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         };
 
         if files.is_empty() {
@@ -223,7 +273,7 @@ impl ActionExecutor {
             Err(e) => {
                 let paths_text = files
                     .iter()
-                    .map(|p| p.display().to_string())
+                    .map(|p| p.as_str().to_string())
                     .collect::<Vec<_>>()
                     .join("\n");
                 eprintln!("⚠️  {e}");
@@ -237,10 +287,18 @@ impl ActionExecutor {
 
     /// Execute the `CopyFiles` action.
     fn execute_copy_files(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<PathBuf> = if context.selected_files.is_empty() {
-            context.current_file.iter().map(|p| (*p).clone()).collect()
+        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         } else {
-            context.selected_files.to_vec()
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
         };
 
         if files.is_empty() {

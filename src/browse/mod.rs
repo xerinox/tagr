@@ -43,7 +43,7 @@
 //!     Some(result) => {
 //!         println!("Selected {} files", result.selected_files.len());
 //!         for file in &result.selected_files {
-//!             println!("  - {}", file.display());
+//!             println!("  - {}", file);
 //!         }
 //!     }
 //!     None => println!("Cancelled"),

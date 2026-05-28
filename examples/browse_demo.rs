@@ -133,9 +133,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let has_files = !result.selected_files.is_empty();
             for file in result.selected_files {
-                let exists = file.exists();
+                let exists = file.as_path().exists();
                 let status = if exists { "✓" } else { "✗" };
-                println!("  {} {}", status, file.display());
+                println!("  {} {}", status, file);
             }
 
             if has_files {

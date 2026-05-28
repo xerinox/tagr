@@ -38,8 +38,7 @@ use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::config::KeybindConfig;
 use crate::schema::{self, TagSchema};
 use crate::store::TagStore;
-
-use std::path::PathBuf;
+use crate::types::{TagName, TagrPath};
 
 /// Threshold for switching between in-memory and DB filtering
 ///
@@ -156,7 +155,7 @@ pub enum PhaseType {
     /// Selecting files (with tags that were selected)
     FileSelection {
         /// Tags selected in previous phase (or from CLI)
-        selected_tags: Vec<String>,
+        selected_tags: Vec<TagName>,
     },
 }
 
@@ -174,9 +173,15 @@ impl BrowseSession {
         let current_phase = if let Some(ref search_params) = config.initial_search {
             let items = query::get_matching_files(&*ds, search_params)?;
 
+            let selected_tags: Vec<TagName> = search_params
+                .tags
+                .iter()
+                .filter_map(|t| TagName::new(t).ok())
+                .collect();
+
             BrowserPhase {
                 phase_type: PhaseType::FileSelection {
-                    selected_tags: search_params.tags.clone(),
+                    selected_tags,
                 },
                 items,
                 settings: config.file_phase_settings.clone(),
@@ -255,9 +260,14 @@ impl BrowseSession {
                     return Ok(AcceptResult::NoData);
                 }
 
+                let selected_tags: Vec<TagName> = selected_ids
+                    .iter()
+                    .filter_map(|id| TagName::new(id).ok())
+                    .collect();
+
                 self.current_phase = BrowserPhase {
                     phase_type: PhaseType::FileSelection {
-                        selected_tags: selected_ids,
+                        selected_tags,
                     },
                     items,
                     settings: self.config.file_phase_settings.clone(),
@@ -271,7 +281,7 @@ impl BrowseSession {
                     return Ok(AcceptResult::Cancelled);
                 }
 
-                let selected_files: Vec<PathBuf> = self
+                let selected_files: Vec<TagrPath> = self
                     .current_phase
                     .items
                     .iter()
@@ -318,7 +328,10 @@ impl BrowseSession {
         // In 3-pane mode, phases are virtual - the UI layer manages visibility.
         // This method trusts the UI only calls it with valid actions per current context.
 
-        let selected_files: Vec<PathBuf> = selected_ids.iter().map(PathBuf::from).collect();
+        let selected_files: Vec<TagrPath> = selected_ids
+            .iter()
+            .filter_map(|id| TagrPath::new(id).ok())
+            .collect();
 
         match action {
             BrowseAction::AddTag => Ok(ActionOutcome::NeedsInput {
@@ -382,7 +395,7 @@ impl BrowseSession {
             || {
                 if let PhaseType::FileSelection { selected_tags } = &self.current_phase.phase_type {
                     crate::browse::models::SearchCriteriaData {
-                        tags: selected_tags.clone(),
+                        tags: selected_tags.iter().map(ToString::to_string).collect(),
                         exclude_tags: vec![],
                         file_patterns: vec![],
                         virtual_tags: vec![],
@@ -448,6 +461,12 @@ impl BrowseSession {
 
         self.config.initial_search = Some(new_params.clone());
 
+        let tag_names: Vec<TagName> = new_params
+            .tags
+            .iter()
+            .filter_map(|t| TagName::new(t).ok())
+            .collect();
+
         // Use hybrid filtering: DB queries for relaxations, in-memory for restrictions
         if filters_relaxed || self.base_items.is_none() {
             let items = query::get_matching_files(&*self.ds, &new_params)?;
@@ -460,7 +479,7 @@ impl BrowseSession {
 
             self.current_phase = BrowserPhase {
                 phase_type: PhaseType::FileSelection {
-                    selected_tags: new_params.tags,
+                    selected_tags: tag_names,
                 },
                 items,
                 settings: self.config.file_phase_settings.clone(),
@@ -471,7 +490,7 @@ impl BrowseSession {
 
             self.current_phase = BrowserPhase {
                 phase_type: PhaseType::FileSelection {
-                    selected_tags: new_params.tags,
+                    selected_tags: tag_names,
                 },
                 items,
                 settings: self.config.file_phase_settings.clone(),
@@ -481,7 +500,7 @@ impl BrowseSession {
 
             self.current_phase = BrowserPhase {
                 phase_type: PhaseType::FileSelection {
-                    selected_tags: new_params.tags,
+                    selected_tags: tag_names,
                 },
                 items,
                 settings: self.config.file_phase_settings.clone(),
@@ -512,8 +531,10 @@ impl BrowseSession {
                 self.current_phase.items = query::get_available_tags(&*self.ds)?;
             }
             PhaseType::FileSelection { selected_tags } => {
+                let tag_strings: Vec<String> =
+                    selected_tags.iter().map(ToString::to_string).collect();
                 self.current_phase.items =
-                    query::get_files_by_tags(&*self.ds, selected_tags, SearchMode::Any)?;
+                    query::get_files_by_tags(&*self.ds, &tag_strings, SearchMode::Any)?;
             }
         }
         Ok(())
@@ -542,10 +563,9 @@ impl BrowseSession {
     /// # Errors
     ///
     /// Returns error if database query fails
-    pub fn available_tags(&self) -> Result<Vec<String>> {
+    pub fn available_tags(&self) -> Result<Vec<TagName>> {
         self.ds
             .list_all_tags()
-            .map(|tags| tags.into_iter().map(|t| t.to_string()).collect())
             .map_err(Into::into)
     }
 }
@@ -570,10 +590,10 @@ pub enum AcceptResult {
 #[derive(Debug)]
 pub struct BrowseResult {
     /// Tags that were selected
-    pub selected_tags: Vec<String>,
+    pub selected_tags: Vec<TagName>,
 
     /// Files that were selected
-    pub selected_files: Vec<PathBuf>,
+    pub selected_files: Vec<TagrPath>,
 }
 
 impl Default for BrowseConfig {

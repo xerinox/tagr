@@ -32,6 +32,7 @@ use crate::browse::models::{ActionOutcome, ItemMetadata, TagrItem};
 use crate::browse::session::{AcceptResult, BrowseResult, BrowseSession, PathFormat, PhaseType};
 use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input};
+use crate::types::{TagName, TagrPath};
 use crate::ui::{DisplayItem, FinderConfig, FuzzyFinder};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
@@ -118,7 +119,14 @@ impl<F: FuzzyFinder> BrowseController<F> {
                         return Ok(None);
                     }
 
-                    let selected_files = file_paths.into_iter().map(PathBuf::from).collect();
+                    let selected_files: Vec<TagrPath> = file_paths
+                        .into_iter()
+                        .filter_map(|p| TagrPath::new(&p).ok())
+                        .collect();
+                    let selected_tags: Vec<TagName> = selected_tags
+                        .into_iter()
+                        .filter_map(|t| TagName::new(&t).ok())
+                        .collect();
 
                     return Ok(Some(BrowseResult {
                         selected_tags,
@@ -175,7 +183,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
                                 {
                                     SearchParams {
                                         query: None,
-                                        tags: selected_tags.clone(),
+                                        tags: selected_tags.iter().map(ToString::to_string).collect(),
                                         tag_mode: crate::cli::SearchMode::Any,
                                         file_patterns: vec![],
                                         file_mode: crate::cli::SearchMode::All,
@@ -317,7 +325,13 @@ impl<F: FuzzyFinder> BrowseController<F> {
         let keybinds = phase.settings.keybind_config.bindings();
 
         let search_criteria = self.session.search_criteria();
-        let available_tags = self.session.available_tags().unwrap_or_default();
+        let available_tags: Vec<String> = self
+            .session
+            .available_tags()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.to_string())
+            .collect();
 
         // Wrap schema and database in Arc for sharing
         let tag_schema = self
@@ -449,7 +463,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
                 DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
             }
             ItemMetadata::File(file_meta) => {
-                let path_str = self.format_path(&file_meta.path, phase_type);
+                let path_str = self.format_path(file_meta.path.as_path(), phase_type);
 
                 let path_display = if file_meta.cached.exists {
                     path_str.green()
@@ -460,14 +474,14 @@ impl<F: FuzzyFinder> BrowseController<F> {
                 let tags_display = if file_meta.tags.is_empty() {
                     String::new()
                 } else {
-                    format!(" {}", format!("[{}]", file_meta.tags.join(", ")).dimmed())
+                    let tag_strs: Vec<&str> = file_meta.tags.iter().map(AsRef::as_ref).collect();
+                    format!(" {}", format!("[{}]", tag_strs.join(", ")).dimmed())
                 };
 
                 let display = format!("{path_display}{tags_display}");
 
                 // Check if file has a note
-                let has_note = file_meta
-                    .path
+                let has_note = std::path::Path::new(file_meta.path.as_str())
                     .canonicalize()
                     .ok()
                     .and_then(|canonical| {
@@ -479,7 +493,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
 
                 let metadata = crate::ui::ItemMetadata {
                     index: Some(index),
-                    tags: file_meta.tags.clone(),
+                    tags: file_meta.tags.iter().map(ToString::to_string).collect(),
                     exists: file_meta.cached.exists,
                     has_note,
                 };
@@ -596,12 +610,15 @@ impl<F: FuzzyFinder> BrowseController<F> {
     fn execute_action_with_input(
         &self,
         action_id: &str,
-        files: &[PathBuf],
+        files: &[TagrPath],
         input: &str,
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
             "add_tag" => {
-                let tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+                let tags: Vec<TagName> = input
+                    .split_whitespace()
+                    .filter_map(|s| TagName::new(s).ok())
+                    .collect();
 
                 if tags.is_empty() {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
@@ -611,7 +628,10 @@ impl<F: FuzzyFinder> BrowseController<F> {
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "remove_tag" => {
-                let tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+                let tags: Vec<TagName> = input
+                    .split_whitespace()
+                    .filter_map(|s| TagName::new(s).ok())
+                    .collect();
 
                 if tags.is_empty() {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
@@ -645,7 +665,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
     fn execute_confirmed_action(
         &self,
         action_id: &str,
-        files: &[PathBuf],
+        files: &[TagrPath],
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
             "delete_from_db" => actions::execute_delete_from_db(self.session.data_source().as_ref(), files)
