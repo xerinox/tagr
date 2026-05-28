@@ -435,7 +435,7 @@ fn main() -> Result<()> {
         match DirectStore::open(db_path) {
             Ok(store) => {
                 let mut stdout = std::io::stdout();
-                commands::dispatch_command(&command, store.inner(), &config, path_format, quiet, &mut stdout)?;
+                commands::dispatch_command(&command, store.inner(), &store, &config, path_format, quiet, &mut stdout)?;
             }
             Err(StoreError::DatabaseLocked) => {
                 // DB is locked — forward to daemon if it is reachable.

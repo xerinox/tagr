@@ -1,7 +1,7 @@
 use crate::cli::{AliasCommands, BulkCommands, Commands, TransformationType};
 use crate::cli::SearchParams;
 use crate::config::TagrConfig;
-use crate::store::DirectStore;
+use crate::store::TagStore;
 use crate::db::Database;
 use crate::commands;
 use crate::commands::bulk::{BatchFormat, CopyTagsConfig, TagTransformation};
@@ -14,11 +14,16 @@ fn required_arg(name: &str) -> TagrError {
 
 /// Dispatch a CLI command through the writer for IPC capture.
 ///
+/// Takes both `&Database` (for unmigrated commands) and `&dyn TagStore` (for
+/// migrated commands). The `db` parameter will be removed once all commands
+/// accept `&dyn TagStore`.
+///
 /// # Errors
 /// Returns `TagrError` if the command handler fails.
 pub fn dispatch_command(
     command: &Commands,
     db: &Database,
+    store: &dyn TagStore,
     config: &TagrConfig,
     path_format: crate::config::PathFormat,
     quiet: bool,
@@ -31,7 +36,7 @@ pub fn dispatch_command(
             ..
         } => dispatch_search(command, filter_args, criteria, db, path_format, quiet, writer),
         Commands::List { variant, .. } => {
-            commands::list::execute(db, *variant, path_format, quiet, writer)?;
+            commands::list::execute(store, *variant, path_format, quiet, writer)?;
             Ok(())
         }
         Commands::Tag { .. } => {
@@ -49,7 +54,7 @@ pub fn dispatch_command(
             Ok(())
         }
         Commands::Cleanup { .. } => {
-            commands::cleanup(db, path_format, quiet, writer)?;
+            commands::cleanup(store, path_format, quiet, writer)?;
             Ok(())
         }
         Commands::Note { command, .. } => {
@@ -57,16 +62,16 @@ pub fn dispatch_command(
             Ok(())
         }
         Commands::Tags { command, .. } => {
-            commands::tags(db, command, quiet, writer)?;
+            commands::tags(store, command, quiet, writer)?;
             Ok(())
         }
         Commands::Bulk { command, .. } => dispatch_bulk(command, db, quiet, writer),
         Commands::Alias { command } => {
-            let db_ref = match command {
-                AliasCommands::SetCanonical { .. } => Some(db),
+            let store_ref = match command {
+                AliasCommands::SetCanonical { .. } => Some(store),
                 _ => None,
             };
-            commands::alias(command, db_ref, writer)
+            commands::alias(command, store_ref, writer)
                 .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
             Ok(())
         }
@@ -75,6 +80,8 @@ pub fn dispatch_command(
              Ok(())
         }
         Commands::Browse { filter_args, .. } => {
+            // Browse needs Arc<dyn TagStore> — construct one from the Database.
+            // Will be refactored when main.rs passes Arc<dyn TagStore> directly.
             let ctx = command.get_browse_context().ok_or_else(|| {
                 TagrError::InvalidInput("Failed to extract browse context from command".into())
             })?;
@@ -85,7 +92,7 @@ pub fn dispatch_command(
                 .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
 
             commands::browse::execute(
-                std::sync::Arc::new(DirectStore::new(db.clone())),
+                std::sync::Arc::new(crate::store::DirectStore::new(db.clone())),
                 None,
                 ctx.search_params,
                 filter_args.filter.as_deref(),

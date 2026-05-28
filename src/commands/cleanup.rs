@@ -1,9 +1,10 @@
 //! Cleanup command - remove missing files and files with no tags
 
-use crate::{TagrError, config, db::Database, output};
+use crate::{TagrError, config, output};
+use crate::store::TagStore;
+use crate::types::TagrPath;
 use dialoguer::Select;
 use std::io::Write;
-use std::path::PathBuf;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -12,7 +13,7 @@ type Result<T> = std::result::Result<T, TagrError>;
 /// # Errors
 /// Returns an error if database operations fail or if user interaction fails
 pub fn execute(
-    db: &Database,
+    store: &dyn TagStore,
     path_format: config::PathFormat,
     quiet: bool,
     writer: &mut impl Write,
@@ -21,22 +22,19 @@ pub fn execute(
         writeln!(writer, "Scanning database for issues...")?;
     }
 
-    let all_pairs = db.list_all()?;
+    let all_pairs = store.list_all()?;
     let mut missing_files = Vec::new();
     let mut untagged_no_notes = Vec::new();
     let mut notes_only_files = Vec::new();
 
     for pair in all_pairs {
-        if !pair.file.exists() {
+        if !pair.file.as_path().exists() {
             missing_files.push(pair.file);
         } else if pair.tags.is_empty() {
-            // File has no tags - check if it has a note
-            let has_note = db.get_note(&pair.file)?.is_some();
+            let has_note = store.get_note(&pair.file)?.is_some();
             if has_note {
                 notes_only_files.push(pair.file);
             } else {
-                // No tags and no note - this shouldn't happen with equality model
-                // but handle it gracefully
                 untagged_no_notes.push(pair.file);
             }
         }
@@ -65,7 +63,7 @@ pub fn execute(
         }
 
         let (deleted, skipped) = process_cleanup_files(
-            db,
+            store,
             &missing_files,
             "File not found",
             path_format,
@@ -87,7 +85,7 @@ pub fn execute(
         }
 
         let (deleted, skipped) = process_cleanup_files(
-            db,
+            store,
             &untagged_no_notes,
             "File has no tags or notes",
             path_format,
@@ -122,7 +120,7 @@ pub fn execute(
     // Clean up orphaned notes from deleted missing files
     let mut orphaned_notes = 0;
     for file in &missing_files {
-        if db.delete_note(file)? {
+        if store.delete_note(file)? {
             orphaned_notes += 1;
         }
     }
@@ -135,8 +133,8 @@ pub fn execute(
 
 /// Process a list of files for cleanup, prompting for each file
 fn process_cleanup_files(
-    db: &Database,
-    files: &[PathBuf],
+    store: &dyn TagStore,
+    files: &[TagrPath],
     description: &str,
     path_format: config::PathFormat,
     quiet: bool,
@@ -149,7 +147,7 @@ fn process_cleanup_files(
 
     for file in files {
         if delete_all {
-            db.remove(file)?;
+            store.remove_file(file)?;
             deleted_count += 1;
             if !quiet {
                 writeln!(writer, "Deleted: {}", output::format_path(file, path_format))?;
@@ -185,13 +183,13 @@ fn process_cleanup_files(
 
             match selection {
                 0 => {
-                    db.remove(file)?;
+                    store.remove_file(file)?;
                     deleted_count += 1;
                     writeln!(writer, "✓ Deleted: {}", output::format_path(file, path_format))?;
                 }
                 1 => {
                     delete_all = true;
-                    db.remove(file)?;
+                    store.remove_file(file)?;
                     deleted_count += 1;
                     writeln!(writer, "✓ Deleted: {}", output::format_path(file, path_format))?;
                 }

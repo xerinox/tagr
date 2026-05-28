@@ -9,7 +9,8 @@ use std::path::Path;
 
 /// Format a path according to the display mode
 #[must_use]
-pub fn format_path(path: &Path, format: PathFormat) -> String {
+pub fn format_path(path: impl AsRef<Path>, format: PathFormat) -> String {
+    let path = path.as_ref();
     match format {
         PathFormat::Absolute => path.display().to_string(),
         PathFormat::Relative => {
@@ -26,7 +27,7 @@ pub fn format_path(path: &Path, format: PathFormat) -> String {
 
 /// Format a file with its tags for display
 #[must_use]
-pub fn file_with_tags(path: &Path, tags: &[String], format: PathFormat, quiet: bool) -> String {
+pub fn file_with_tags(path: impl AsRef<Path>, tags: &[impl AsRef<str>], format: PathFormat, quiet: bool) -> String {
     let path_str = format_path(path, format);
 
     if quiet {
@@ -34,7 +35,8 @@ pub fn file_with_tags(path: &Path, tags: &[String], format: PathFormat, quiet: b
     } else if tags.is_empty() {
         format!("  {path_str} (no tags)")
     } else {
-        format!("  {} [{}]", path_str, tags.join(", "))
+        let joined: Vec<&str> = tags.iter().map(AsRef::as_ref).collect();
+        format!("  {} [{}]", path_str, joined.join(", "))
     }
 }
 
@@ -50,7 +52,8 @@ pub fn tag_with_count(tag: &str, count: usize, quiet: bool) -> String {
 
 /// Color a path based on file existence (green if exists, red if missing)
 #[must_use]
-pub fn colorize_path(path: &Path, format: PathFormat) -> String {
+pub fn colorize_path(path: impl AsRef<Path>, format: PathFormat) -> String {
+    let path = path.as_ref();
     let formatted = format_path(path, format);
     if path.exists() {
         formatted.green().to_string()

@@ -1,6 +1,7 @@
 //! List command - list files or tags in the database
 
-use crate::{TagrError, cli::ListVariant, config, db::Database, output};
+use crate::{TagrError, cli::ListVariant, config, output};
+use crate::store::TagStore;
 use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -10,20 +11,20 @@ type Result<T> = std::result::Result<T, TagrError>;
 /// # Errors
 /// Returns an error if database operations fail
 pub fn execute(
-    db: &Database,
+    store: &dyn TagStore,
     variant: ListVariant,
     path_format: config::PathFormat,
     quiet: bool,
     writer: &mut impl Write,
 ) -> Result<()> {
     match variant {
-        ListVariant::Files => list_files(db, path_format, quiet, writer),
-        ListVariant::Tags => list_tags(db, quiet, writer),
+        ListVariant::Files => list_files(store, path_format, quiet, writer),
+        ListVariant::Tags => list_tags(store, quiet, writer),
     }
 }
 
-fn list_files(db: &Database, path_format: config::PathFormat, quiet: bool, writer: &mut impl Write) -> Result<()> {
-    let all_pairs = db.list_all()?;
+fn list_files(store: &dyn TagStore, path_format: config::PathFormat, quiet: bool, writer: &mut impl Write) -> Result<()> {
+    let all_pairs = store.list_all()?;
 
     if all_pairs.is_empty() {
         if !quiet {
@@ -44,8 +45,8 @@ fn list_files(db: &Database, path_format: config::PathFormat, quiet: bool, write
     Ok(())
 }
 
-fn list_tags(db: &Database, quiet: bool, writer: &mut impl Write) -> Result<()> {
-    let tags = db.list_all_tags()?;
+fn list_tags(store: &dyn TagStore, quiet: bool, writer: &mut impl Write) -> Result<()> {
+    let tags = store.list_all_tags()?;
 
     if tags.is_empty() {
         if !quiet {
@@ -55,9 +56,9 @@ fn list_tags(db: &Database, quiet: bool, writer: &mut impl Write) -> Result<()> 
         if !quiet {
             writeln!(writer, "Tags in database:")?;
         }
-        for tag in tags {
-            let count = db.find_by_tag(&tag)?.len();
-            writeln!(writer, "{}", output::tag_with_count(&tag, count, quiet))?;
+        for tag in &tags {
+            let count = store.find_by_tag(tag)?.len();
+            writeln!(writer, "{}", output::tag_with_count(tag.as_str(), count, quiet))?;
         }
     }
     Ok(())

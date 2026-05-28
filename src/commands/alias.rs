@@ -2,8 +2,9 @@ use colored::Colorize;
 use std::io::Write;
 
 use crate::cli::AliasCommands;
-use crate::db::Database;
 use crate::schema::load_default_schema;
+use crate::store::TagStore;
+use crate::types::TagName;
 
 /// Execute alias management commands
 ///
@@ -11,7 +12,7 @@ use crate::schema::load_default_schema;
 /// Returns error if schema operations fail (I/O, validation, circular references)
 pub fn execute_alias_command(
     command: &AliasCommands,
-    db: Option<&Database>,
+    store: Option<&dyn TagStore>,
     writer: &mut impl Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
@@ -36,7 +37,7 @@ pub fn execute_alias_command(
             canonical,
             dry_run,
             yes,
-        } => set_canonical(alias, canonical, *dry_run, *yes, db, writer),
+        } => set_canonical(alias, canonical, *dry_run, *yes, store, writer),
     }
 }
 
@@ -183,7 +184,7 @@ fn set_canonical(
     canonical: &str,
     dry_run: bool,
     yes: bool,
-    db: Option<&Database>,
+    store: Option<&dyn TagStore>,
     writer: &mut impl Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Load schema
@@ -211,11 +212,14 @@ fn set_canonical(
         .into());
     }
 
-    // Get database
-    let db = db.ok_or("Database required for set-canonical operation")?;
+    // Get store
+    let store = store.ok_or("Database required for set-canonical operation")?;
+
+    let canonical_tag = TagName::new(canonical)?;
+    let alias_tag = TagName::new(alias)?;
 
     // Check how many files would be affected
-    let affected_files = db.find_by_tag(canonical)?;
+    let affected_files = store.find_by_tag(&canonical_tag)?;
     let file_count = affected_files.len();
 
     // Show what will happen
@@ -309,20 +313,10 @@ fn set_canonical(
 
     // Step 2: Rename tags in database
     for file in &affected_files {
-        // Convert PathBuf to str safely
-        let Some(file_path) = file.to_str() else {
-            eprintln!(
-                "Warning: Skipping file with invalid UTF-8 path: {}",
-                file.display()
-            );
-            continue;
-        };
-
-        if let Ok(Some(mut tags)) = db.get_tags(file_path) {
-            // Replace canonical with alias
-            if let Some(pos) = tags.iter().position(|t| t == canonical) {
-                tags[pos] = alias.to_string();
-                db.insert(file_path, tags)?;
+        if let Ok(Some(mut tags)) = store.get_tags(file) {
+            if let Some(pos) = tags.iter().position(|t| t == &canonical_tag) {
+                tags[pos] = alias_tag.clone();
+                store.insert(file, tags)?;
             }
         }
     }

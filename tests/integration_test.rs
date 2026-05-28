@@ -11,10 +11,12 @@ use tagr::commands::bulk::{bulk_tag, bulk_untag};
 use tagr::commands::search as search_cmd;
 use tagr::config;
 use tagr::{Pair, cli::execute_command_on_files, db::Database};
+use tagr::store::DirectStore;
 
 /// Test database wrapper that cleans up on drop
 struct TestDb {
     db: Database,
+    store: DirectStore,
     path: PathBuf,
 }
 
@@ -23,11 +25,16 @@ impl TestDb {
         let path = PathBuf::from(format!("test_integration_{name}"));
         let db = Database::open(&path).unwrap();
         db.clear().unwrap();
-        Self { db, path }
+        let store = DirectStore::new(db.clone());
+        Self { db, store, path }
     }
 
     const fn db(&self) -> &Database {
         &self.db
+    }
+
+    const fn store(&self) -> &DirectStore {
+        &self.store
     }
 }
 
@@ -1396,7 +1403,7 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
 fn test_cleanup_execute_empty_db() {
     let test_db = TestDb::new("cleanup_empty");
     let mut out = Vec::new();
-    tagr::commands::cleanup::execute(test_db.db(), config::PathFormat::Absolute, false, &mut out)
+    tagr::commands::cleanup::execute(test_db.store(), config::PathFormat::Absolute, false, &mut out)
         .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("clean") || output.contains("No issues"));
@@ -1416,7 +1423,7 @@ fn test_cleanup_execute_missing_file() {
     let _ = fs::remove_file(&canonical);
     let mut out = Vec::new();
     // quiet=true auto-deletes without TTY prompt
-    tagr::commands::cleanup::execute(db, config::PathFormat::Absolute, true, &mut out).unwrap();
+    tagr::commands::cleanup::execute(test_db.store(), config::PathFormat::Absolute, true, &mut out).unwrap();
     assert_eq!(db.count(), 0, "missing file should be cleaned up");
 }
 
@@ -1429,7 +1436,7 @@ fn test_cleanup_execute_all_files_exist() {
     db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
         .unwrap();
     let mut out = Vec::new();
-    tagr::commands::cleanup::execute(db, config::PathFormat::Absolute, false, &mut out).unwrap();
+    tagr::commands::cleanup::execute(test_db.store(), config::PathFormat::Absolute, false, &mut out).unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("clean") || output.contains("No issues"));
     assert_eq!(db.count(), 1, "existing file should remain");
@@ -1440,7 +1447,7 @@ fn test_tags_list_empty_db() {
     let test_db = TestDb::new("tags_list_empty");
     let cmd = tagr::cli::TagsCommands::List { tree: false };
     let mut out = Vec::new();
-    tagr::commands::tags::execute(test_db.db(), &cmd, false, &mut out).unwrap();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("No tags"));
 }
@@ -1454,7 +1461,7 @@ fn test_tags_list_flat() {
         .unwrap();
     let cmd = tagr::cli::TagsCommands::List { tree: false };
     let mut out = Vec::new();
-    tagr::commands::tags::execute(db, &cmd, false, &mut out).unwrap();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("alpha"));
     assert!(output.contains("beta"));
@@ -1472,7 +1479,7 @@ fn test_tags_list_tree() {
     .unwrap();
     let cmd = tagr::cli::TagsCommands::List { tree: true };
     let mut out = Vec::new();
-    tagr::commands::tags::execute(db, &cmd, false, &mut out).unwrap();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("tree view"));
     assert!(output.contains("lang"));
@@ -1487,7 +1494,7 @@ fn test_tags_list_quiet() {
         .unwrap();
     let cmd = tagr::cli::TagsCommands::List { tree: false };
     let mut out = Vec::new();
-    tagr::commands::tags::execute(db, &cmd, true, &mut out).unwrap();
+    tagr::commands::tags::execute(test_db.store(), &cmd, true, &mut out).unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("alpha"));
     // Quiet mode should NOT contain the "Tags in database:" header
@@ -1508,8 +1515,7 @@ fn test_tags_remove_existing() {
         tag: "remove-me".into(),
     };
     let mut out = Vec::new();
-    // quiet=true bypasses dialoguer confirmation
-    tagr::commands::tags::execute(db, &cmd, true, &mut out).unwrap();
+    tagr::commands::tags::execute(test_db.store(), &cmd, true, &mut out).unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     assert!(!tags.contains(&"remove-me".into()));
     assert!(tags.contains(&"keep".into()));
@@ -1518,12 +1524,11 @@ fn test_tags_remove_existing() {
 #[test]
 fn test_tags_remove_nonexistent() {
     let test_db = TestDb::new("tags_remove_none");
-    let db = test_db.db();
     let cmd = tagr::cli::TagsCommands::Remove {
         tag: "ghost".into(),
     };
     let mut out = Vec::new();
-    tagr::commands::tags::execute(db, &cmd, false, &mut out).unwrap();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("not found"));
 }

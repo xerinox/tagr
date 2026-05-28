@@ -39,6 +39,9 @@ pub enum TagrError {
     /// Database error
     #[error("Database error: {0}")]
     DbError(#[from] db::DbError),
+    /// Store error
+    #[error("Store error: {0}")]
+    StoreError(#[from] store::StoreError),
     /// Search error
     #[error("Search error: {0}")]
     SearchError(#[from] query::SearchError),
