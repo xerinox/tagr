@@ -5,7 +5,8 @@
 //! filtering (idiomatic Rust style).
 
 use crate::Pair;
-use crate::datasource::{DataSource, DataSourceError};
+use crate::store::{StoreError, TagStore};
+use crate::types::{TagName, TagrPath};
 use crate::ui::DisplayItem;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -555,14 +556,14 @@ pub struct PairWithCache<'a> {
 /// Context for converting path to `TagrItem` with data source lookup
 pub struct PathWithDb<'a> {
     pub path: PathBuf,
-    pub ds: &'a DataSource,
+    pub ds: &'a dyn TagStore,
     pub cache: &'a mut MetadataCache,
 }
 
 /// Context for converting tag name to `TagrItem` with data source lookup
 pub struct TagWithDb<'a> {
     pub tag: String,
-    pub ds: &'a DataSource,
+    pub ds: &'a dyn TagStore,
 }
 
 /// Convert database Pair to `TagrItem` using cache
@@ -575,10 +576,17 @@ impl<'a> From<PairWithCache<'a>> for TagrItem {
 
 /// Convert path with data source context to `TagrItem`
 impl<'a> TryFrom<PathWithDb<'a>> for TagrItem {
-    type Error = DataSourceError;
+    type Error = StoreError;
 
     fn try_from(ctx: PathWithDb<'a>) -> Result<Self, Self::Error> {
-        let tags = ctx.ds.get_tags(&ctx.path)?.unwrap_or_default();
+        let tags = if let Some(tagrpath) = TagrPath::new(&ctx.path).ok() {
+            ctx.ds
+                .get_tags(&tagrpath)?
+                .map(|tv| tv.into_iter().map(|t| t.to_string()).collect())
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
         let cached = ctx.cache.get_or_insert(&ctx.path);
         Ok(Self::file(ctx.path, tags, cached))
     }
@@ -586,14 +594,13 @@ impl<'a> TryFrom<PathWithDb<'a>> for TagrItem {
 
 /// Convert tag name with data source context to `TagrItem`
 impl<'a> TryFrom<TagWithDb<'a>> for TagrItem {
-    type Error = DataSourceError;
+    type Error = StoreError;
 
     fn try_from(ctx: TagWithDb<'a>) -> Result<Self, Self::Error> {
-        let file_count = ctx
-            .ds
-            .find_by_tag(&ctx.tag)
-            .map(|files| files.len())
-            .unwrap_or(0);
+        let file_count = TagName::new(&ctx.tag)
+            .ok()
+            .and_then(|tn| ctx.ds.find_by_tag(&tn).ok())
+            .map_or(0, |files| files.len());
         Ok(Self::tag(ctx.tag, file_count))
     }
 }

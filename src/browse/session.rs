@@ -34,10 +34,11 @@ use crate::browse::models::{ActionOutcome, SearchMode, TagrItem};
 use crate::browse::{actions, query};
 use crate::cli::SearchParams;
 use crate::config::PreviewConfig;
-use crate::datasource::DataSource;
 use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::config::KeybindConfig;
 use crate::schema::{self, TagSchema};
+use crate::store::TagStore;
+
 use std::path::PathBuf;
 
 /// Threshold for switching between in-memory and DB filtering
@@ -52,8 +53,8 @@ pub type Result<T> = std::result::Result<T, BrowseError>;
 /// Errors that can occur during browse session
 #[derive(Debug, thiserror::Error)]
 pub enum BrowseError {
-    #[error("Data source error: {0}")]
-    DataSource(#[from] crate::datasource::DataSourceError),
+    #[error("Store error: {0}")]
+    Store(#[from] crate::store::StoreError),
 
     #[error("Action not available in current phase")]
     ActionNotAvailable,
@@ -70,7 +71,7 @@ pub enum BrowseError {
 
 /// Browse session - manages unified browser state transitions
 pub struct BrowseSession {
-    ds: Arc<DataSource>,
+    ds: Arc<dyn TagStore>,
     config: BrowseConfig,
     current_phase: BrowserPhase,
     schema: Option<TagSchema>,
@@ -169,10 +170,9 @@ impl BrowseSession {
     /// # Errors
     ///
     /// Returns error if database queries fail
-    pub fn new(ds: DataSource, config: BrowseConfig) -> Result<Self> {
-        let ds = Arc::new(ds);
+    pub fn new(ds: Arc<dyn TagStore>, config: BrowseConfig) -> Result<Self> {
         let current_phase = if let Some(ref search_params) = config.initial_search {
-            let items = query::get_matching_files(&ds, search_params)?;
+            let items = query::get_matching_files(&*ds, search_params)?;
 
             BrowserPhase {
                 phase_type: PhaseType::FileSelection {
@@ -182,7 +182,7 @@ impl BrowseSession {
                 settings: config.file_phase_settings.clone(),
             }
         } else {
-            let items = query::get_available_tags(&ds)?;
+            let items = query::get_available_tags(&*ds)?;
 
             BrowserPhase {
                 phase_type: PhaseType::TagSelection,
@@ -235,7 +235,7 @@ impl BrowseSession {
                     .any(|id| id == crate::browse::models::NOTES_ONLY_TAG);
 
                 let items = if has_notes_only && selected_ids.len() == 1 {
-                    query::get_notes_only_files(&self.ds)?
+                    query::get_notes_only_files(&*self.ds)?
                 } else if has_notes_only {
                     let regular_tags: Vec<String> = selected_ids
                         .iter()
@@ -243,12 +243,12 @@ impl BrowseSession {
                         .cloned()
                         .collect();
                     let mut regular_files =
-                        query::get_files_by_tags(&self.ds, &regular_tags, SearchMode::Any)?;
-                    let mut notes_files = query::get_notes_only_files(&self.ds)?;
+                        query::get_files_by_tags(&*self.ds, &regular_tags, SearchMode::Any)?;
+                    let mut notes_files = query::get_notes_only_files(&*self.ds)?;
                     regular_files.append(&mut notes_files);
                     regular_files
                 } else {
-                    query::get_files_by_tags(&self.ds, &selected_ids, SearchMode::Any)?
+                    query::get_files_by_tags(&*self.ds, &selected_ids, SearchMode::Any)?
                 };
 
                 if items.is_empty() {
@@ -450,7 +450,7 @@ impl BrowseSession {
 
         // Use hybrid filtering: DB queries for relaxations, in-memory for restrictions
         if filters_relaxed || self.base_items.is_none() {
-            let items = query::get_matching_files(&self.ds, &new_params)?;
+            let items = query::get_matching_files(&*self.ds, &new_params)?;
 
             if items.len() < HYBRID_FILTER_THRESHOLD {
                 self.base_items = Some(items.clone());
@@ -477,7 +477,7 @@ impl BrowseSession {
                 settings: self.config.file_phase_settings.clone(),
             };
         } else {
-            let items = query::get_matching_files(&self.ds, &new_params)?;
+            let items = query::get_matching_files(&*self.ds, &new_params)?;
 
             self.current_phase = BrowserPhase {
                 phase_type: PhaseType::FileSelection {
@@ -509,11 +509,11 @@ impl BrowseSession {
 
         match &self.current_phase.phase_type {
             PhaseType::TagSelection => {
-                self.current_phase.items = query::get_available_tags(&self.ds)?;
+                self.current_phase.items = query::get_available_tags(&*self.ds)?;
             }
             PhaseType::FileSelection { selected_tags } => {
                 self.current_phase.items =
-                    query::get_files_by_tags(&self.ds, selected_tags, SearchMode::Any)?;
+                    query::get_files_by_tags(&*self.ds, selected_tags, SearchMode::Any)?;
             }
         }
         Ok(())
@@ -521,7 +521,7 @@ impl BrowseSession {
 
     /// Get reference to data source (as Arc for sharing with TUI)
     #[must_use]
-    pub fn data_source(&self) -> &Arc<DataSource> {
+    pub fn data_source(&self) -> &Arc<dyn TagStore> {
         &self.ds
     }
 
@@ -543,7 +543,10 @@ impl BrowseSession {
     ///
     /// Returns error if database query fails
     pub fn available_tags(&self) -> Result<Vec<String>> {
-        self.ds.list_all_tags().map_err(Into::into)
+        self.ds
+            .list_all_tags()
+            .map(|tags| tags.into_iter().map(|t| t.to_string()).collect())
+            .map_err(Into::into)
     }
 }
 
@@ -667,12 +670,16 @@ mod tests {
     use super::*;
     use crate::testing::TestDb;
 
+    fn store(db: &TestDb) -> Arc<dyn TagStore> {
+        Arc::new(crate::store::DirectStore::new(db.db().clone()))
+    }
+
     #[test]
     fn test_session_starts_at_tag_phase_when_no_initial_search() {
         let db = TestDb::new("test_session_tag_phase");
         let config = BrowseConfig::default();
 
-        let session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let session = BrowseSession::new(store(&db), config).unwrap();
 
         assert!(matches!(
             session.current_phase().phase_type,
@@ -701,7 +708,7 @@ mod tests {
             ..Default::default()
         };
 
-        let session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let session = BrowseSession::new(store(&db), config).unwrap();
 
         assert!(matches!(
             session.current_phase().phase_type,
@@ -713,7 +720,7 @@ mod tests {
     fn test_handle_accept_empty_selection_cancels() {
         let db = TestDb::new("test_accept_empty");
         let config = BrowseConfig::default();
-        let mut session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let mut session = BrowseSession::new(store(&db), config).unwrap();
 
         let result = session.handle_accept(vec![]).unwrap();
 
@@ -772,7 +779,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let mut session = BrowseSession::new(store(&db), config).unwrap();
 
         assert_eq!(session.current_phase().items.len(), 2);
 
@@ -827,7 +834,7 @@ mod tests {
             ..Default::default()
         };
 
-        let session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let session = BrowseSession::new(store(&db), config).unwrap();
 
         let result = session
             .execute_action(&BrowseAction::RefineSearch, &[])
@@ -987,7 +994,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let mut session = BrowseSession::new(store(&db), config).unwrap();
         assert_eq!(session.current_phase().items.len(), 10);
 
         // First refinement should cache base_items
@@ -1059,7 +1066,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let mut session = BrowseSession::new(store(&db), config).unwrap();
         assert_eq!(session.current_phase().items.len(), 1); // file1 only
 
         // Remove exclude tag (relaxation - should re-query DB)
@@ -1115,7 +1122,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let mut session = BrowseSession::new(store(&db), config).unwrap();
 
         // Simulate cache being set
         session.base_items = Some(session.current_phase().items.clone());

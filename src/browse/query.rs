@@ -9,9 +9,12 @@
 
 use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
 use crate::cli::SearchParams;
-use crate::datasource::{DataSource, DataSourceError};
+use crate::db::query::search_params_to_criteria;
+use crate::store::{StoreError, TagStore};
+use crate::types::TagName;
 use crate::query::hierarchy;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 /// Query files that have notes but no tags (notes-only files)
 ///
@@ -26,18 +29,18 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Errors
 /// Returns `DbError` if database operations fail
-pub fn get_notes_only_files(ds: &DataSource) -> Result<Vec<TagrItem>, DataSourceError> {
+pub fn get_notes_only_files(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreError> {
     let all_notes = ds.list_all_notes()?;
 
     #[allow(clippy::match_same_arms)]
-    let items: Result<Vec<TagrItem>, DataSourceError> = all_notes
+    let items: Result<Vec<TagrItem>, StoreError> = all_notes
         .into_iter()
         .filter_map(|(path, _note)| {
             match ds.get_tags(&path) {
                 Ok(Some(tags)) if tags.is_empty() => {
                     let mut cache = crate::browse::models::MetadataCache::new();
                     let pair = crate::Pair {
-                        file: path,
+                        file: PathBuf::from(path.as_str()),
                         tags: vec![],
                     };
                     Some(Ok(TagrItem::from(PairWithCache {
@@ -78,8 +81,8 @@ pub fn get_notes_only_files(ds: &DataSource) -> Result<Vec<TagrItem>, DataSource
 ///     println!("{} ({} files)", tag.name, tag.metadata.file_count());
 /// }
 /// ```
-pub fn get_available_tags(ds: &DataSource) -> Result<Vec<TagrItem>, DataSourceError> {
-    let tag_names = ds.list_all_tags()?;
+pub fn get_available_tags(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreError> {
+    let tag_names: Vec<String> = ds.list_all_tags()?.into_iter().map(|t| t.to_string()).collect();
 
     // Load schema to consolidate aliases
     let schema = crate::schema::load_default_schema().ok();
@@ -90,13 +93,15 @@ pub fn get_available_tags(ds: &DataSource) -> Result<Vec<TagrItem>, DataSourceEr
 
         for tag_name in tag_names {
             let canonical = schema.canonicalize(&tag_name);
-            let files = ds.find_by_tag(&tag_name)?;
+            let files = TagName::new(&tag_name)
+                .ok()
+                .map(|tn| ds.find_by_tag(&tn))
+                .transpose()?
+                .unwrap_or_default();
 
             let file_set = canonical_map.entry(canonical).or_default();
             for file_path in files {
-                if let Some(path_str) = file_path.to_str() {
-                    file_set.insert(path_str.to_string());
-                }
+                file_set.insert(file_path.as_str().to_string());
             }
         }
 
@@ -118,7 +123,7 @@ pub fn get_available_tags(ds: &DataSource) -> Result<Vec<TagrItem>, DataSourceEr
 
         Ok(tags)
     } else {
-        let mut tags: Result<Vec<TagrItem>, DataSourceError> = tag_names
+        let mut tags: Result<Vec<TagrItem>, StoreError> = tag_names
             .into_iter()
             .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, ds }))
             .collect();
@@ -164,13 +169,19 @@ pub fn get_available_tags(ds: &DataSource) -> Result<Vec<TagrItem>, DataSourceEr
 /// };
 /// let files = get_matching_files(&db, &params)?;
 /// ```
-pub fn get_matching_files(ds: &DataSource, params: &SearchParams) -> Result<Vec<TagrItem>, DataSourceError> {
-    let file_paths = ds.apply_search_params(params)?;
+pub fn get_matching_files(ds: &dyn TagStore, params: &SearchParams) -> Result<Vec<TagrItem>, StoreError> {
+    let criteria = search_params_to_criteria(params);
+    let schema = crate::schema::load_default_schema().unwrap_or_default();
+    let result_paths = ds.query(&criteria, &schema)?;
 
-    let items: Result<Vec<TagrItem>, DataSourceError> = file_paths
+    let items: Result<Vec<TagrItem>, StoreError> = result_paths
         .into_iter()
-        .map(|path| {
-            let tags = ds.get_tags(&path)?.unwrap_or_default();
+        .map(|tagrpath| {
+            let tags: Vec<String> = ds
+                .get_tags(&tagrpath)?
+                .map(|tv| tv.into_iter().map(|t| t.to_string()).collect())
+                .unwrap_or_default();
+            let path = PathBuf::from(tagrpath.as_str());
             let pair = crate::Pair { file: path, tags };
 
             let mut cache = crate::browse::models::MetadataCache::new();
@@ -200,10 +211,10 @@ pub fn get_matching_files(ds: &DataSource, params: &SearchParams) -> Result<Vec<
 /// # Errors
 /// Returns `DbError` if database operations fail
 pub fn get_files_by_tags(
-    ds: &DataSource,
+    ds: &dyn TagStore,
     tags: &[String],
     mode: crate::browse::models::SearchMode,
-) -> Result<Vec<TagrItem>, DataSourceError> {
+) -> Result<Vec<TagrItem>, StoreError> {
     let params = SearchParams {
         query: None,
         tags: tags.to_vec(),
@@ -313,10 +324,11 @@ mod tests {
     use crate::Pair;
     use crate::browse::models::SearchMode;
     use crate::cli::SearchParams;
+    use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
 
-    fn ds(db: &TestDb) -> DataSource {
-        DataSource::direct(db.db().clone())
+    fn ds(db: &TestDb) -> DirectStore {
+        DirectStore::new(db.db().clone())
     }
 
     #[test]

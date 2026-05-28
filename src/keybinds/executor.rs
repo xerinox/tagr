@@ -5,9 +5,10 @@
 
 use crate::browse::{actions, models::ActionOutcome};
 use crate::commands::note::create_temp_note_file;
-use crate::datasource::DataSource;
 use crate::keybinds::prompts::{PromptError, prompt_for_confirmation, prompt_for_input};
 use crate::keybinds::{ActionResult, BrowseAction};
+use crate::store::TagStore;
+use crate::types::TagrPath;
 use std::path::PathBuf;
 
 /// Context provided to action executors.
@@ -17,7 +18,7 @@ pub struct ActionContext<'a> {
     /// The file under cursor (if any)
     pub current_file: Option<&'a PathBuf>,
     /// Data source reference
-    pub ds: &'a DataSource,
+    pub ds: &'a dyn TagStore,
 }
 
 /// Executes actions triggered by keybinds.
@@ -101,8 +102,10 @@ impl ActionExecutor {
 
         let mut all_tags = std::collections::HashSet::new();
         for file_path in &files {
-            if let Some(tags) = context.ds.get_tags(file_path)? {
-                all_tags.extend(tags);
+            if let Some(tagrpath) = TagrPath::new(file_path).ok() {
+                if let Some(tags) = context.ds.get_tags(&tagrpath)? {
+                    all_tags.extend(tags.into_iter().map(|t| t.to_string()));
+                }
             }
         }
 
@@ -266,11 +269,14 @@ impl ActionExecutor {
             return Err(ExecutorError::NoSelection);
         };
 
+        let tagrpath = TagrPath::new(file_to_edit)
+            .map_err(|e| ExecutorError::ExecutionFailed(format!("Invalid path: {e}")))?;
+
         // Get editor from environment
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
         // Get existing note or create new one
-        let existing_note = context.ds.get_note(file_to_edit)?;
+        let existing_note = context.ds.get_note(&tagrpath)?;
         let initial_content = existing_note
             .as_ref()
             .map(|n| n.content.clone())
@@ -305,7 +311,7 @@ impl ActionExecutor {
             crate::db::NoteRecord::new(updated_content)
         };
 
-        context.ds.set_note(file_to_edit, &note)?;
+        context.ds.set_note(&tagrpath, &note)?;
 
         Ok(ActionResult::Message(format!(
             "✓ Updated note for {}",
@@ -414,9 +420,9 @@ pub enum ExecutorError {
     #[error("Action requires file selection")]
     NoSelection,
 
-    /// Data source operation failed
-    #[error("Data source error: {0}")]
-    DataSource(#[from] crate::datasource::DataSourceError),
+    /// Store operation failed
+    #[error("Store error: {0}")]
+    Store(#[from] crate::store::StoreError),
 
     /// IO operation failed
     #[error("IO error: {0}")]
@@ -455,13 +461,14 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
 
     #[test]
     fn test_executor_creation() {
         let executor = ActionExecutor::new();
         let test_db = TestDb::new("test_executor_creation");
-        let source = DataSource::direct(test_db.db().clone());
+        let source = DirectStore::new(test_db.db().clone());
 
         let context = ActionContext {
             selected_files: &[],
@@ -477,7 +484,7 @@ mod tests {
     fn test_action_requires_selection() {
         let executor = ActionExecutor::new();
         let test_db = TestDb::new("test_action_requires_selection");
-        let source = DataSource::direct(test_db.db().clone());
+        let source = DirectStore::new(test_db.db().clone());
 
         let context = ActionContext {
             selected_files: &[],

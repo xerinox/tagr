@@ -523,7 +523,7 @@ impl RatatuiFinder {
                     database
                         .find_by_tag(&tag)
                         .ok()
-                        .map(|files| (tag, files.len()))
+                        .map(|files| (tag.to_string(), files.len()))
                 })
                 .collect();
 
@@ -705,10 +705,13 @@ impl RatatuiFinder {
                                         // Save or delete note based on content
                                         if let Some(ds) = state.database.as_ref() {
                                             let is_empty = updated_content.trim().is_empty();
+                                            let tagr_path = crate::types::TagrPath::new(&canonical_path);
 
                                             if is_empty && existing_note.is_some() {
                                                 // Delete note if content cleared
-                                                let _ = ds.delete_note(&canonical_path);
+                                                if let Ok(tp) = &tagr_path {
+                                                    let _ = ds.delete_note(tp);
+                                                }
                                                 state.note_cache.remove(&canonical_path);
 
                                                 // Update has_note metadata
@@ -743,7 +746,7 @@ impl RatatuiFinder {
                                                     crate::db::NoteRecord::new(updated_content)
                                                 };
 
-                                                let _ = ds.set_note(&canonical_path, &note);
+                                                let _ = tagr_path.as_ref().map(|tp| ds.set_note(tp, &note));
                                                 state.note_cache.insert(canonical_path.clone(), note);
 
                                                 // Update has_note metadata for the current item
@@ -1013,7 +1016,7 @@ impl RatatuiFinder {
                     let tags_with_counts: Vec<(String, usize)> = all_tags
                         .into_iter()
                         .filter_map(|tag| {
-                            ds.find_by_tag(&tag).ok().map(|files| (tag, files.len()))
+                            ds.find_by_tag(&tag).ok().map(|files| (tag.to_string(), files.len()))
                         })
                         .collect();
 

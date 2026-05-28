@@ -471,7 +471,9 @@ impl<F: FuzzyFinder> BrowseController<F> {
                     .canonicalize()
                     .ok()
                     .and_then(|canonical| {
-                        self.session.data_source().get_note(&canonical).ok().flatten()
+                        crate::types::TagrPath::new(&canonical)
+                            .ok()
+                            .and_then(|tp| self.session.data_source().get_note(&tp).ok().flatten())
                     })
                     .is_some();
 
@@ -605,7 +607,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_add_tag(self.session.data_source(), files, &tags)
+                actions::execute_add_tag(self.session.data_source().as_ref(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "remove_tag" => {
@@ -615,7 +617,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_remove_tag(self.session.data_source(), files, &tags)
+                actions::execute_remove_tag(self.session.data_source().as_ref(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "copy_files" => {
@@ -646,7 +648,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
         files: &[PathBuf],
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
-            "delete_from_db" => actions::execute_delete_from_db(self.session.data_source(), files)
+            "delete_from_db" => actions::execute_delete_from_db(self.session.data_source().as_ref(), files)
                 .map_err(|e| BrowseError::ActionFailed(e.to_string())),
             _ => Err(BrowseError::UnexpectedState(format!(
                 "Unknown action_id: {action_id}"
@@ -715,15 +717,15 @@ pub enum BrowseError {
     #[error("Unexpected state: {0}")]
     UnexpectedState(String),
 
-    #[error("Data source error: {0}")]
-    DataSource(#[from] crate::datasource::DataSourceError),
+    #[error("Store error: {0}")]
+    Store(#[from] crate::store::StoreError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::browse::session::BrowseConfig;
-    use crate::datasource::DataSource;
+    use crate::store::{DirectStore, TagStore};
     use crate::testing::TestDb;
     use crate::ui::FinderResult;
 
@@ -768,7 +770,11 @@ mod tests {
     fn test_controller_cancels_on_empty_tag_selection() {
         let db = TestDb::new("test_controller_cancel");
         let config = BrowseConfig::default();
-        let session = BrowseSession::new(DataSource::direct(db.db().clone()), config).unwrap();
+        let session = BrowseSession::new(
+            Arc::new(DirectStore::new(db.db().clone())) as Arc<dyn TagStore>,
+            config,
+        )
+        .unwrap();
 
         let mock_finder = MockFinder::new(vec![FinderResult {
             selected: vec![],

@@ -6,7 +6,8 @@
 //! UI layer to decide how to present results to the user.
 
 use crate::browse::models::ActionOutcome;
-use crate::datasource::{DataSource, DataSourceError};
+use crate::store::{StoreError, TagStore};
+use crate::types::{TagName, TagrPath};
 use std::path::{Path, PathBuf};
 
 /// Execute tag addition on files (pure business logic)
@@ -25,10 +26,10 @@ use std::path::{Path, PathBuf};
 /// # Errors
 /// Returns `DbError` if database operations fail
 pub fn execute_add_tag(
-    ds: &DataSource,
+    ds: &dyn TagStore,
     files: &[PathBuf],
     new_tags: &[String],
-) -> Result<ActionOutcome, DataSourceError> {
+) -> Result<ActionOutcome, StoreError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -68,8 +69,14 @@ pub fn execute_add_tag(
 }
 
 /// Helper: Add tags to a single file
-fn add_tags_to_file(ds: &DataSource, file: &Path, new_tags: &[String]) -> Result<bool, DataSourceError> {
-    let mut tags = ds.get_tags(file)?.unwrap_or_default();
+fn add_tags_to_file(ds: &dyn TagStore, file: &Path, new_tags: &[String]) -> Result<bool, StoreError> {
+    let Some(tagrpath) = TagrPath::new(file).ok() else {
+        return Ok(false);
+    };
+    let mut tags: Vec<String> = ds
+        .get_tags(&tagrpath)?
+        .map(|tv| tv.into_iter().map(|t| t.to_string()).collect())
+        .unwrap_or_default();
     let original_len = tags.len();
 
     for tag in new_tags {
@@ -79,7 +86,8 @@ fn add_tags_to_file(ds: &DataSource, file: &Path, new_tags: &[String]) -> Result
     }
 
     if tags.len() > original_len {
-        ds.insert(file, tags)?;
+        let tag_names: Vec<TagName> = tags.iter().filter_map(|t| TagName::new(t).ok()).collect();
+        ds.insert(&tagrpath, tag_names)?;
         Ok(true) // Changed
     } else {
         Ok(false) // No change
@@ -102,10 +110,10 @@ fn add_tags_to_file(ds: &DataSource, file: &Path, new_tags: &[String]) -> Result
 /// # Errors
 /// Returns `DbError` if database operations fail
 pub fn execute_remove_tag(
-    ds: &DataSource,
+    ds: &dyn TagStore,
     files: &[PathBuf],
     tags_to_remove: &[String],
-) -> Result<ActionOutcome, DataSourceError> {
+) -> Result<ActionOutcome, StoreError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -152,19 +160,24 @@ pub fn execute_remove_tag(
 
 /// Helper: Remove tags from a single file
 fn remove_tags_from_file(
-    ds: &DataSource,
+    ds: &dyn TagStore,
     file: &Path,
     tags_to_remove: &[String],
-) -> Result<bool, DataSourceError> {
-    let Some(mut tags) = ds.get_tags(file)? else {
+) -> Result<bool, StoreError> {
+    let Some(tagrpath) = TagrPath::new(file).ok() else {
+        return Ok(false);
+    };
+    let Some(current_tags) = ds.get_tags(&tagrpath)? else {
         return Ok(false); // File has no tags
     };
 
+    let mut tags: Vec<String> = current_tags.into_iter().map(|t| t.to_string()).collect();
     let original_len = tags.len();
     tags.retain(|tag| !tags_to_remove.contains(tag));
 
     if tags.len() < original_len {
-        ds.insert(file, tags)?;
+        let tag_names: Vec<TagName> = tags.iter().filter_map(|t| TagName::new(t).ok()).collect();
+        ds.insert(&tagrpath, tag_names)?;
         Ok(true) // Changed
     } else {
         Ok(false) // No change
@@ -185,7 +198,7 @@ fn remove_tags_from_file(
 ///
 /// # Errors
 /// Returns `DbError` if database operations fail
-pub fn execute_delete_from_db(ds: &DataSource, files: &[PathBuf]) -> Result<ActionOutcome, DataSourceError> {
+pub fn execute_delete_from_db(ds: &dyn TagStore, files: &[PathBuf]) -> Result<ActionOutcome, StoreError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -194,7 +207,11 @@ pub fn execute_delete_from_db(ds: &DataSource, files: &[PathBuf]) -> Result<Acti
     let mut errors = Vec::new();
 
     for file in files {
-        match ds.remove(file) {
+        let Some(tagrpath) = TagrPath::new(file).ok() else {
+            errors.push(format!("{}: invalid UTF-8 path", file.display()));
+            continue;
+        };
+        match ds.remove_file(&tagrpath) {
             Ok(true) => deleted += 1,
             Ok(false) => {} // File wasn't in database
             Err(e) => errors.push(format!("{}: {}", file.display(), e)),
@@ -412,10 +429,11 @@ pub fn execute_copy_files(files: &[PathBuf], dest_dir: &Path, create_dest: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
 
-    fn ds(db: &TestDb) -> DataSource {
-        DataSource::direct(db.db().clone())
+    fn ds(db: &TestDb) -> DirectStore {
+        DirectStore::new(db.db().clone())
     }
 
     #[test]

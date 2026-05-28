@@ -1,7 +1,7 @@
 use crate::cli::{AliasCommands, BulkCommands, Commands, TransformationType};
 use crate::cli::SearchParams;
 use crate::config::TagrConfig;
-use crate::datasource::DataSource;
+use crate::store::DirectStore;
 use crate::db::Database;
 use crate::commands;
 use crate::commands::bulk::{BatchFormat, CopyTagsConfig, TagTransformation};
@@ -85,7 +85,7 @@ pub fn dispatch_command(
                 .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
 
             commands::browse::execute(
-                DataSource::direct(db.clone()),
+                std::sync::Arc::new(DirectStore::new(db.clone())),
                 None,
                 ctx.search_params,
                 filter_args.filter.as_deref(),

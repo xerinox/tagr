@@ -523,8 +523,8 @@ fn dispatch_via_ipc(
                 TagrError::InvalidInput("Failed to extract browse context from command".into())
             })?;
 
-            let (ds, event_rx) = tagr::datasource::DataSource::remote()
-                .map_err(|e| TagrError::InvalidInput(format!("Failed to create remote DataSource: {e}")))?;
+            let (store, event_rx) = tagr::store::DaemonStore::connect()
+                .map_err(|e| TagrError::InvalidInput(format!("Failed to connect to daemon: {e}")))?;
 
             let save_filter = filter_args
                 .save_filter
@@ -532,7 +532,7 @@ fn dispatch_via_ipc(
                 .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
 
             return commands::browse::execute(
-                ds,
+                std::sync::Arc::new(store),
                 Some(event_rx),
                 ctx.search_params,
                 filter_args.filter.as_deref(),

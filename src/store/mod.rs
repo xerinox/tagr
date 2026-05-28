@@ -6,8 +6,8 @@
 //! # Implementations
 //!
 //! - [`DirectStore`](direct::DirectStore) — wraps sled `Database` for single-process access
+//! - [`DaemonStore`](daemon::DaemonStore) — wraps IPC `PersistentClient` for daemon mode
 //! - [`MockStore`](mock::MockStore) — in-memory `HashMap`-based impl for tests
-//! - `DaemonStore` (Phase 4) — wraps IPC `PersistentClient` with widest-result cache
 //!
 //! # Design
 //!
@@ -18,9 +18,11 @@
 //! `StoreError` describes problems in domain terms (`FileNotFound`, `TagNotFound`)
 //! rather than leaking backend types (`sled::Error`). Only `DirectStore` knows about sled.
 
+pub mod daemon;
 pub mod direct;
 pub mod mock;
 
+pub use daemon::DaemonStore;
 pub use direct::DirectStore;
 pub use mock::MockStore;
 
@@ -97,7 +99,7 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 ///
 /// All tagr data access goes through this trait. Implementations:
 /// - `DirectStore` — wraps sled for single-process CLI/TUI
-/// - `DaemonStore` (Phase 4) — wraps IPC with widest-result cache
+/// - `DaemonStore` — wraps IPC with pass-through to the daemon
 /// - `MockStore` — in-memory for tests
 ///
 /// # Thread Safety

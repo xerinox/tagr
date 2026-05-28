@@ -15,7 +15,6 @@ pub mod commands;
 pub mod completions;
 pub mod config;
 pub mod daemon;
-pub mod datasource;
 pub mod db;
 pub mod discovery;
 pub mod filters;

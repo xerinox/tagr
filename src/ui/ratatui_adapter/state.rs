@@ -99,7 +99,6 @@ impl StatusMessage {
 }
 
 /// Application state for the fuzzy finder
-#[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct AppState {
     /// All items available for selection
@@ -147,7 +146,7 @@ pub struct AppState {
     /// Tag schema for canonicalization (used in CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries
-    pub database: Option<std::sync::Arc<crate::datasource::DataSource>>,
+    pub database: Option<std::sync::Arc<dyn crate::store::TagStore>>,
     /// Which pane has focus (during `TagSelection` phase)
     pub focused_pane: FocusPane,
     /// File preview items (live query results)
@@ -187,7 +186,7 @@ impl AppState {
         items: Vec<DisplayItem>,
         multi_select: bool,
         tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
-        database: Option<std::sync::Arc<crate::datasource::DataSource>>,
+        database: Option<std::sync::Arc<dyn crate::store::TagStore>>,
         prompt: String,
         hints: Vec<KeyHint>,
         preview_config: Option<PreviewConfig>,
@@ -244,7 +243,8 @@ impl AppState {
         if let Some(ds) = &self.database {
             if let Ok(notes) = ds.list_all_notes() {
                 self.note_cache.clear();
-                for (path, record) in notes {
+                for (tagrpath, record) in notes {
+                    let path = PathBuf::from(tagrpath.as_str());
                     // Also insert canonical form so lookups never need a syscall
                     if let Ok(canonical) = path.canonicalize() {
                         if canonical != path {
@@ -818,10 +818,10 @@ impl AppState {
             .collect();
 
         for tag in &regular_tags {
-            if let Ok(files) = db.find_by_tag(tag) {
-                for file in files {
-                    if let Some(file_str) = file.to_str() {
-                        file_set.insert(file_str.to_string());
+            if let Some(tn) = crate::types::TagName::new(tag.as_str()).ok() {
+                if let Ok(files) = db.find_by_tag(&tn) {
+                    for file in files {
+                        file_set.insert(file.as_str().to_string());
                     }
                 }
             }
@@ -831,14 +831,18 @@ impl AppState {
         if !self.active_filter.criteria.excludes.is_empty() {
             file_set.retain(|file_path| {
                 // Get tags for this file
-                if let Ok(Some(file_tags)) = db.get_tags(std::path::Path::new(file_path)) {
-                    // Check if file has any excluded tags
-                    let has_excluded = file_tags
-                        .iter()
-                        .any(|tag| self.active_filter.criteria.excludes.contains(tag));
-                    !has_excluded
+                if let Some(tp) = crate::types::TagrPath::new(file_path).ok() {
+                    if let Ok(Some(file_tags)) = db.get_tags(&tp) {
+                        // Check if file has any excluded tags
+                        let has_excluded = file_tags
+                            .iter()
+                            .any(|tag| self.active_filter.criteria.excludes.contains(&tag.to_string()));
+                        !has_excluded
+                    } else {
+                        // Files without tags pass through
+                        true
+                    }
                 } else {
-                    // Files without tags pass through
                     true
                 }
             });
@@ -1074,10 +1078,10 @@ impl AppState {
         let mut file_set = std::collections::HashSet::new();
 
         for tag in &expanded_tags {
-            if let Ok(files) = db.find_by_tag(tag) {
-                for file in files {
-                    if let Some(file_str) = file.to_str() {
-                        file_set.insert(file_str.to_string());
+            if let Some(tn) = crate::types::TagName::new(tag.as_str()).ok() {
+                if let Ok(files) = db.find_by_tag(&tn) {
+                    for file in files {
+                        file_set.insert(file.as_str().to_string());
                     }
                 }
             }
@@ -1086,11 +1090,15 @@ impl AppState {
         // Apply exclusion filter if any tags are excluded
         if !self.active_filter.criteria.excludes.is_empty() {
             file_set.retain(|file_path| {
-                if let Ok(Some(file_tags)) = db.get_tags(std::path::Path::new(file_path)) {
-                    let has_excluded = file_tags
-                        .iter()
-                        .any(|tag| self.active_filter.criteria.excludes.contains(tag));
-                    !has_excluded
+                if let Some(tp) = crate::types::TagrPath::new(file_path).ok() {
+                    if let Ok(Some(file_tags)) = db.get_tags(&tp) {
+                        let has_excluded = file_tags
+                            .iter()
+                            .any(|tag| self.active_filter.criteria.excludes.contains(&tag.to_string()));
+                        !has_excluded
+                    } else {
+                        true
+                    }
                 } else {
                     true
                 }
@@ -1345,11 +1353,15 @@ impl AppState {
         };
 
         if let Some(path) = file_path {
-            let tags = self
-                .database
-                .as_ref()
-                .and_then(|db| db.get_tags(&path).ok())
-                .flatten()
+            let tags: Vec<String> = crate::types::TagrPath::new(&path)
+                .ok()
+                .and_then(|tp| {
+                    self.database
+                        .as_ref()
+                        .and_then(|db| db.get_tags(&tp).ok())
+                        .flatten()
+                        .map(|tv| tv.into_iter().map(|t| t.to_string()).collect())
+                })
                 .unwrap_or_default();
 
             let note = self.cached_note(&path).cloned();
@@ -1369,11 +1381,12 @@ impl AppState {
         let file_tags: Vec<String> = selected_keys
             .iter()
             .filter_map(|path| {
-                let path_buf = std::path::PathBuf::from(path);
+                let tp = crate::types::TagrPath::new(path).ok()?;
                 self.database
                     .as_ref()
-                    .and_then(|db| db.get_tags(&path_buf).ok())
+                    .and_then(|db| db.get_tags(&tp).ok())
                     .flatten()
+                    .map(|tags| tags.into_iter().map(|t| t.to_string()).collect::<Vec<_>>())
             })
             .flatten()
             .collect::<std::collections::HashSet<_>>()

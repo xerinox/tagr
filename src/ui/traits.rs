@@ -35,7 +35,7 @@ impl RefineSearchCriteria {
 }
 
 /// Configuration for fuzzy finder
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FinderConfig {
     /// Items to display in the finder
     pub items: Vec<DisplayItem>,
@@ -56,7 +56,24 @@ pub struct FinderConfig {
     /// Tag schema for canonicalization (used for CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries (used in tag selection phase)
-    pub database: Option<std::sync::Arc<crate::datasource::DataSource>>,
+    pub database: Option<std::sync::Arc<dyn crate::store::TagStore>>,
+}
+
+impl std::fmt::Debug for FinderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FinderConfig")
+            .field("items", &self.items)
+            .field("multi_select", &self.multi_select)
+            .field("prompt", &self.prompt)
+            .field("ansi", &self.ansi)
+            .field("preview_config", &self.preview_config)
+            .field("bind", &self.bind)
+            .field("available_tags", &self.available_tags)
+            .field("search_criteria", &self.search_criteria)
+            .field("tag_schema", &self.tag_schema)
+            .field("database", &self.database.as_ref().map(|_| "..."))
+            .finish()
+    }
 }
 
 impl FinderConfig {
@@ -128,7 +145,7 @@ impl FinderConfig {
 
     /// Set database for live file count queries
     #[must_use]
-    pub fn with_database(mut self, db: Option<std::sync::Arc<crate::datasource::DataSource>>) -> Self {
+    pub fn with_database(mut self, db: Option<std::sync::Arc<dyn crate::store::TagStore>>) -> Self {
         self.database = db;
         self
     }

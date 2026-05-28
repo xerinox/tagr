@@ -12,8 +12,8 @@ use std::fs;
 use std::path::PathBuf;
 use tagr::Pair;
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
-use tagr::datasource::DataSource;
 use tagr::db::Database;
+use tagr::store::DirectStore;
 use tagr::ui::ratatui_adapter::RatatuiFinder;
 
 /// Create sample files in a temporary directory
@@ -118,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create browse session with default configuration
     let config = BrowseConfig::default();
-    let session = BrowseSession::new(DataSource::direct(db), config)?;
+    let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), config)?;
 
     // Create finder and controller
     let finder = RatatuiFinder::new();

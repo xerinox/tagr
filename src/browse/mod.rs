@@ -22,7 +22,7 @@
 //! ```no_run
 //! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
 //! use tagr::db::Database;
-//! use tagr::datasource::DataSource;
+//! use tagr::store::DirectStore;
 //! use tagr::ui::ratatui_adapter::RatatuiFinder;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,7 +31,7 @@
 //!
 //! // Create browse session with default config
 //! let config = BrowseConfig::default();
-//! let session = BrowseSession::new(DataSource::direct(db), config)?;
+//! let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), config)?;
 //!
 //! // Create controller with finder
 //! let finder = RatatuiFinder::new();
@@ -57,7 +57,7 @@
 //! ```no_run
 //! use tagr::browse::{BrowseSession, BrowseConfig, PathFormat};
 //! use tagr::db::Database;
-//! use tagr::datasource::DataSource;
+//! use tagr::store::DirectStore;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let db = Database::open("mydb")?;
@@ -68,7 +68,7 @@
 //!     ..Default::default()
 //! };
 //!
-//! let session = BrowseSession::new(DataSource::direct(db), config)?;
+//! let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), config)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -81,7 +81,7 @@
 //! use tagr::browse::{BrowseSession, BrowseController};
 //! use tagr::ui::FuzzyFinder;
 //! use tagr::db::Database;
-//! use tagr::datasource::DataSource;
+//! use tagr::store::DirectStore;
 //!
 //! // Your custom finder implementation
 //! struct MyCustomFinder;
@@ -96,7 +96,7 @@
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let db = Database::open("mydb")?;
-//! let session = BrowseSession::new(DataSource::direct(db), Default::default())?;
+//! let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), Default::default())?;
 //! let finder = MyCustomFinder;
 //! let controller = BrowseController::new(session, finder);
 //!
