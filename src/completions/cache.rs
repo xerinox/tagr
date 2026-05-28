@@ -98,9 +98,13 @@ impl CompletionCache {
     ///
     /// Returns error if database operations fail, but partial data
     /// may still be cached.
-    pub fn refresh(db: &crate::db::Database) -> std::io::Result<Self> {
+    pub fn refresh(store: &dyn crate::store::TagStore) -> std::io::Result<Self> {
         // Get all tags from database
-        let tags = db.list_all_tags().unwrap_or_default();
+        let tags = store.list_all_tags()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.to_string())
+            .collect();
 
         let cache = Self {
             tags,
@@ -126,15 +130,15 @@ impl CompletionCache {
 /// Call from: tag, untag, bulk operations, filter save/delete, db add/remove.
 /// This is a best-effort operation - failures don't affect the main command.
 /// Skipped entirely during tests to avoid corrupting the real cache.
-pub fn invalidate_cache(db: &crate::db::Database) {
+pub fn invalidate_cache(store: &dyn crate::store::TagStore) {
     #[cfg(test)]
     {
-        let _ = db;
+        let _ = store;
         return;
     }
     #[cfg(not(test))]
     {
-        let _ = CompletionCache::refresh(db);
+        let _ = CompletionCache::refresh(store);
     }
 }
 
@@ -203,7 +207,8 @@ fn try_load_from_database() -> Result<Vec<String>, Box<dyn std::error::Error + S
     match Database::open(&db_path) {
         Ok(db) => {
             let tags = db.list_all_tags()?;
-            let _ = CompletionCache::refresh(&db);
+            let store = crate::store::DirectStore::new(db);
+            let _ = CompletionCache::refresh(&store);
             Ok(tags)
         }
         Err(_) => try_load_via_ipc(),
