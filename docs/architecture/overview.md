@@ -1,21 +1,21 @@
 # Architecture Overview
 
-> **Status**: Design document — describes the current state and target architecture.
-> No refactoring has been done yet.
+> **Status**: Living architecture document. Phases 1–6 of the v1.0.0 rewrite are complete.
+> The module layout below reflects the current codebase.
 
 ## Current Architecture
 
-Tagr is a ~39k LOC Rust project organized into these top-level modules:
+Tagr is a ~41k LOC Rust project organized into these top-level modules:
 
 ```
 src/
-├── types/          (planned — core newtypes and shared vocabulary)
+├── types/          core newtypes and shared vocabulary
 ├── db/             storage layer (sled, postcard serialization, reverse index)
-├── datasource.rs   unified data access (enum: Direct | Remote)
-├── search/         filtering logic (hierarchy, patterns, traits)
+├── (deleted: datasource.rs — replaced by store/)
+├── (deleted: search/ — replaced by query/)
 ├── filters/        saved filter CRUD + FilterCriteria type
-├── query/          (planned — single query pipeline)
-├── store/          (planned — TagStore trait + impls)
+├── query/          single query pipeline
+├── store/          TagStore trait + impls
 ├── browse/         browse session domain logic (models, query, actions, filter)
 ├── ui/             TUI abstraction (traits, types) + ratatui adapter (8k LOC)
 ├── commands/       CLI command implementations

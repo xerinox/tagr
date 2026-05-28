@@ -1402,85 +1402,63 @@ Example:
 
 ```
 src/
-├── lib.rs          # Library root, exports all modules
-├── main.rs         # CLI application entry point
-├── cli.rs          # Command line interface
-├── config.rs       # Configuration management
-├── db/             # Database wrapper
-│   ├── mod.rs      # Database operations
-│   ├── types.rs    # Data types
-│   └── error.rs    # Error types
-└── search/         # Interactive fuzzy finding
-    ├── mod.rs      # Browse functionality
-    ├── browse.rs   # Browse implementation
-    └── error.rs    # Error types
+├── types/          # Layer 0: Newtypes (TagName, TagrPath, FilterName, Pair, QueryCriteria)
+├── store/          # Layer 1–2: TagStore trait + DirectStore (sled), DaemonStore (IPC), MockStore
+├── query/          # Layer 3: Unified query pipeline (execute, hierarchy, patterns)
+├── browse/         # Layer 4: BrowseSession (owns Arc<dyn TagStore>, QueryCriteria)
+├── commands/       # Layer 5: CLI command implementations (tag, search, note, bulk, etc.)
+├── ui/             # Layer 5: TUI abstraction (traits) + ratatui adapter
+├── daemon/         # Layer 5: Watch daemon (tokio, IPC server, file watcher)
+├── db/             # Embedded sled database (used by DirectStore)
+├── ipc/            # Wire protocol (wincode framing, typed messages)
+├── filters/        # Saved filter CRUD + persistence (filters.toml)
+├── vtags/          # Virtual tags (parser, evaluator, cache — computed from filesystem metadata)
+├── schema/         # Tag schema (aliases, hierarchy config)
+├── config/         # Configuration management (platform paths, setup wizard)
+├── keybinds/       # Keybind config + action executor
+├── completions/    # Shell completion system (bash, zsh, fish, PowerShell, elvish)
+├── patterns/       # Pattern builder (tag/file pattern validation)
+├── preview/        # File preview generation (syntax highlighting)
+├── watch/          # Watch rule config types
+├── discovery/      # File discovery traits
+├── output/         # Output formatting (StatusBar, StdoutWriter)
+├── cli.rs          # clap structs + CLI argument parsing
+├── lib.rs          # Library root, re-exports
+└── main.rs         # Entry point + command dispatch
 ```
+
+**Layer rule**: Lower layers never import higher layers. `types/` → `store/` → `query/` → `browse/` → `commands/`.
 
 ## Library Usage
 
 tagr can be used as a library in your Rust projects:
 
 ```rust
-use tagr::{db::Database, browse, filters::FilterManager};
-use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
+use tagr::store::{DirectStore, TagStore};
+use tagr::types::{TagName, TagrPath, QueryCriteria};
+use tagr::browse::{BrowseSession, BrowseConfig};
 use tagr::ui::RatatuiFinder;
-use std::path::PathBuf;
+use std::sync::Arc;
 
-// Database operations
-let db = Database::open("my_db").unwrap();
-db.insert("file.txt", vec!["tag1".into(), "tag2".into()]).unwrap();
-let files = db.find_by_tag("tag1").unwrap();
+// Open a store (wraps sled database)
+let store = DirectStore::open("my_db").unwrap();
+let store: Arc<dyn TagStore> = Arc::new(store);
 
-// Filter management
-let filter_manager = FilterManager::new(PathBuf::from("~/.config/tagr/filters.toml"));
-let filters = filter_manager.list().unwrap();
+// Tag operations use newtypes
+let file = TagrPath::new("src/main.rs").unwrap();
+let tag = TagName::new("rust").unwrap();
+
+store.insert(&file, vec![tag.clone()]).unwrap();
+let files = store.find_by_tag(&tag).unwrap();
+
+// Query with criteria
+let schema = tagr::schema::types::TagSchema::default();
+let criteria = QueryCriteria::default();
+let results = store.query(&criteria, &schema).unwrap();
 
 // Interactive browse with ratatui
 let config = BrowseConfig::default();
-let session = BrowseSession::new(&db, config).unwrap();
-let finder = RatatuiFinder::new();
-let controller = BrowseController::new(session, finder);
-
-match controller.run() {
-    Ok(Some(result)) => {
-        println!("Selected {} files from tags: {:?}", 
-            result.selected_files.len(),
-            result.selected_tags);
-        
-        for file in result.selected_files {
-            println!("  - {}", file.display());
-        }
-    }
-    Ok(None) => println!("Browse cancelled"),
-    Err(e) => eprintln!("Error: {}", e),
-}
-```
-
-### Interactive Browse API
-
-The browse functionality is cleanly separated into business logic and UI layers:
-
-```rust
-use tagr::browse::{BrowseSession, BrowseController, BrowseConfig, PathFormat};
-use tagr::ui::RatatuiFinder;
-
-// Configure browse session
-let config = BrowseConfig {
-    initial_search: None,  // Start with tag selection
-    path_format: PathFormat::Relative,  // Show relative paths
-    tag_phase_settings: Default::default(),
-    file_phase_settings: Default::default(),
-};
-
-let session = BrowseSession::new(&db, config).unwrap();
-let controller = BrowseController::new(session, RatatuiFinder::new());
-
-if let Ok(Some(result)) = controller.run() {
-    // Process selected files
-    for file in result.selected_files {
-        println!("{}", file.display());
-    }
-}
+let session = BrowseSession::new(Arc::clone(&store), config).unwrap();
 ```
 
 ### Direct Action Execution (without browse)
@@ -1489,38 +1467,23 @@ You can execute actions directly without the interactive browser:
 
 ```rust
 use tagr::browse::actions;
-use std::path::PathBuf;
+use tagr::types::{TagName, TagrPath};
 
 let files = vec![
-    PathBuf::from("src/main.rs"),
-    PathBuf::from("src/lib.rs"),
+    TagrPath::new("src/main.rs").unwrap(),
+    TagrPath::new("src/lib.rs").unwrap(),
 ];
-let tags = vec!["rust".to_string(), "important".to_string()];
+let tags = vec![TagName::new("rust").unwrap(), TagName::new("important").unwrap()];
 
-// Add tags to files
-match actions::execute_add_tag(&db, &files, &tags) {
-    Ok(outcome) => match outcome {
-        tagr::browse::models::ActionOutcome::Success { affected_count, details } => {
-            println!("✓ {} ({} files)", details, affected_count);
-        }
-        tagr::browse::models::ActionOutcome::Partial { succeeded, failed, errors } => {
-            println!("⚠️  {} succeeded, {} failed", succeeded, failed);
-            for error in &errors {
-                eprintln!("  - {}", error);
-            }
-        }
-        _ => {}
-    }
-    Err(e) => eprintln!("Error: {}", e),
-}
+// Add tags to files (store implements TagStore)
+actions::execute_add_tag(&*store, &files, &tags).unwrap();
 
 // Other available actions
-actions::execute_remove_tag(&db, &files, &["old_tag".to_string()]).unwrap();
-actions::execute_delete_from_db(&db, &files).unwrap();
+actions::execute_remove_tag(&*store, &files, &[TagName::new("old_tag").unwrap()]).unwrap();
+actions::execute_delete_from_db(&*store, &files).unwrap();
 actions::execute_open_in_default(&files);
 actions::execute_open_in_editor(&files, "vim");
 actions::execute_copy_path(&files).unwrap();
-actions::execute_copy_files(&files, &PathBuf::from("/dest"), false);
 ```
 
 ### Custom Frontend Implementation
@@ -1563,23 +1526,17 @@ Access pure query functions without UI:
 
 ```rust
 use tagr::browse::query;
-use tagr::browse::models::TagrItem;
+use tagr::types::QueryCriteria;
 
-// Get all tags with file counts
-let tags: Vec<TagrItem> = query::get_available_tags(&db).unwrap();
-for tag in tags {
-    println!("{}: {} files", tag.name, /* extract file_count from metadata */);
+// Get all tags with file counts (store implements TagStore)
+let tags = query::get_available_tags(&*store).unwrap();
+for tag in &tags {
+    println!("{}", tag.name);
 }
 
-// Get files by search parameters
-use tagr::cli::SearchParams;
-let search = SearchParams {
-    tags: vec!["rust".to_string()],
-    tag_mode: tagr::types::MatchMode::Any,
-    ..Default::default()
-};
-
-let files = query::get_matching_files(&db, &search).unwrap();
+// Get files matching query criteria
+let criteria = QueryCriteria::default();
+let files = query::get_matching_files(&*store, &criteria).unwrap();
 ```
 
 ### Filter Management API
@@ -1618,38 +1575,52 @@ for filter in filters {
 manager.export(&PathBuf::from("my-filters.toml"), &[]).unwrap();
 ```
 
-### Database API
+### Storage API (`TagStore` trait)
+
+All data access goes through the `TagStore` trait. Three implementations:
+`DirectStore` (sled), `DaemonStore` (IPC), `MockStore` (tests).
 
 ```rust
-// Insert/Update
-db.insert("file.txt", vec!["tag1".into()]).unwrap();
-db.insert_pair(pair).unwrap();
+use tagr::store::{DirectStore, TagStore};
+use tagr::types::{TagName, TagrPath};
+use std::sync::Arc;
+
+let store: Arc<dyn TagStore> = Arc::new(DirectStore::open("my_db").unwrap());
+
+// Insert/Update (newtypes enforce validation)
+let file = TagrPath::new("file.txt").unwrap();
+let tag = TagName::new("rust").unwrap();
+store.insert(&file, vec![tag.clone()]).unwrap();
 
 // Retrieve
-db.get_tags("file.txt").unwrap();      // Option<Vec<String>>
-db.get_pair("file.txt").unwrap();      // Option<Pair>
+store.get_tags(&file).unwrap();           // Option<Vec<TagName>>
 
 // Add/Remove Tags
-db.add_tags("file.txt", vec!["tag3".into()]).unwrap();
-db.remove_tags("file.txt", &["tag1".into()]).unwrap();
+store.add_tags(&file, vec![TagName::new("v2").unwrap()]).unwrap();
+store.remove_tags(&file, &[tag.clone()]).unwrap();
 
 // Delete
-db.remove("file.txt").unwrap();        // bool (existed?)
+store.remove_file(&file).unwrap();        // bool (existed?)
+store.remove_tag_globally(&tag).unwrap(); // u64 (files affected)
 
 // Query
-db.find_by_tag("tag1").unwrap();       // Vec<PathBuf>
-db.find_by_all_tags(&[...]).unwrap();  // Vec<PathBuf>
-db.find_by_any_tag(&[...]).unwrap();   // Vec<PathBuf>
+store.find_by_tag(&tag).unwrap();         // Vec<TagrPath>
+store.find_by_all_tags(&[...]).unwrap();  // Vec<TagrPath> (AND)
+store.find_by_any_tag(&[...]).unwrap();   // Vec<TagrPath> (OR)
+store.find_by_tag_regex("lang:.*").unwrap(); // Vec<TagrPath>
 
 // List
-db.list_all().unwrap();                // Vec<Pair>
-db.list_all_tags().unwrap();           // Vec<String>
+store.list_all().unwrap();                // Vec<Pair>
+store.list_all_tags().unwrap();           // Vec<TagName>
+store.list_tags_with_counts().unwrap();   // Vec<(TagName, usize)>
 
-// Utility
-db.contains("file.txt").unwrap();      // bool
-db.count();                            // usize
-db.flush().unwrap();
-db.clear().unwrap();
+// Notes
+store.get_note(&file).unwrap();           // Option<NoteRecord>
+store.set_note(&file, &note).unwrap();
+store.search_notes("query").unwrap();     // Vec<(TagrPath, NoteRecord)>
+
+// Existence
+store.tag_exists(&tag).unwrap();          // bool (O(1) via reverse index)
 ```
 
 ## Configuration
@@ -1684,13 +1655,19 @@ cargo test
 
 - **sled** - Embedded database for persistent storage
 - **nucleo** - Fast fuzzy matching engine
-- **ratatui** - Modern terminal user interface framework
-- **crossterm** - Cross-platform terminal manipulation
-- **bincode** - Efficient binary serialization
-- **clap** - Command-line argument parsing
-- **clap_complete** - Shell completion generation
-- **chrono** - Date/time handling for filter timestamps
-- **thiserror** - Error handling
+- **ratatui** + **crossterm** - Modern terminal user interface
+- **bincode** - Efficient binary serialization (database storage)
+- **wincode** - Wire protocol framing (daemon IPC)
+- **clap** + **clap_complete** - CLI parsing and shell completions
+- **tokio** - Async runtime (daemon, file watching)
+- **notify** - Cross-platform filesystem watcher
+- **interprocess** - Unix socket IPC (daemon communication)
+- **moka** - Concurrent cache (metadata, query results)
+- **rayon** - Data parallelism (virtual tag evaluation)
+- **chrono** - Date/time handling
+- **serde** + **toml** + **serde_json** - Serialization (config, filters, export)
+- **thiserror** - Error type derivation
+- **syntect** - Syntax highlighting (preview pane, optional feature)
 
 ## Performance Notes
 
@@ -1724,19 +1701,13 @@ This project is licensed under the MIT License.
 Potential improvements for future releases:
 
 ### Advanced Bulk Operations
-- Deduplicate tags using fuzzy matching (detect similar/redundant tags)
-- Git integration for auto-tagging based on commit history
 - Content-based auto-tagging suggestions using pattern matching or ML
+- Git integration for auto-tagging based on commit history
 
 ### Browse Mode Enhancements
-- Tag statistics - Show file count per tag in browse mode
 - Recent selections - Remember last used tags
 - Export results - Save selections to file
-- LRU cache - In-memory cache for hot tags
 
 ### Infrastructure & Safety
 - Backup and restore system for database
-- Progress indicators for long-running bulk operations
-- Parallel processing for large file sets
-- JSON output format for scripting integration
 - Transaction support for atomic batch operations

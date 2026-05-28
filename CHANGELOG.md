@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Architecture Rewrite (v1.0.0)** — 6-phase migration to layered architecture
+  - **Layer 0: Core Types** (`types/`) — `TagName`, `TagrPath`, `FilterName`, `Pair`, `QueryCriteria` newtypes with validation
+  - **Layer 1: TagStore Trait** (`store/`) — unified storage interface with `DirectStore` (sled), `DaemonStore` (IPC), `MockStore` (tests)
+  - **Layer 2: Query Pipeline** (`query/`) — unified search via `QueryCriteria`, replacing `SearchParams` + `FilterCriteria` duality
+  - **Layer 3: Browse** — `BrowseSession` now owns `Arc<dyn TagStore>` instead of `&Database`
+  - **Layer 4: Commands** — all CLI commands use `&dyn TagStore` for backend-agnostic operation
+  - **Layer 5: TUI/Daemon** — top-level consumers of the layered API
 - **Smart Tag Completion Sorting** - Hierarchical tag completer with relevance ranking
   - Exact matches shown first (rank 0)
   - Prefix matches next (rank 1)  
@@ -22,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tag Completion Algorithm** - `complete_tags()` now uses `HierarchicalTagCompleter`
   - Previously: Simple prefix/contains filter with no relevance ranking
   - Now: Multi-tiered ranking with hierarchy awareness and edit distance scoring
+
+### Removed
+- **Dead code cleanup** — removed unused `IpcRequest`/`IpcResponse`/`NoteEntry` enums (superseded by wire types), deprecated `PreviewContent::to_display_string()`, dead re-export alias
+- **Clippy cleanup** — resolved all 126 clippy pedantic/nursery warnings across 32 files
+- Deleted `src/datasource.rs` (replaced by `store/` trait) and `src/search/` (replaced by `query/`)
 
 ## [0.10.0] - 2026-01-16
 
