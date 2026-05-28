@@ -468,7 +468,7 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
             && let Some(ref fm) = filter_manager
         {
             match fm.get(name) {
-                Ok(f) => criteria = QueryCriteria::from(&f.criteria),
+                Ok(f) => criteria = f.criteria,
                 Err(e) => eprintln!("Watch: could not load filter '{name}': {e}"),
             }
         }

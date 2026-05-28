@@ -38,7 +38,7 @@ pub fn execute(
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
 
-        let filter_criteria = QueryCriteria::from(&filter.criteria);
+        let filter_criteria = filter.criteria;
 
         if let Some(ref mut criteria) = search_criteria {
             // Merge: combine tag expressions
@@ -155,10 +155,9 @@ pub fn execute(
                 if let Some(criteria) = search_criteria {
                     let filter_path = crate::filters::get_filter_path()?;
                     let manager = FilterManager::new(filter_path);
-                    let filter_criteria = crate::filters::FilterCriteria::from(&criteria);
                     let description = desc.unwrap_or("Saved browse filter");
 
-                    manager.create(name, description.to_string(), filter_criteria)?;
+                    manager.create(name, description.to_string(), criteria)?;
 
                     if !quiet {
                         println!("\nSaved filter '{name}'");

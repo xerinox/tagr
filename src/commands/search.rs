@@ -3,7 +3,7 @@
 use crate::{
     TagrError,
     config,
-    filters::{FilterCriteria, FilterManager},
+    filters::FilterManager,
     output,
     patterns::{PatternBuilder, PatternContext},
     schema,
@@ -56,8 +56,8 @@ pub fn execute(
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
 
-        // Convert saved filter to QueryCriteria, merge with CLI criteria
-        let filter_criteria = QueryCriteria::from(&filter.criteria);
+        // The saved filter criteria is already a QueryCriteria
+        let filter_criteria = filter.criteria;
 
         // Merge: CLI values override filter defaults
         criteria = merge_criteria(filter_criteria, &criteria, explicit_flags);
@@ -125,10 +125,9 @@ pub fn execute(
     if let Some((name, desc)) = filter_config.save {
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
-        let save_criteria = FilterCriteria::from(&criteria);
         let description = desc.unwrap_or("Saved search filter");
 
-        manager.create(name, description.to_string(), save_criteria)?;
+        manager.create(name, description.to_string(), criteria)?;
 
         if !output_config.quiet {
             writeln!(writer, "\nSaved filter '{name}'")?;

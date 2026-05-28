@@ -37,7 +37,7 @@ pub struct WatchRule {
     pub tags: Vec<String>,
 
     /// Optional saved filter name to apply (e.g., "markdown-files").
-    /// This is resolved to a FilterCriteria at daemon startup.
+    /// This is resolved to a QueryCriteria at daemon startup.
     pub filter: Option<String>,
 
     /// Inline virtual-tag conditions (e.g., `["size:small", "modified:today"]`).

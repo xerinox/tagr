@@ -20,25 +20,28 @@
 //! # Examples
 //!
 //! ```no_run
-//! use tagr::filters::{FilterCriteria, FilterManager};
+//! use tagr::filters::{FilterManager, SavedFilter};
+//! use tagr::types::QueryCriteria;
 //! use std::path::PathBuf;
 //!
 //! let manager = FilterManager::new(PathBuf::from("~/.config/tagr/filters.toml"));
 //!
 //! // Create a new filter
-//! let criteria = FilterCriteria {
-//!     tags: vec!["rust".to_string(), "tutorial".to_string()],
+//! let criteria = QueryCriteria {
+//!     tag_expr: Some(tagr::types::TagExpr::Tag(
+//!         tagr::types::TagName::new("rust").unwrap(),
+//!     )),
 //!     ..Default::default()
 //! };
 //!
 //! manager.create(
-//!     "rust-tutorials",
-//!     "Find Rust tutorial files".to_string(),
+//!     "rust-files",
+//!     "Find Rust files".to_string(),
 //!     criteria,
 //! ).unwrap();
 //!
 //! // Load and use a filter
-//! let filter = manager.get("rust-tutorials").unwrap();
+//! let filter = manager.get("rust-files").unwrap();
 //! println!("Filter: {} - {}", filter.name, filter.description);
 //! ```
 
@@ -48,7 +51,7 @@ pub mod types;
 
 pub use error::FilterError;
 pub use operations::FilterManager;
-pub use types::{FileMode, Filter, FilterCriteria, FilterStorage, TagMode, validate_filter_name};
+pub use types::{FilterStorage, SavedFilter, validate_filter_name};
 
 use std::path::PathBuf;
 

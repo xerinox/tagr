@@ -715,7 +715,7 @@ fn test_get_pair() {
 // Filter Integration Tests
 // ============================================================================
 
-use tagr::filters::{FileMode, FilterCriteria, FilterManager, TagMode};
+use tagr::filters::FilterManager;
 
 /// RAII wrapper for `FilterManager` with automatic cleanup
 struct TestFilterManager {
@@ -780,12 +780,15 @@ fn test_filter_create_and_list() {
     let test_mgr = TestFilterManager::new("create_list");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder()
-        .tags(vec!["rust".into(), "tutorial".into()])
-        .tag_mode(TagMode::All)
-        .file_patterns(vec!["*.rs".into()])
-        .file_mode(FileMode::Any)
-        .build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("rust").unwrap()),
+            TagExpr::Tag(TagName::new("tutorial").unwrap()),
+        ])),
+        file_patterns: vec!["*.rs".into()],
+        file_mode: MatchMode::Any,
+        ..Default::default()
+    };
 
     let result = manager.create("test-filter", "Test filter".into(), criteria);
     assert!(result.is_ok());
@@ -801,19 +804,19 @@ fn test_filter_create_with_all_options() {
     let test_mgr = TestFilterManager::new("create_full");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder()
-        .tags(vec![
-            "rust".into(),
-            "tutorial".into(),
-            "documentation".into(),
-        ])
-        .tag_mode(TagMode::All)
-        .file_patterns(vec!["*.rs".into(), "*.toml".into()])
-        .file_mode(FileMode::Any)
-        .excludes(vec!["deprecated".into(), "old".into()])
-        .regex_tag(true)
-        .regex_file(false)
-        .build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("rust").unwrap()),
+            TagExpr::Tag(TagName::new("tutorial").unwrap()),
+            TagExpr::Tag(TagName::new("documentation").unwrap()),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("deprecated").unwrap()))),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("old").unwrap()))),
+        ])),
+        file_patterns: vec!["*.rs".into(), "*.toml".into()],
+        file_mode: MatchMode::Any,
+        regex_tags: true,
+        ..Default::default()
+    };
 
     let filter = manager
         .create(
@@ -824,13 +827,13 @@ fn test_filter_create_with_all_options() {
         .unwrap();
 
     assert_eq!(filter.name, "complex-filter");
-    assert_eq!(filter.criteria.tags.len(), 3);
+    let include_tags = filter.criteria.flat_include_tags().unwrap();
+    assert_eq!(include_tags.len(), 3);
     assert_eq!(filter.criteria.file_patterns.len(), 2);
-    assert_eq!(filter.criteria.excludes.len(), 2);
-    assert_eq!(filter.criteria.tag_mode, TagMode::All);
-    assert_eq!(filter.criteria.file_mode, FileMode::Any);
-    assert!(filter.criteria.regex_tag);
-    assert!(!filter.criteria.regex_file);
+    let exclude_tags = filter.criteria.flat_exclude_tags().unwrap();
+    assert_eq!(exclude_tags.len(), 2);
+    assert!(filter.criteria.regex_tags);
+    assert!(!filter.criteria.regex_files);
 }
 
 #[test]
@@ -838,12 +841,12 @@ fn test_filter_get_and_show() {
     let test_mgr = TestFilterManager::new("get_show");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder()
-        .tags(vec!["rust".into()])
-        .tag_mode(TagMode::All)
-        .file_patterns(vec!["src/*.rs".into()])
-        .file_mode(FileMode::All)
-        .build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+        file_patterns: vec!["src/*.rs".into()],
+        file_mode: MatchMode::All,
+        ..Default::default()
+    };
 
     manager
         .create("get-test", "Get test filter".into(), criteria)
@@ -852,7 +855,8 @@ fn test_filter_get_and_show() {
     let filter = manager.get("get-test").unwrap();
     assert_eq!(filter.name, "get-test");
     assert_eq!(filter.description, "Get test filter");
-    assert_eq!(filter.criteria.tags, vec!["rust"]);
+    let include_tags = filter.criteria.flat_include_tags().unwrap();
+    assert!(include_tags.contains(&TagName::new("rust").unwrap()));
     assert_eq!(filter.criteria.file_patterns, vec!["src/*.rs"]);
 }
 
@@ -870,7 +874,7 @@ fn test_filter_rename() {
     let test_mgr = TestFilterManager::new("rename");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
 
     manager
         .create("old-name", "Description".into(), criteria)
@@ -888,7 +892,7 @@ fn test_filter_delete() {
     let test_mgr = TestFilterManager::new("delete");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
 
     manager
         .create("to-delete", "Will be deleted".into(), criteria)
@@ -906,7 +910,7 @@ fn test_filter_duplicate_name() {
     let test_mgr = TestFilterManager::new("duplicate");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
 
     manager
         .create("duplicate", "First".into(), criteria.clone())
@@ -923,15 +927,17 @@ fn test_filter_export_and_import() {
     let temp_file = TempFilterFile::new("test_export.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = FilterCriteria::builder()
-        .tag("rust".into())
-        .file_pattern("*.rs".into())
-        .build();
+    let criteria1 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+        file_patterns: vec!["*.rs".into()],
+        ..Default::default()
+    };
 
-    let criteria2 = FilterCriteria::builder()
-        .tag("python".into())
-        .file_pattern("*.py".into())
-        .build();
+    let criteria2 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("python").unwrap())),
+        file_patterns: vec!["*.py".into()],
+        ..Default::default()
+    };
 
     manager
         .create("filter1", "First filter".into(), criteria1)
@@ -963,7 +969,7 @@ fn test_filter_export_selective() {
     let temp_file = TempFilterFile::new("test_export_selective.toml");
     let export_path = temp_file.path();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
 
     manager
         .create("filter-a", "A".into(), criteria.clone())
@@ -999,9 +1005,9 @@ fn test_filter_import_conflict_skip() {
     let temp_file = TempFilterFile::new("test_import_skip.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = FilterCriteria::builder().tag("existing".into()).build();
+    let criteria1 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("existing").unwrap())), ..Default::default() };
 
-    let criteria2 = FilterCriteria::builder().tag("new".into()).build();
+    let criteria2 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("new").unwrap())), ..Default::default() };
 
     // Create existing filter
     manager
@@ -1038,9 +1044,9 @@ fn test_filter_import_conflict_overwrite() {
     let temp_file = TempFilterFile::new("test_import_overwrite.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = FilterCriteria::builder().tag("original".into()).build();
+    let criteria1 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("original").unwrap())), ..Default::default() };
 
-    let criteria2 = FilterCriteria::builder().tag("updated".into()).build();
+    let criteria2 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("updated").unwrap())), ..Default::default() };
 
     // Create existing filter
     manager
@@ -1062,7 +1068,7 @@ fn test_filter_import_conflict_overwrite() {
     // Should be updated
     let filter = manager.get("overwrite-me").unwrap();
     assert_eq!(filter.description, "Updated");
-    assert_eq!(filter.criteria.tags, vec!["updated"]);
+    assert!(filter.criteria.flat_include_tags().unwrap().contains(&TagName::new("updated").unwrap()));
 }
 
 #[test]
@@ -1070,7 +1076,7 @@ fn test_filter_usage_tracking() {
     let test_mgr = TestFilterManager::new("usage_tracking");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
 
     let filter = manager
         .create("track-usage", "Test".into(), criteria)
@@ -1095,7 +1101,7 @@ fn test_filter_criteria_validation() {
     let manager = test_mgr.manager();
 
     // Empty criteria should fail
-    let empty_criteria = FilterCriteria::builder().build();
+    let empty_criteria = QueryCriteria::default();
 
     let result = manager.create("invalid", "Invalid".into(), empty_criteria);
     assert!(result.is_err());
@@ -1106,7 +1112,7 @@ fn test_filter_name_validation() {
     let test_mgr = TestFilterManager::new("name_validation");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
 
     // Invalid characters
     let result = manager.create("invalid name!", "Invalid".into(), criteria.clone());
