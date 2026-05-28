@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use crate::cli::{ConditionalArgs, SearchMode, SearchParams};
+use crate::cli::ConditionalArgs;
 use crate::testing::{TempFile, TestDb};
+use crate::types::{QueryCriteria, TagExpr, TagName};
 
 use super::batch::{batch_from_file, parse_csv, parse_json, parse_plaintext};
 use super::mapping::{parse_mapping_csv, parse_mapping_json, parse_mapping_text};
@@ -83,23 +84,13 @@ fn test_bulk_tag_basic() {
     let file2 = TempFile::create("file2.txt").unwrap();
     db.add_tags(file1.path(), vec!["initial".into()]).unwrap();
     db.add_tags(file2.path(), vec!["initial".into()]).unwrap();
-    let params = SearchParams {
-        query: None,
-        tags: vec!["initial".into()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("initial").unwrap())),
+        ..QueryCriteria::default()
     };
     bulk_tag(
         test_db.store(),
-        params,
+        &criteria,
         &["bulk".into(), "added".into()],
         &ConditionalArgs::default(),
         false,
@@ -125,23 +116,13 @@ fn test_bulk_untag_specific_tags() {
         .unwrap();
     db.add_tags(f2.path(), vec!["tag1".into(), "tag2".into(), "keep".into()])
         .unwrap();
-    let params = SearchParams {
-        query: None,
-        tags: vec!["tag1".into()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("tag1").unwrap())),
+        ..QueryCriteria::default()
     };
     bulk_untag(
         test_db.store(),
-        params,
+        &criteria,
         &["tag1".into(), "tag2".into()],
         false,
         &ConditionalArgs::default(),
@@ -214,24 +195,14 @@ fn test_copy_tags_all() {
     let t2 = TempFile::create("target2.txt").unwrap();
     db.add_tags(t1.path(), vec!["initial".into()]).unwrap();
     db.add_tags(t2.path(), vec!["initial".into()]).unwrap();
-    let params = SearchParams {
-        query: None,
-        tags: vec!["initial".into()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("initial").unwrap())),
+        ..QueryCriteria::default()
     };
     copy_tags(
         test_db.store(),
         source.path(),
-        params,
+        &criteria,
         CopyTagsConfig {
             specific_tags: None,
             exclude_tags: &[],
@@ -305,19 +276,9 @@ fn test_bulk_tag_if_not_exists() {
     db.add_tags(f1.path(), vec!["existing".into(), "old".into()])
         .unwrap();
     db.add_tags(f2.path(), vec!["old".into()]).unwrap();
-    let params = SearchParams {
-        query: None,
-        tags: vec!["old".into()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("old").unwrap())),
+        ..QueryCriteria::default()
     };
     let conditions = ConditionalArgs {
         if_not_exists: true,
@@ -326,7 +287,7 @@ fn test_bulk_tag_if_not_exists() {
     };
     bulk_tag(
         test_db.store(),
-        params,
+        &criteria,
         &["existing".into(), "new".into()],
         &conditions,
         false,
@@ -365,19 +326,9 @@ fn test_bulk_tag_if_has_tag() {
     db.add_tags(f2.path(), vec!["search".into(), "required1".into()])
         .unwrap();
     db.add_tags(f3.path(), vec!["search".into()]).unwrap();
-    let params = SearchParams {
-        query: None,
-        tags: vec!["search".into()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("search").unwrap())),
+        ..QueryCriteria::default()
     };
     let conditions = ConditionalArgs {
         if_not_exists: false,
@@ -386,7 +337,7 @@ fn test_bulk_tag_if_has_tag() {
     };
     bulk_tag(
         test_db.store(),
-        params,
+        &criteria,
         &["conditional".into()],
         &conditions,
         false,
@@ -431,19 +382,9 @@ fn test_bulk_tag_if_missing_tag() {
         .unwrap();
     // f3 has neither (should get tagged - missing ANY)
     db.add_tags(f3.path(), vec!["search".into()]).unwrap();
-    let params = SearchParams {
-        query: None,
-        tags: vec!["search".into()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("search").unwrap())),
+        ..QueryCriteria::default()
     };
     let conditions = ConditionalArgs {
         if_not_exists: false,
@@ -452,7 +393,7 @@ fn test_bulk_tag_if_missing_tag() {
     };
     bulk_tag(
         test_db.store(),
-        params,
+        &criteria,
         &["needs-review".into()],
         &conditions,
         false,

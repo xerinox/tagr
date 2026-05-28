@@ -1,29 +1,23 @@
 use crate::cli::{AliasCommands, BulkCommands, Commands, TransformationType};
-use crate::cli::SearchParams;
 use crate::config::TagrConfig;
 use crate::store::TagStore;
-use crate::db::Database;
 use crate::commands;
 use crate::commands::bulk::{BatchFormat, CopyTagsConfig, TagTransformation};
 use crate::TagrError;
 use std::io::Write;
+use std::sync::Arc;
 
 fn required_arg(name: &str) -> TagrError {
     TagrError::InvalidInput(format!("Missing required argument '{name}'"))
 }
 
-/// Dispatch a CLI command through the writer for IPC capture.
-///
-/// Takes both `&Database` (for unmigrated commands) and `&dyn TagStore` (for
-/// migrated commands). The `db` parameter will be removed once all commands
-/// accept `&dyn TagStore`.
+/// Dispatch a CLI command to the appropriate handler.
 ///
 /// # Errors
 /// Returns `TagrError` if the command handler fails.
 pub fn dispatch_command(
     command: &Commands,
-    db: &Database,
-    store: &dyn TagStore,
+    store: Arc<dyn TagStore>,
     config: &TagrConfig,
     path_format: crate::config::PathFormat,
     quiet: bool,
@@ -34,41 +28,41 @@ pub fn dispatch_command(
             filter_args,
             criteria,
             ..
-        } => dispatch_search(command, filter_args, criteria, store, path_format, quiet, writer),
+        } => dispatch_search(command, filter_args, criteria, &*store, path_format, quiet, writer),
         Commands::List { variant, .. } => {
-            commands::list::execute(store, *variant, path_format, quiet, writer)?;
+            commands::list::execute(&*store, *variant, path_format, quiet, writer)?;
             Ok(())
         }
         Commands::Tag { .. } => {
             let ctx = command.get_tag_context().ok_or_else(|| {
                 TagrError::InvalidInput("Failed to extract tag context from command".into())
             })?;
-            commands::tag::execute(store, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet, writer)?;
+            commands::tag::execute(&*store, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet, writer)?;
             Ok(())
         }
         Commands::Untag { .. } => {
             let ctx = command.get_untag_context().ok_or_else(|| {
                 TagrError::InvalidInput("Failed to extract untag context from command".into())
             })?;
-            commands::tag::untag(store, ctx.file, &ctx.tags, ctx.all, quiet, writer)?;
+            commands::tag::untag(&*store, ctx.file, &ctx.tags, ctx.all, quiet, writer)?;
             Ok(())
         }
         Commands::Cleanup { .. } => {
-            commands::cleanup(store, path_format, quiet, writer)?;
+            commands::cleanup(&*store, path_format, quiet, writer)?;
             Ok(())
         }
         Commands::Note { command, .. } => {
-            command.execute(store, config, path_format, writer)?;
+            command.execute(&*store, config, path_format, writer)?;
             Ok(())
         }
         Commands::Tags { command, .. } => {
-            commands::tags(store, command, quiet, writer)?;
+            commands::tags(&*store, command, quiet, writer)?;
             Ok(())
         }
-        Commands::Bulk { command, .. } => dispatch_bulk(command, store, quiet, writer),
+        Commands::Bulk { command, .. } => dispatch_bulk(command, &*store, quiet, writer),
         Commands::Alias { command } => {
-            let store_ref = match command {
-                AliasCommands::SetCanonical { .. } => Some(store),
+            let store_ref: Option<&dyn TagStore> = match command {
+                AliasCommands::SetCanonical { .. } => Some(&*store),
                 _ => None,
             };
             commands::alias(command, store_ref, writer)
@@ -80,8 +74,6 @@ pub fn dispatch_command(
              Ok(())
         }
         Commands::Browse { filter_args, .. } => {
-            // Browse needs Arc<dyn TagStore> — construct one from the Database.
-            // Will be refactored when main.rs passes Arc<dyn TagStore> directly.
             let ctx = command.get_browse_context().ok_or_else(|| {
                 TagrError::InvalidInput("Failed to extract browse context from command".into())
             })?;
@@ -92,9 +84,9 @@ pub fn dispatch_command(
                 .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
 
             commands::browse::execute(
-                std::sync::Arc::new(crate::store::DirectStore::new(db.clone())),
+                store,
                 None,
-                ctx.search_params,
+                ctx.search_criteria,
                 filter_args.filter.as_deref(),
                 save_filter,
                 ctx.execute_cmd,
@@ -168,8 +160,8 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            let params = SearchParams::from(criteria);
-            commands::bulk::bulk_tag(store, params, add_tags, conditions, *dry_run, *yes, quiet, writer)?;
+            let qc = criteria.to_query_criteria();
+            commands::bulk::bulk_tag(store, &qc, add_tags, conditions, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::Untag {
             criteria,
@@ -179,8 +171,8 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            let params = SearchParams::from(criteria);
-            commands::bulk::bulk_untag(store, params, remove_tags, *all, conditions, *dry_run, *yes, quiet, writer)?;
+            let qc = criteria.to_query_criteria();
+            commands::bulk::bulk_untag(store, &qc, remove_tags, *all, conditions, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::RenameTag {
             old_tag,
@@ -206,7 +198,7 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            let params = SearchParams::from(criteria);
+            let qc = criteria.to_query_criteria();
             let specific = if specific_tags.is_empty() {
                 None
             } else {
@@ -215,7 +207,7 @@ fn dispatch_bulk(
             commands::bulk::copy_tags(
                 store,
                 source,
-                params,
+                &qc,
                 CopyTagsConfig {
                     specific_tags: specific,
                     exclude_tags: exclude,

@@ -15,8 +15,7 @@
 //!
 //! # Query Types
 //!
-//! - [`QueryCriteria`] — unified search parameters replacing `SearchParams`,
-//!   `FilterCriteria`, `ActiveFilter`, and `WireSearchParams`
+//! - [`QueryCriteria`] — unified search parameters
 //! - [`TagExpr`] — boolean expression tree for tag matching
 //! - [`MatchMode`] — AND/OR matching semantics
 //!

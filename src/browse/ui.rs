@@ -170,65 +170,63 @@ impl<F: FuzzyFinder> BrowseController<F> {
                     virtual_tags,
                 } => {
                     // User completed refine search overlay - apply the new criteria
-                    use crate::cli::SearchParams;
+                    use crate::types::{QueryCriteria, TagExpr, TagName};
 
-                    let current =
-                        self.session
-                            .config()
-                            .initial_search
-                            .clone()
-                            .unwrap_or_else(|| {
-                                if let PhaseType::FileSelection { selected_tags } =
-                                    &self.session.current_phase().phase_type
-                                {
-                                    SearchParams {
-                                        query: None,
-                                        tags: selected_tags.iter().map(ToString::to_string).collect(),
-                                        tag_mode: crate::cli::SearchMode::Any,
-                                        file_patterns: vec![],
-                                        file_mode: crate::cli::SearchMode::All,
-                                        exclude_tags: vec![],
-                                        regex_tag: false,
-                                        regex_file: false,
-                                        glob_files: false,
-                                        virtual_tags: vec![],
-                                        virtual_mode: crate::cli::SearchMode::All,
-                                        no_hierarchy: false,
-                                    }
-                                } else {
-                                    SearchParams {
-                                        query: None,
-                                        tags: vec![],
-                                        tag_mode: crate::cli::SearchMode::Any,
-                                        file_patterns: vec![],
-                                        file_mode: crate::cli::SearchMode::All,
-                                        exclude_tags: vec![],
-                                        regex_tag: false,
-                                        regex_file: false,
-                                        glob_files: false,
-                                        virtual_tags: vec![],
-                                        virtual_mode: crate::cli::SearchMode::All,
-                                        no_hierarchy: false,
-                                    }
+                    let current = self.session.config().initial_search.clone()
+                        .unwrap_or_else(|| {
+                            if let PhaseType::FileSelection { selected_tags } =
+                                &self.session.current_phase().phase_type
+                            {
+                                let tag_exprs: Vec<TagExpr> = selected_tags
+                                    .iter()
+                                    .map(|t| TagExpr::Tag(t.clone()))
+                                    .collect();
+                                let tag_expr = match tag_exprs.len() {
+                                    0 => None,
+                                    1 => tag_exprs.into_iter().next(),
+                                    _ => Some(TagExpr::Or(tag_exprs)),
+                                };
+                                QueryCriteria {
+                                    tag_expr,
+                                    ..QueryCriteria::default()
                                 }
-                            });
+                            } else {
+                                QueryCriteria::default()
+                            }
+                        });
 
-                    let new_params = SearchParams {
-                        query: current.query.clone(),
-                        tags: include_tags,
-                        tag_mode: current.tag_mode,
-                        file_patterns,
-                        file_mode: current.file_mode,
-                        exclude_tags,
-                        regex_tag: current.regex_tag,
-                        regex_file: current.regex_file,
-                        glob_files: current.glob_files,
-                        virtual_tags,
-                        virtual_mode: current.virtual_mode,
-                        no_hierarchy: current.no_hierarchy,
+                    // Build new tag expression from include/exclude tags
+                    let include_exprs: Vec<TagExpr> = include_tags
+                        .iter()
+                        .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+                        .collect();
+                    let exclude_exprs: Vec<TagExpr> = exclude_tags
+                        .iter()
+                        .filter_map(|t| {
+                            TagName::new(t).ok().map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+                        })
+                        .collect();
+                    let mut all_exprs = include_exprs;
+                    all_exprs.extend(exclude_exprs);
+                    let tag_expr = match all_exprs.len() {
+                        0 => None,
+                        1 => all_exprs.into_iter().next(),
+                        _ => Some(TagExpr::And(all_exprs)),
                     };
 
-                    self.session.update_search_params(new_params)?;
+                    let new_criteria = QueryCriteria {
+                        tag_expr,
+                        regex_tags: current.regex_tags,
+                        expand_hierarchy: current.expand_hierarchy,
+                        file_patterns,
+                        file_mode: current.file_mode,
+                        regex_files: current.regex_files,
+                        virtual_tags,
+                        virtual_mode: current.virtual_mode,
+                        query: current.query.clone(),
+                    };
+
+                    self.session.update_search_params(new_criteria)?;
                     // Continue browsing with updated criteria
                 }
                 BrowserResult::InputAction {

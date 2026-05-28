@@ -47,7 +47,6 @@ pub enum Request {
     ListTags,
     ListFiles,
     ListAllPaths,
-    SearchFiles { params: WireSearchParams },
     Query { criteria: WireQueryCriteria },
     GetTags { file: String },
     GetNote { file: String },
@@ -168,90 +167,9 @@ pub struct WireQueryCriteria {
     pub query: Option<String>,
 }
 
-/// Search parameters over the wire.
-#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct WireSearchParams {
-    pub query: Option<String>,
-    pub tags: Vec<String>,
-    pub file_patterns: Vec<String>,
-    pub exclude_tags: Vec<String>,
-    pub virtual_tags: Vec<String>,
-    pub tag_mode: WireSearchMode,
-    pub file_mode: WireSearchMode,
-    pub virtual_mode: WireSearchMode,
-    pub no_hierarchy: bool,
-    pub regex_tag: bool,
-    pub regex_file: bool,
-    pub glob_files: bool,
-}
-
-/// Wire-safe search mode (mirrors `cli::SearchMode`).
-#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
-pub enum WireSearchMode {
-    Any,
-    All,
-}
-
 // ---------------------------------------------------------------------------
 // Conversions between wire types and domain types
 // ---------------------------------------------------------------------------
-
-impl From<&crate::cli::SearchParams> for WireSearchParams {
-    fn from(p: &crate::cli::SearchParams) -> Self {
-        Self {
-            query: p.query.clone(),
-            tags: p.tags.clone(),
-            file_patterns: p.file_patterns.clone(),
-            exclude_tags: p.exclude_tags.clone(),
-            virtual_tags: p.virtual_tags.clone(),
-            tag_mode: (&p.tag_mode).into(),
-            file_mode: (&p.file_mode).into(),
-            virtual_mode: (&p.virtual_mode).into(),
-            no_hierarchy: p.no_hierarchy,
-            regex_tag: p.regex_tag,
-            regex_file: p.regex_file,
-            glob_files: p.glob_files,
-        }
-    }
-}
-
-impl From<&WireSearchParams> for crate::cli::SearchParams {
-    fn from(w: &WireSearchParams) -> Self {
-        Self {
-            query: w.query.clone(),
-            tags: w.tags.clone(),
-            file_patterns: w.file_patterns.clone(),
-            exclude_tags: w.exclude_tags.clone(),
-            virtual_tags: w.virtual_tags.clone(),
-            tag_mode: (&w.tag_mode).into(),
-            file_mode: (&w.file_mode).into(),
-            virtual_mode: (&w.virtual_mode).into(),
-            no_hierarchy: w.no_hierarchy,
-            regex_tag: w.regex_tag,
-            regex_file: w.regex_file,
-            glob_files: w.glob_files,
-        }
-    }
-}
-
-impl From<&crate::cli::SearchMode> for WireSearchMode {
-    fn from(m: &crate::cli::SearchMode) -> Self {
-        match m {
-            crate::cli::SearchMode::Any => Self::Any,
-            crate::cli::SearchMode::All => Self::All,
-        }
-    }
-}
-
-impl From<&WireSearchMode> for crate::cli::SearchMode {
-    fn from(m: &WireSearchMode) -> Self {
-        match m {
-            WireSearchMode::Any => Self::Any,
-            WireSearchMode::All => Self::All,
-        }
-    }
-}
 
 impl From<&crate::Pair> for WireFilePair {
     fn from(p: &crate::Pair) -> Self {
@@ -298,44 +216,6 @@ impl From<&WireTagInfo> for crate::ipc::TagInfo {
         Self {
             name: w.name.clone(),
             file_count: w.file_count as usize,
-        }
-    }
-}
-
-impl From<crate::cli::SearchParams> for WireSearchParams {
-    fn from(p: crate::cli::SearchParams) -> Self {
-        Self {
-            tags: p.tags,
-            file_patterns: p.file_patterns,
-            virtual_tags: p.virtual_tags,
-            exclude_tags: p.exclude_tags,
-            regex_tag: p.regex_tag,
-            regex_file: p.regex_file,
-            glob_files: p.glob_files,
-            no_hierarchy: p.no_hierarchy,
-            query: p.query,
-            tag_mode: WireSearchMode::from(&p.tag_mode),
-            file_mode: WireSearchMode::from(&p.file_mode),
-            virtual_mode: WireSearchMode::from(&p.virtual_mode),
-        }
-    }
-}
-
-impl From<WireSearchParams> for crate::cli::SearchParams {
-    fn from(w: WireSearchParams) -> Self {
-        Self {
-            tags: w.tags,
-            file_patterns: w.file_patterns,
-            virtual_tags: w.virtual_tags,
-            exclude_tags: w.exclude_tags,
-            regex_tag: w.regex_tag,
-            regex_file: w.regex_file,
-            glob_files: w.glob_files,
-            no_hierarchy: w.no_hierarchy,
-            query: w.query,
-            tag_mode: crate::cli::SearchMode::from(&w.tag_mode),
-            file_mode: crate::cli::SearchMode::from(&w.file_mode),
-            virtual_mode: crate::cli::SearchMode::from(&w.virtual_mode),
         }
     }
 }
@@ -608,32 +488,6 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
-    }
-
-    #[test]
-    fn test_wire_search_params_conversion() {
-        let domain = crate::cli::SearchParams {
-            query: None,
-            tags: vec!["rust".into()],
-            file_patterns: vec!["*.rs".into()],
-            exclude_tags: vec!["draft".into()],
-            virtual_tags: vec![],
-            tag_mode: crate::cli::SearchMode::All,
-            file_mode: crate::cli::SearchMode::Any,
-            virtual_mode: crate::cli::SearchMode::Any,
-            no_hierarchy: true,
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-        };
-
-        let wire: WireSearchParams = (&domain).into();
-        let back: crate::cli::SearchParams = (&wire).into();
-
-        assert_eq!(back.tags, domain.tags);
-        assert_eq!(back.file_patterns, domain.file_patterns);
-        assert_eq!(back.exclude_tags, domain.exclude_tags);
-        assert_eq!(back.no_hierarchy, domain.no_hierarchy);
     }
 
     #[test]

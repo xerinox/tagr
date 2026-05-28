@@ -77,36 +77,6 @@ pub enum SearchMode {
     All,
 }
 
-/// Parameters for search command
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct SearchParams {
-    /// General query (for combined filename and tag search)
-    pub query: Option<String>,
-    /// Tags to search for
-    pub tags: Vec<String>,
-    /// How to combine multiple tags (AND/OR)
-    pub tag_mode: SearchMode,
-    /// File patterns to filter by
-    pub file_patterns: Vec<String>,
-    /// How to combine multiple file patterns (AND/OR)
-    pub file_mode: SearchMode,
-    /// Tags to exclude
-    pub exclude_tags: Vec<String>,
-    /// Use regex for tag matching
-    pub regex_tag: bool,
-    /// Use regex for file pattern matching
-    pub regex_file: bool,
-    /// Treat file patterns as globs (explicit flag)
-    pub glob_files: bool,
-    /// Virtual tags to filter by
-    pub virtual_tags: Vec<String>,
-    /// How to combine multiple virtual tags (AND/OR)
-    pub virtual_mode: SearchMode,
-    /// Skip hierarchy expansion (don't search parent tags)
-    pub no_hierarchy: bool,
-}
-
 /// Preview configuration overrides from CLI
 #[derive(Debug, Clone)]
 pub struct PreviewOverrides {
@@ -149,149 +119,12 @@ pub struct UntagContext {
 /// Context for browse command execution
 #[derive(Debug, Clone)]
 pub struct BrowseContext {
-    /// Initial search parameters
-    pub search_params: Option<SearchParams>,
+    /// Initial search criteria
+    pub search_criteria: Option<crate::types::QueryCriteria>,
     /// Command to execute on selected files
     pub execute_cmd: Option<String>,
     /// Preview configuration overrides
     pub preview_overrides: PreviewOverrides,
-}
-
-impl SearchParams {
-    /// Merge with another `SearchParams` to create combined criteria
-    ///
-    /// This adds criteria from `other` on top of self:
-    /// - Tags and file patterns are combined (deduplicated)
-    /// - Exclusions are merged
-    /// - Regex and glob flags are OR'd (if either is true, result is true)
-    /// - Modes from `other` always override self's modes
-    ///
-    /// Typical usage when loading filters: `filter_params.merge(&cli_params)`
-    /// The caller is responsible for preserving modes when appropriate.
-    pub fn merge(&mut self, other: &Self) {
-        for tag in &other.tags {
-            if !self.tags.contains(tag) {
-                self.tags.push(tag.clone());
-            }
-        }
-
-        for pattern in &other.file_patterns {
-            if !self.file_patterns.contains(pattern) {
-                self.file_patterns.push(pattern.clone());
-            }
-        }
-
-        for exclude in &other.exclude_tags {
-            if !self.exclude_tags.contains(exclude) {
-                self.exclude_tags.push(exclude.clone());
-            }
-        }
-
-        for vtag in &other.virtual_tags {
-            if !self.virtual_tags.contains(vtag) {
-                self.virtual_tags.push(vtag.clone());
-            }
-        }
-
-        // Boolean flags: OR semantics - either set takes precedence
-        self.regex_tag = self.regex_tag || other.regex_tag;
-        self.regex_file = self.regex_file || other.regex_file;
-        self.glob_files = self.glob_files || other.glob_files;
-        self.no_hierarchy = self.no_hierarchy || other.no_hierarchy;
-
-        // Modes from other always override (caller handles preservation if needed)
-        self.tag_mode = other.tag_mode;
-        self.file_mode = other.file_mode;
-        self.virtual_mode = other.virtual_mode;
-    }
-}
-
-impl From<SearchParams> for crate::filters::FilterCriteria {
-    /// Convert `SearchParams` to `FilterCriteria` for saving as a filter
-    ///
-    /// Note: The general query is not preserved in `FilterCriteria` since
-    /// filters use explicit tags and file patterns only.
-    fn from(params: SearchParams) -> Self {
-        Self {
-            tags: params.tags,
-            tag_mode: params.tag_mode.into(),
-            file_patterns: params.file_patterns,
-            file_mode: params.file_mode.into(),
-            excludes: params.exclude_tags,
-            regex_tag: params.regex_tag,
-            regex_file: params.regex_file,
-            glob_files: false,
-            virtual_tags: params.virtual_tags,
-            virtual_mode: params.virtual_mode.into(),
-        }
-    }
-}
-
-impl From<&SearchParams> for crate::filters::FilterCriteria {
-    fn from(params: &SearchParams) -> Self {
-        Self {
-            tags: params.tags.clone(),
-            tag_mode: params.tag_mode.into(),
-            file_patterns: params.file_patterns.clone(),
-            file_mode: params.file_mode.into(),
-            excludes: params.exclude_tags.clone(),
-            regex_tag: params.regex_tag,
-            regex_file: params.regex_file,
-            glob_files: false,
-            virtual_tags: params.virtual_tags.clone(),
-            virtual_mode: params.virtual_mode.into(),
-        }
-    }
-}
-
-impl From<&crate::filters::FilterCriteria> for SearchParams {
-    fn from(criteria: &crate::filters::FilterCriteria) -> Self {
-        Self {
-            query: None,
-            tags: criteria.tags.clone(),
-            tag_mode: criteria.tag_mode.into(),
-            file_patterns: criteria.file_patterns.clone(),
-            file_mode: criteria.file_mode.into(),
-            exclude_tags: criteria.excludes.clone(),
-            regex_tag: criteria.regex_tag,
-            regex_file: criteria.regex_file,
-            glob_files: criteria.glob_files,
-            virtual_tags: criteria.virtual_tags.clone(),
-            virtual_mode: criteria.virtual_mode.into(),
-            no_hierarchy: false, // Filters don't store hierarchy preference
-        }
-    }
-}
-
-impl From<&SearchCriteriaArgs> for SearchParams {
-    fn from(criteria: &SearchCriteriaArgs) -> Self {
-        Self {
-            query: None,
-            tags: criteria.tags.clone(),
-            tag_mode: if criteria.any_tag {
-                SearchMode::Any
-            } else {
-                SearchMode::All
-            },
-            file_patterns: criteria.file_patterns.clone(),
-            file_mode: if criteria.any_file {
-                SearchMode::Any
-            } else {
-                SearchMode::All
-            },
-            exclude_tags: criteria.excludes.clone(),
-            regex_tag: criteria.regex_tag,
-            regex_file: criteria.regex_file,
-            glob_files: criteria.glob_files,
-            virtual_tags: criteria.virtual_tags.clone(),
-            virtual_mode: if criteria.any_virtual {
-                SearchMode::Any
-            } else {
-                SearchMode::All
-            },
-            no_hierarchy: false, // Default to false, set explicitly from command
-        }
-    }
 }
 
 /// Execute a command template for each file in the list
@@ -949,6 +782,89 @@ pub struct SearchCriteriaArgs {
     pub all_virtual: bool,
 }
 
+impl SearchCriteriaArgs {
+    /// Convert CLI search arguments to `QueryCriteria`.
+    ///
+    /// Builds a `TagExpr` tree from include/exclude tags, maps mode flags to
+    /// `MatchMode`, and passes file/virtual-tag patterns through.
+    #[must_use]
+    pub fn to_query_criteria(&self) -> crate::types::QueryCriteria {
+        use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName};
+
+        let tag_mode = if self.any_tag {
+            MatchMode::Any
+        } else {
+            MatchMode::All
+        };
+
+        let include_exprs: Vec<TagExpr> = self
+            .tags
+            .iter()
+            .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+            .collect();
+
+        let exclude_exprs: Vec<TagExpr> = self
+            .excludes
+            .iter()
+            .filter_map(|t| {
+                TagName::new(t)
+                    .ok()
+                    .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+            })
+            .collect();
+
+        let mut all_exprs = include_exprs;
+        all_exprs.extend(exclude_exprs);
+
+        let tag_expr = match all_exprs.len() {
+            0 => None,
+            1 => all_exprs.into_iter().next(),
+            _ => match tag_mode {
+                MatchMode::All => Some(TagExpr::And(all_exprs)),
+                MatchMode::Any => {
+                    let (includes, excludes): (Vec<_>, Vec<_>) = all_exprs
+                        .into_iter()
+                        .partition(|e| !matches!(e, TagExpr::Not(_)));
+                    if excludes.is_empty() {
+                        Some(TagExpr::Or(includes))
+                    } else if includes.is_empty() {
+                        Some(TagExpr::And(excludes))
+                    } else {
+                        let include_expr = if includes.len() == 1 {
+                            includes.into_iter().next().unwrap_or_else(|| unreachable!())
+                        } else {
+                            TagExpr::Or(includes)
+                        };
+                        let mut combined = vec![include_expr];
+                        combined.extend(excludes);
+                        Some(TagExpr::And(combined))
+                    }
+                }
+            },
+        };
+
+        QueryCriteria {
+            tag_expr,
+            regex_tags: self.regex_tag,
+            expand_hierarchy: true,
+            file_patterns: self.file_patterns.clone(),
+            file_mode: if self.any_file {
+                MatchMode::Any
+            } else {
+                MatchMode::All
+            },
+            regex_files: self.regex_file,
+            virtual_tags: self.virtual_tags.clone(),
+            virtual_mode: if self.any_virtual {
+                MatchMode::Any
+            } else {
+                MatchMode::All
+            },
+            query: None,
+        }
+    }
+}
+
 /// Shared arguments for filter operations
 #[derive(Parser, Debug, Clone)]
 pub struct FilterArgs {
@@ -1261,45 +1177,6 @@ impl Commands {
         }
     }
 
-    /// Helper method to get search parameters from search command
-    #[must_use]
-    pub fn get_search_params(&self) -> Option<SearchParams> {
-        match self {
-            Self::Search {
-                query,
-                criteria,
-                no_hierarchy,
-                ..
-            } => Some(SearchParams {
-                query: query.clone(),
-                tags: criteria.tags.clone(),
-                tag_mode: if criteria.any_tag {
-                    SearchMode::Any
-                } else {
-                    SearchMode::All
-                },
-                file_patterns: criteria.file_patterns.clone(),
-                file_mode: if criteria.any_file {
-                    SearchMode::Any
-                } else {
-                    SearchMode::All
-                },
-                exclude_tags: criteria.excludes.clone(),
-                regex_tag: criteria.regex_tag,
-                regex_file: criteria.regex_file,
-                glob_files: criteria.glob_files,
-                virtual_tags: criteria.virtual_tags.clone(),
-                virtual_mode: if criteria.any_virtual {
-                    SearchMode::Any
-                } else {
-                    SearchMode::All
-                },
-                no_hierarchy: *no_hierarchy,
-            }),
-            _ => None,
-        }
-    }
-
     /// Build `QueryCriteria` directly from the Search command's CLI args.
     ///
     /// Replaces the `SearchParams` bridge — converts `SearchCriteriaArgs`
@@ -1394,6 +1271,7 @@ impl Commands {
     /// Get browse command context
     #[must_use]
     pub fn get_browse_context(&self) -> Option<BrowseContext> {
+
         match self {
             Self::Browse {
                 query,
@@ -1406,32 +1284,22 @@ impl Commands {
                 preview_width,
                 ..
             } => {
-                let search_params = if query.is_some()
+                let search_criteria = if query.is_some()
                     || !criteria.tags.is_empty()
                     || !criteria.file_patterns.is_empty()
                     || !criteria.excludes.is_empty()
                     || !criteria.virtual_tags.is_empty()
                 {
-                    Some(SearchParams {
-                        query: query.clone(),
-                        tags: criteria.tags.clone(),
-                        tag_mode: SearchMode::Any,
-                        file_patterns: criteria.file_patterns.clone(),
-                        file_mode: SearchMode::Any,
-                        exclude_tags: criteria.excludes.clone(),
-                        regex_tag: false,
-                        regex_file: false,
-                        glob_files: false,
-                        virtual_tags: criteria.virtual_tags.clone(),
-                        virtual_mode: SearchMode::Any,
-                        no_hierarchy: *no_hierarchy,
-                    })
+                    let mut qc = criteria.to_query_criteria();
+                    qc.query = query.clone();
+                    qc.expand_hierarchy = !*no_hierarchy;
+                    Some(qc)
                 } else {
                     None
                 };
 
                 Some(BrowseContext {
-                    search_params,
+                    search_criteria,
                     execute_cmd: execute.clone(),
                     preview_overrides: PreviewOverrides {
                         no_preview: *no_preview,
@@ -1622,9 +1490,9 @@ mod tests {
     fn test_parse_search_with_single_tag() {
         let cli = Cli::parse_from(["tagr", "search", "-t", "mytag"]);
         if let Some(Commands::Search { .. }) = cli.command {
-            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
-            assert_eq!(params.tags, vec!["mytag".to_string()]);
-            assert_eq!(params.tag_mode, SearchMode::All);
+            let criteria = cli.command.as_ref().unwrap().get_search_criteria().unwrap();
+            let tags = criteria.flat_include_tags().unwrap();
+            assert!(tags.contains(&crate::types::TagName::new("mytag").unwrap()));
         } else {
             panic!("Expected Search command");
         }
@@ -1634,9 +1502,12 @@ mod tests {
     fn test_parse_search_with_multiple_tags() {
         let cli = Cli::parse_from(["tagr", "search", "-t", "tag1", "-t", "tag2", "--any-tag"]);
         if let Some(Commands::Search { .. }) = cli.command {
-            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
-            assert_eq!(params.tags, vec!["tag1".to_string(), "tag2".to_string()]);
-            assert_eq!(params.tag_mode, SearchMode::Any);
+            let criteria = cli.command.as_ref().unwrap().get_search_criteria().unwrap();
+            let tags = criteria.flat_include_tags().unwrap();
+            assert!(tags.contains(&crate::types::TagName::new("tag1").unwrap()));
+            assert!(tags.contains(&crate::types::TagName::new("tag2").unwrap()));
+            // any-tag → Or expression
+            assert!(matches!(criteria.tag_expr, Some(crate::types::TagExpr::Or(_))));
         } else {
             panic!("Expected Search command");
         }
@@ -1656,13 +1527,14 @@ mod tests {
             "--any-file",
         ]);
         if let Some(Commands::Search { .. }) = cli.command {
-            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
-            assert_eq!(params.tags, vec!["rust".to_string()]);
+            let criteria = cli.command.as_ref().unwrap().get_search_criteria().unwrap();
+            let tags = criteria.flat_include_tags().unwrap();
+            assert!(tags.contains(&crate::types::TagName::new("rust").unwrap()));
             assert_eq!(
-                params.file_patterns,
+                criteria.file_patterns,
                 vec!["*.rs".to_string(), "main.*".to_string()]
             );
-            assert_eq!(params.file_mode, SearchMode::Any);
+            assert_eq!(criteria.file_mode, crate::types::MatchMode::Any);
         } else {
             panic!("Expected Search command");
         }
@@ -1681,11 +1553,10 @@ mod tests {
             "old",
         ]);
         if let Some(Commands::Search { .. }) = cli.command {
-            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
-            assert_eq!(
-                params.exclude_tags,
-                vec!["deprecated".to_string(), "old".to_string()]
-            );
+            let criteria = cli.command.as_ref().unwrap().get_search_criteria().unwrap();
+            let excludes = criteria.flat_exclude_tags().unwrap();
+            assert!(excludes.contains(&crate::types::TagName::new("deprecated").unwrap()));
+            assert!(excludes.contains(&crate::types::TagName::new("old").unwrap()));
         } else {
             panic!("Expected Search command");
         }
@@ -1721,9 +1592,9 @@ mod tests {
         let cli = Cli::parse_from(["tagr", "browse", "documents"]);
         if let Some(Commands::Browse { .. }) = cli.command {
             let ctx = cli.command.as_ref().unwrap().get_browse_context().unwrap();
-            assert!(ctx.search_params.is_some());
-            let params = ctx.search_params.unwrap();
-            assert_eq!(params.query, Some("documents".to_string()));
+            assert!(ctx.search_criteria.is_some());
+            let criteria = ctx.search_criteria.unwrap();
+            assert_eq!(criteria.query, Some("documents".to_string()));
         } else {
             panic!("Expected Browse command");
         }
@@ -1743,11 +1614,11 @@ mod tests {
         ]);
         if let Some(Commands::Browse { .. }) = cli.command {
             let ctx = cli.command.as_ref().unwrap().get_browse_context().unwrap();
-            assert!(ctx.search_params.is_some());
-            let params = ctx.search_params.unwrap();
-            assert_eq!(params.tags, vec!["documents".to_string()]);
-            assert_eq!(params.file_patterns, vec!["*.txt".to_string()]);
-            assert_eq!(params.exclude_tags, vec!["*.md".to_string()]);
+            assert!(ctx.search_criteria.is_some());
+            let criteria = ctx.search_criteria.unwrap();
+            // Tags and patterns are now encoded in TagExpr/file_patterns
+            assert!(!criteria.file_patterns.is_empty());
+            assert!(criteria.tag_expr.is_some());
         } else {
             panic!("Expected Browse command");
         }
@@ -1757,10 +1628,10 @@ mod tests {
     fn test_parse_search_with_general_query() {
         let cli = Cli::parse_from(["tagr", "search", "document"]);
         if let Some(Commands::Search { .. }) = cli.command {
-            let params = cli.command.as_ref().unwrap().get_search_params().unwrap();
-            assert_eq!(params.query, Some("document".to_string()));
-            assert!(params.tags.is_empty());
-            assert!(params.file_patterns.is_empty());
+            let criteria = cli.command.as_ref().unwrap().get_search_criteria().unwrap();
+            assert_eq!(criteria.query, Some("document".to_string()));
+            assert!(criteria.tag_expr.is_none());
+            assert!(criteria.file_patterns.is_empty());
         } else {
             panic!("Expected Search command");
         }

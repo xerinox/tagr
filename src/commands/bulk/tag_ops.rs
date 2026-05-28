@@ -4,11 +4,10 @@ use std::path::Path;
 
 use colored::Colorize;
 
-use crate::cli::{ConditionalArgs, SearchParams};
-use crate::db::query::search_params_to_criteria;
+use crate::cli::ConditionalArgs;
 use crate::patterns::{PatternBuilder, PatternContext};
 use crate::store::TagStore;
-use crate::types::{TagName, TagrPath};
+use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName, TagrPath};
 use crate::TagrError;
 
 use super::core::{
@@ -17,43 +16,46 @@ use super::core::{
 
 type Result<T> = std::result::Result<T, TagrError>;
 
-/// Run `SearchParams` through the query engine against a `TagStore`.
-fn query_files(store: &dyn TagStore, params: &SearchParams) -> Result<Vec<TagrPath>> {
-    let criteria = search_params_to_criteria(params);
+/// Run `QueryCriteria` through the query engine against a `TagStore`.
+fn query_files(store: &dyn TagStore, criteria: &QueryCriteria) -> Result<Vec<TagrPath>> {
     let schema = crate::schema::load_default_schema().unwrap_or_default();
-    let results = crate::query::execute(store, &criteria, &schema)?;
+    let results = crate::query::execute(store, criteria, &schema)?;
     Ok(results)
 }
 
-/// Normalize and validate bulk search params using the pattern system.
+/// Validate bulk search criteria using the pattern system.
 ///
-/// - Implicitly enables glob handling for file patterns in bulk context
-/// - Prevents glob-like tokens being supplied as tags without regex flag
-fn normalize_bulk_params(params: &mut SearchParams) -> Result<()> {
-    let mut builder = PatternBuilder::new(PatternContext::BulkFiles)
-        .regex_tags(params.regex_tag)
-        .regex_files(params.regex_file)
-        .glob_files_flag(params.glob_files);
+/// Prevents glob-like tokens being supplied as tags without regex flag.
+fn validate_bulk_criteria(criteria: &QueryCriteria) -> Result<()> {
+    let tags: Vec<String> = criteria
+        .flat_include_tags()
+        .map(|set| set.iter().map(|t| t.as_str().to_string()).collect())
+        .unwrap_or_default();
 
-    for t in &params.tags {
+    let mut builder = PatternBuilder::new(PatternContext::BulkFiles)
+        .regex_tags(criteria.regex_tags)
+        .regex_files(criteria.regex_files)
+        .glob_files_flag(!criteria.regex_files);
+
+    for t in &tags {
         builder.add_tag_token(t);
     }
-    for f in &params.file_patterns {
+    for f in &criteria.file_patterns {
         builder.add_file_token(f);
     }
 
-    // Validates tag/file separation; DB integration deferred to command handler
-    let _ = builder.build(params.tag_mode, params.file_mode)?;
+    let to_search_mode = |m: MatchMode| match m {
+        MatchMode::All => crate::cli::SearchMode::All,
+        MatchMode::Any => crate::cli::SearchMode::Any,
+    };
 
-    // Auto-enable glob flag if file patterns contain glob wildcards (unless regex mode is on)
-    if !params.regex_file
-        && params
-            .file_patterns
-            .iter()
-            .any(|p| p.contains('*') || p.contains('?') || p.contains('['))
-    {
-        params.glob_files = true;
-    }
+    let tag_mode = if criteria.tag_expr.as_ref().is_some_and(|e| matches!(e, TagExpr::And(_))) {
+        crate::cli::SearchMode::All
+    } else {
+        crate::cli::SearchMode::Any
+    };
+
+    let _ = builder.build(tag_mode, to_search_mode(criteria.file_mode))?;
     Ok(())
 }
 
@@ -97,7 +99,7 @@ fn check_conditions(
 #[allow(clippy::too_many_arguments)]
 pub fn bulk_tag(
     store: &dyn TagStore,
-    mut params: SearchParams,
+    criteria: &QueryCriteria,
     tags: &[String],
     conditions: &ConditionalArgs,
     dry_run: bool,
@@ -108,8 +110,8 @@ pub fn bulk_tag(
     if tags.is_empty() {
         return Err(TagrError::InvalidInput("No tags provided".into()));
     }
-    normalize_bulk_params(&mut params)?;
-    let files = query_files(store, &params)?;
+    validate_bulk_criteria(criteria)?;
+    let files = query_files(store, criteria)?;
     let path_bufs: Vec<std::path::PathBuf> = files.iter().map(|f| f.as_path().to_path_buf()).collect();
     if files.is_empty() {
         if !quiet {
@@ -178,7 +180,7 @@ pub fn bulk_tag(
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn bulk_untag(
     store: &dyn TagStore,
-    mut params: SearchParams,
+    criteria: &QueryCriteria,
     tags: &[String],
     remove_all: bool,
     conditions: &ConditionalArgs,
@@ -192,8 +194,8 @@ pub fn bulk_untag(
             "No tags provided. Use --all to remove all tags".into(),
         ));
     }
-    normalize_bulk_params(&mut params)?;
-    let files = query_files(store, &params)?;
+    validate_bulk_criteria(criteria)?;
+    let files = query_files(store, criteria)?;
     let path_bufs: Vec<std::path::PathBuf> = files.iter().map(|f| f.as_path().to_path_buf()).collect();
     if files.is_empty() {
         if !quiet {
@@ -382,80 +384,9 @@ pub fn rename_tag(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_normalize_sets_glob_files_on_wildcards() {
-        let mut params = SearchParams {
-            query: None,
-            tags: vec![],
-            tag_mode: crate::cli::SearchMode::All,
-            file_patterns: vec!["**/*.rs".to_string(), "src/?ain.rs".to_string()],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        };
-
-        normalize_bulk_params(&mut params).expect("normalize should succeed");
-        assert!(
-            params.glob_files,
-            "glob_files should be enabled when patterns have wildcards"
-        );
-    }
-
-    #[test]
-    fn test_normalize_preserves_regex_file_flag() {
-        let mut params = SearchParams {
-            query: None,
-            tags: vec![],
-            tag_mode: crate::cli::SearchMode::All,
-            file_patterns: vec![".*\\.md".to_string()],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: true,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        };
-
-        normalize_bulk_params(&mut params).expect("normalize should succeed");
-        assert!(params.regex_file, "regex_file should remain true");
-        assert!(
-            !params.glob_files,
-            "glob_files should remain false when regex_file is true"
-        );
-    }
-
-    #[test]
-    fn test_normalize_errors_on_glob_like_tags() {
-        let mut params = SearchParams {
-            query: None,
-            tags: vec!["feature/*".to_string()],
-            tag_mode: crate::cli::SearchMode::All,
-            file_patterns: vec!["src".to_string()],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        };
-
-        let err = normalize_bulk_params(&mut params).expect_err("should error");
-        match err {
-            TagrError::PatternError(_) => {}
-            _ => panic!("Expected PatternError for glob-like tag token"),
-        }
-    }
+    // Validation of glob-like tag tokens is now handled by TagName::new()
+    // at construction time — invalid characters like *, ?, / are rejected
+    // before reaching validate_bulk_criteria.
 }
 
 #[derive(Clone, Copy)]
@@ -475,7 +406,7 @@ pub struct CopyTagsConfig<'a> {
 pub fn copy_tags(
     store: &dyn TagStore,
     source_file: &Path,
-    mut params: SearchParams,
+    criteria: &QueryCriteria,
     config: CopyTagsConfig,
     writer: &mut impl Write,
 ) -> Result<()> {
@@ -504,8 +435,8 @@ pub fn copy_tags(
         }
         return Ok(());
     }
-    normalize_bulk_params(&mut params)?;
-    let target_files = query_files(store, &params)?;
+    validate_bulk_criteria(criteria)?;
+    let target_files = query_files(store, criteria)?;
     if target_files.is_empty() {
         if !config.quiet {
             writeln!(writer, "No target files match the specified criteria.")?;

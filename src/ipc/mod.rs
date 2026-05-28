@@ -9,7 +9,6 @@
 //!   for persistent bidirectional connections.
 
 use crate::Pair;
-use crate::cli::SearchParams;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -51,8 +50,6 @@ pub enum IpcRequest {
     ListFiles,
     /// List just file paths (no tags)
     ListAllPaths,
-    /// Search files matching criteria
-    SearchFiles { params: SearchParams },
     /// Get tags for a single file
     GetTags { file: PathBuf },
     /// Find files with a specific tag
@@ -172,24 +169,6 @@ mod tests {
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: IpcRequest = serde_json::from_str(&json).unwrap();
         assert!(matches!(deserialized, IpcRequest::Shutdown));
-    }
-
-    #[test]
-    fn test_ipc_search_files_round_trip() {
-        let req = IpcRequest::SearchFiles {
-            params: SearchParams {
-                tags: vec!["rust".into(), "wasm".into()],
-                ..SearchParams::default()
-            },
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        let deserialized: IpcRequest = serde_json::from_str(&json).unwrap();
-        match deserialized {
-            IpcRequest::SearchFiles { params } => {
-                assert_eq!(params.tags, vec!["rust", "wasm"]);
-            }
-            _ => panic!("Expected SearchFiles variant"),
-        }
     }
 
     #[test]

@@ -6,7 +6,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tagr::cli::{SearchMode, SearchParams};
+use tagr::types::{MatchMode, QueryCriteria, TagExpr, TagName};
 use tagr::commands::bulk::{bulk_tag, bulk_untag};
 use tagr::commands::search as search_cmd;
 use tagr::config;
@@ -96,26 +96,16 @@ fn test_e2e_bulk_tag_with_glob_file_patterns() {
         .insert(f_txt.path(), vec!["init".into()])
         .unwrap();
 
-    // Build SearchParams like CLI: file_patterns only, no explicit glob flag
-    let params = SearchParams {
-        query: None,
-        tags: vec![],
-        tag_mode: SearchMode::All,
+    // Build QueryCriteria: file_patterns only
+    let criteria = QueryCriteria {
         file_patterns: vec!["*.rs".to_string()],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+        ..QueryCriteria::default()
     };
 
-    // Execute bulk tag (normalize should enable glob and match only .rs files)
+    // Execute bulk tag (validate should pass and match only .rs files)
     bulk_tag(
         test_db.store(),
-        params,
+        &criteria,
         &["added".into()],
         &tagr::cli::ConditionalArgs::default(),
         /*dry_run*/ false,
@@ -155,24 +145,15 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
         .insert(f_rs.path(), vec!["remove".into()])
         .unwrap();
 
-    let params = SearchParams {
-        query: None,
-        tags: vec![],
-        tag_mode: SearchMode::All,
+    let criteria = QueryCriteria {
         file_patterns: vec![".*\\.txt".to_string()],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: true,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+        regex_files: true,
+        ..QueryCriteria::default()
     };
 
     bulk_untag(
         test_db.store(),
-        params,
+        &criteria,
         &["remove".into()],
         /*remove_all*/ false,
         &tagr::cli::ConditionalArgs::default(),
@@ -1167,22 +1148,14 @@ fn test_hierarchy_prefix_matching() {
     .unwrap();
 
     // Search for "-t lang" should match all files with lang:* tags
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("lang").unwrap())),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 3);
 }
 
@@ -1207,24 +1180,19 @@ fn test_hierarchy_specificity_exclude_wins() {
 
     // Search: -t lang -x lang:rust
     // Should include lang:javascript but exclude lang:rust
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec!["lang:rust".to_string()],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("lang").unwrap()),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("lang:rust").unwrap()))),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("spec1.js"));
+    assert!(results[0].as_str().contains("spec1.js"));
 }
 
 #[test]
@@ -1248,24 +1216,19 @@ fn test_hierarchy_cross_hierarchy_exclude() {
 
     // Search: -t lang -x tests
     // Different hierarchies - exclude wins
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec!["tests".to_string()],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("lang").unwrap()),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("tests").unwrap()))),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("cross1.js"));
+    assert!(results[0].as_str().contains("cross1.js"));
 }
 
 #[test]
@@ -1283,22 +1246,20 @@ fn test_hierarchy_deeper_include_overrides_exclude() {
 
     // Search: -t lang -t lang:rust:async -x lang:rust
     // Depth 3 include should override depth 2 exclude
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string(), "lang:rust:async".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec!["lang:rust".to_string()],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Or(vec![
+                TagExpr::Tag(TagName::new("lang").unwrap()),
+                TagExpr::Tag(TagName::new("lang:rust:async").unwrap()),
+            ]),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("lang:rust").unwrap()))),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
 }
 
@@ -1329,24 +1290,19 @@ fn test_hierarchy_all_mode_requires_all_patterns() {
 
     // Search: -t lang -t project --all-tags
     // Only file1 has tags matching both patterns
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string(), "project".to_string()],
-        tag_mode: SearchMode::All,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("lang").unwrap()),
+            TagExpr::Tag(TagName::new("project").unwrap()),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("all1.rs"));
+    assert!(results[0].as_str().contains("all1.rs"));
 }
 
 #[test]
@@ -1367,24 +1323,16 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
 
     // Search: -t lang --no-hierarchy
     // Should only match file2 (exact match only)
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: true,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("lang").unwrap())),
+        expand_hierarchy: false,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("nohier2.rs"));
+    assert!(results[0].as_str().contains("nohier2.rs"));
 }
 
 // ============================================================================

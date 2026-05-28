@@ -8,11 +8,8 @@
 //! types, making them suitable for direct use in browse workflows.
 
 use crate::browse::models::{MetadataCache, TagWithDb, TagrItem};
-use crate::cli::SearchParams;
-use crate::db::query::search_params_to_criteria;
 use crate::store::{StoreError, TagStore};
-use crate::types::TagName;
-use crate::query::hierarchy;
+use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName};
 use std::collections::{HashMap, HashSet};
 
 /// Query files that have notes but no tags (notes-only files)
@@ -137,35 +134,24 @@ pub fn get_available_tags(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreError
     }
 }
 
-/// Query files matching the given search parameters
+/// Query files matching the given search criteria
 ///
 /// Applies search criteria including tag matching (any/all), file patterns,
 /// exclusions, and virtual tags. Returns files as `TagrItem` instances with
 /// full metadata.
 ///
 /// # Arguments
-/// * `db` - Database to query
-/// * `params` - Search parameters specifying filters
+/// * `ds` - Data store to query
+/// * `criteria` - Query criteria specifying filters
 ///
 /// # Returns
 /// Vector of `TagrItem` instances representing files, with tags and metadata
 ///
 /// # Errors
-/// Returns `DbError` if database operations or pattern matching fails
-///
-/// # Examples
-/// ```ignore
-/// let params = SearchParams {
-///     tags: vec!["rust".to_string()],
-///     tag_mode: SearchMode::Any,
-///     ..Default::default()
-/// };
-/// let files = get_matching_files(&db, &params)?;
-/// ```
-pub fn get_matching_files(ds: &dyn TagStore, params: &SearchParams) -> Result<Vec<TagrItem>, StoreError> {
-    let criteria = search_params_to_criteria(params);
+/// Returns `StoreError` if database operations or pattern matching fails
+pub fn get_matching_files(ds: &dyn TagStore, criteria: &QueryCriteria) -> Result<Vec<TagrItem>, StoreError> {
     let schema = crate::schema::load_default_schema().unwrap_or_default();
-    let result_paths = ds.query(&criteria, &schema)?;
+    let result_paths = ds.query(criteria, &schema)?;
 
     let items: Result<Vec<TagrItem>, StoreError> = result_paths
         .into_iter()
@@ -182,11 +168,11 @@ pub fn get_matching_files(ds: &dyn TagStore, params: &SearchParams) -> Result<Ve
 
 /// Query files for specific tags with a given search mode
 ///
-/// Convenience function that builds `SearchParams` from tags and mode,
+/// Convenience function that builds `QueryCriteria` from tags and mode,
 /// then queries matching files.
 ///
 /// # Arguments
-/// * `db` - Database to query
+/// * `ds` - Data store to query
 /// * `tags` - Tags to search for
 /// * `mode` - Search mode (Any = OR, All = AND)
 ///
@@ -194,38 +180,47 @@ pub fn get_matching_files(ds: &dyn TagStore, params: &SearchParams) -> Result<Ve
 /// Vector of `TagrItem` instances for matching files
 ///
 /// # Errors
-/// Returns `DbError` if database operations fail
+/// Returns `StoreError` if database operations fail
 pub fn get_files_by_tags(
     ds: &dyn TagStore,
     tags: &[String],
     mode: crate::browse::models::SearchMode,
 ) -> Result<Vec<TagrItem>, StoreError> {
-    let params = SearchParams {
-        query: None,
-        tags: tags.to_vec(),
-        tag_mode: mode.into(),
-        file_patterns: vec![],
-        file_mode: crate::cli::SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: crate::cli::SearchMode::All,
-        no_hierarchy: false,
+    let match_mode = match mode {
+        crate::browse::models::SearchMode::Any => MatchMode::Any,
+        crate::browse::models::SearchMode::All => MatchMode::All,
     };
 
-    get_matching_files(ds, &params)
+    let tag_exprs: Vec<TagExpr> = tags
+        .iter()
+        .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+        .collect();
+
+    let tag_expr = match tag_exprs.len() {
+        0 => None,
+        1 => tag_exprs.into_iter().next(),
+        _ => match match_mode {
+            MatchMode::All => Some(TagExpr::And(tag_exprs)),
+            MatchMode::Any => Some(TagExpr::Or(tag_exprs)),
+        },
+    };
+
+    let criteria = QueryCriteria {
+        tag_expr,
+        ..QueryCriteria::default()
+    };
+
+    get_matching_files(ds, &criteria)
 }
 
-/// Filter an existing collection of items in-memory using search parameters
+/// Filter an existing collection of items in-memory using query criteria
 ///
-/// Uses hierarchy-aware tag matching for include/exclude criteria.
+/// Uses tag expression matching for include/exclude criteria.
 /// Useful for live filtering in the TUI as users type or adjust search criteria.
 #[must_use]
 pub fn filter_items_in_memory<'a>(
     items: &'a [TagrItem],
-    params: &'a SearchParams,
+    criteria: &'a QueryCriteria,
 ) -> Vec<&'a TagrItem> {
     items
         .iter()
@@ -235,47 +230,8 @@ pub fn filter_items_in_memory<'a>(
                 crate::browse::models::ItemMetadata::Tag(_) => return true,
             };
 
-            if params.tags.is_empty() && params.exclude_tags.is_empty() {
-                return true;
-            }
-
-            if params.no_hierarchy {
-                // Exact matching
-                if !params.tags.is_empty() {
-                    let has_match = match params.tag_mode {
-                        crate::cli::SearchMode::All => {
-                            params.tags.iter().all(|t| tags.iter().any(|tag| tag.as_str() == t))
-                        }
-                        crate::cli::SearchMode::Any => {
-                            params.tags.iter().any(|t| tags.iter().any(|tag| tag.as_str() == t))
-                        }
-                    };
-                    if !has_match {
-                        return false;
-                    }
-                }
-                if params.exclude_tags.iter().any(|t| tags.iter().any(|tag| tag.as_str() == t)) {
-                    return false;
-                }
-            } else {
-                // Hierarchy-aware matching
-                if !params.tags.is_empty() {
-                    let matches = match params.tag_mode {
-                        crate::cli::SearchMode::All => params.tags.iter().all(|pattern| {
-                            tags.iter()
-                                .any(|tag| hierarchy::pattern_matches(pattern, tag.as_str()))
-                        }),
-                        crate::cli::SearchMode::Any => params.tags.iter().any(|pattern| {
-                            tags.iter()
-                                .any(|tag| hierarchy::pattern_matches(pattern, tag.as_str()))
-                        }),
-                    };
-                    if !matches {
-                        return false;
-                    }
-                }
-
-                if !hierarchy::should_include_file(tags, &params.tags, &params.exclude_tags) {
+            if let Some(ref expr) = criteria.tag_expr {
+                if !expr.matches(tags) {
                     return false;
                 }
             }
@@ -285,30 +241,11 @@ pub fn filter_items_in_memory<'a>(
         .collect()
 }
 
-impl From<crate::browse::models::SearchMode> for crate::cli::SearchMode {
-    fn from(mode: crate::browse::models::SearchMode) -> Self {
-        match mode {
-            crate::browse::models::SearchMode::Any => Self::Any,
-            crate::browse::models::SearchMode::All => Self::All,
-        }
-    }
-}
-
-impl From<crate::cli::SearchMode> for crate::browse::models::SearchMode {
-    fn from(mode: crate::cli::SearchMode) -> Self {
-        match mode {
-            crate::cli::SearchMode::Any => Self::Any,
-            crate::cli::SearchMode::All => Self::All,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Pair;
     use crate::browse::models::SearchMode;
-    use crate::cli::SearchParams;
     use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
 
@@ -401,23 +338,13 @@ mod tests {
         db.insert_pair(&pair2).unwrap();
         db.insert_pair(&pair3).unwrap();
 
-        let params = SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        let criteria = QueryCriteria {
+            tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+            ..QueryCriteria::default()
         };
 
         let source = ds(&test_db);
-        let files = get_matching_files(&source, &params).unwrap();
+        let files = get_matching_files(&source, &criteria).unwrap();
         assert_eq!(files.len(), 2);
 
         for item in &files {
@@ -490,21 +417,6 @@ mod tests {
     }
 
     #[test]
-    fn test_search_mode_conversion() {
-        let cli_any: crate::cli::SearchMode = SearchMode::Any.into();
-        assert!(matches!(cli_any, crate::cli::SearchMode::Any));
-
-        let cli_all: crate::cli::SearchMode = SearchMode::All.into();
-        assert!(matches!(cli_all, crate::cli::SearchMode::All));
-
-        let browse_any: SearchMode = crate::cli::SearchMode::Any.into();
-        assert!(matches!(browse_any, SearchMode::Any));
-
-        let browse_all: SearchMode = crate::cli::SearchMode::All.into();
-        assert!(matches!(browse_all, SearchMode::All));
-    }
-
-    #[test]
     fn test_get_matching_files_no_results() {
         let test_db = TestDb::new("test_matching_no_results");
         let db = test_db.db();
@@ -517,23 +429,13 @@ mod tests {
         ))
         .unwrap();
 
-        let params = SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        let criteria = QueryCriteria {
+            tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+            ..QueryCriteria::default()
         };
 
         let source = ds(&test_db);
-        let files = get_matching_files(&source, &params).unwrap();
+        let files = get_matching_files(&source, &criteria).unwrap();
         assert_eq!(files.len(), 0);
     }
 

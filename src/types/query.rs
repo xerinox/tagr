@@ -80,8 +80,7 @@ impl TagExpr {
 
 /// Unified search parameters.
 ///
-/// Replaces `SearchParams`, `FilterCriteria`, `ActiveFilter`, and
-/// `WireSearchParams`. All query consumers use this single type.
+/// All query consumers use this single type.
 ///
 /// An empty `QueryCriteria` (all fields at defaults) matches every file
 /// in the database.

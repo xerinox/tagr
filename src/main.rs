@@ -435,7 +435,7 @@ fn main() -> Result<()> {
         match DirectStore::open(db_path) {
             Ok(store) => {
                 let mut stdout = std::io::stdout();
-                commands::dispatch_command(&command, store.inner(), &store, &config, path_format, quiet, &mut stdout)?;
+                commands::dispatch_command(&command, std::sync::Arc::new(store), &config, path_format, quiet, &mut stdout)?;
             }
             Err(StoreError::DatabaseLocked) => {
                 // DB is locked — forward to daemon if it is reachable.
@@ -547,7 +547,7 @@ fn dispatch_via_ipc(
             return commands::browse::execute(
                 std::sync::Arc::new(store),
                 Some(event_rx),
-                ctx.search_params,
+                ctx.search_criteria,
                 filter_args.filter.as_deref(),
                 save_filter,
                 ctx.execute_cmd,

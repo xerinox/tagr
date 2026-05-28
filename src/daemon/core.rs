@@ -718,17 +718,6 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             }
         }
 
-        Request::SearchFiles { params } => {
-            let search_params = crate::cli::SearchParams::from(params);
-            match execute_search(db, &search_params) {
-                Ok(pairs) => {
-                    let wire_pairs = pairs.into_iter().map(WireFilePair::from).collect();
-                    (Response::Files(wire_pairs), false, None)
-                }
-                Err(e) => (Response::Error(e.to_string()), false, None),
-            }
-        }
-
         Request::Query { criteria } => {
             use crate::store::TagStore as _;
             match crate::types::QueryCriteria::try_from(&criteria) {
@@ -925,53 +914,6 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             }
         }
     }
-}
-
-/// Execute a search query and return matching file-tag pairs.
-fn execute_search(db: &Database, params: &crate::cli::SearchParams) -> std::result::Result<Vec<crate::Pair>, crate::db::DbError> {
-    use crate::query::expand_tags;
-    use crate::store::DirectStore;
-
-    let store = DirectStore::new(db.clone());
-    let schema = crate::schema::load_default_schema().ok().unwrap_or_default();
-
-    if params.tags.is_empty() && params.file_patterns.is_empty() && params.virtual_tags.is_empty() {
-        return db.list_all();
-    }
-
-    let mut results: Vec<crate::Pair> = if params.tags.is_empty() {
-        db.list_all()?
-    } else {
-        let expanded = expand_tags(&params.tags, &schema, &store, !params.no_hierarchy)
-            .map_err(|e| crate::db::DbError::InvalidInput(e.to_string()))?;
-        let mut files = std::collections::HashSet::new();
-        for tag in &expanded {
-            for path in db.find_by_tag(tag)? {
-                files.insert(path);
-            }
-        }
-        files
-            .into_iter()
-            .filter_map(|path| {
-                db.get_tags(&path).ok().flatten().map(|tags| crate::Pair::new(path, tags))
-            })
-            .collect()
-    };
-
-    if !params.file_patterns.is_empty() {
-        results.retain(|pair| {
-            let path_str = pair.file.to_string_lossy();
-            params.file_patterns.iter().any(|p| path_str.contains(p))
-        });
-    }
-
-    if !params.exclude_tags.is_empty() {
-        results.retain(|pair| {
-            !params.exclude_tags.iter().any(|ex| pair.tags.contains(ex))
-        });
-    }
-
-    Ok(results)
 }
 
 #[cfg(test)]

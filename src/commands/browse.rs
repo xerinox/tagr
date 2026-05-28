@@ -6,12 +6,13 @@ use crate::{
         session::{BrowseConfig, BrowseSession, HelpText, PhaseSettings},
         ui::BrowseController,
     },
-    cli::{PreviewOverrides, SearchParams},
+    cli::PreviewOverrides,
     config::{self, PreviewConfig},
-    filters::{FilterCriteria, FilterManager},
+    filters::FilterManager,
     keybinds::config::KeybindConfig,
     output,
     store::TagStore,
+    types::QueryCriteria,
     ui::ratatui_adapter::RatatuiFinder,
 };
 
@@ -34,7 +35,7 @@ impl From<config::PathFormat> for crate::browse::session::PathFormat {
 pub fn execute(
     store: std::sync::Arc<dyn TagStore>,
     event_rx: Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>,
-    mut search_params: Option<SearchParams>,
+    mut search_criteria: Option<QueryCriteria>,
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
     execute_cmd: Option<String>,
@@ -47,12 +48,27 @@ pub fn execute(
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
 
-        let filter_params = SearchParams::from(&filter.criteria);
+        let filter_criteria = QueryCriteria::from(&filter.criteria);
 
-        if let Some(ref mut params) = search_params {
-            params.merge(&filter_params);
+        if let Some(ref mut criteria) = search_criteria {
+            // Merge: combine tag expressions
+            if criteria.tag_expr.is_none() {
+                criteria.tag_expr = filter_criteria.tag_expr;
+            }
+            for fp in &filter_criteria.file_patterns {
+                if !criteria.file_patterns.contains(fp) {
+                    criteria.file_patterns.push(fp.clone());
+                }
+            }
+            for vt in &filter_criteria.virtual_tags {
+                if !criteria.virtual_tags.contains(vt) {
+                    criteria.virtual_tags.push(vt.clone());
+                }
+            }
+            criteria.regex_tags = criteria.regex_tags || filter_criteria.regex_tags;
+            criteria.regex_files = criteria.regex_files || filter_criteria.regex_files;
         } else {
-            search_params = Some(filter_params);
+            search_criteria = Some(filter_criteria);
         }
 
         manager.record_use(name)?;
@@ -105,7 +121,7 @@ pub fn execute(
     };
 
     let config = BrowseConfig {
-        initial_search: search_params.clone(),
+        initial_search: search_criteria.clone(),
         path_format: path_format.into(),
         tag_phase_settings,
         file_phase_settings,
@@ -149,13 +165,13 @@ pub fn execute(
             }
 
             if let Some((name, desc)) = save_filter {
-                if let Some(params) = search_params {
+                if let Some(criteria) = search_criteria {
                     let filter_path = crate::filters::get_filter_path()?;
                     let manager = FilterManager::new(filter_path);
-                    let criteria = FilterCriteria::from(params);
+                    let filter_criteria = crate::filters::FilterCriteria::from(&criteria);
                     let description = desc.unwrap_or("Saved browse filter");
 
-                    manager.create(name, description.to_string(), criteria)?;
+                    manager.create(name, description.to_string(), filter_criteria)?;
 
                     if !quiet {
                         println!("\nSaved filter '{name}'");

@@ -32,13 +32,12 @@ use std::sync::Arc;
 
 use crate::browse::models::{ActionOutcome, SearchMode, TagrItem};
 use crate::browse::{actions, query};
-use crate::cli::SearchParams;
 use crate::config::PreviewConfig;
 use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::config::KeybindConfig;
 use crate::schema::{self, TagSchema};
 use crate::store::TagStore;
-use crate::types::{TagName, TagrPath};
+use crate::types::{QueryCriteria, TagName, TagrPath};
 
 /// Threshold for switching between in-memory and DB filtering
 ///
@@ -82,8 +81,8 @@ pub struct BrowseSession {
 /// Configuration for browse session
 #[derive(Clone)]
 pub struct BrowseConfig {
-    /// Initial search parameters (if provided via CLI)
-    pub initial_search: Option<SearchParams>,
+    /// Initial search criteria (if provided via CLI)
+    pub initial_search: Option<QueryCriteria>,
 
     /// Path display format
     pub path_format: PathFormat,
@@ -170,14 +169,13 @@ impl BrowseSession {
     ///
     /// Returns error if database queries fail
     pub fn new(ds: Arc<dyn TagStore>, config: BrowseConfig) -> Result<Self> {
-        let current_phase = if let Some(ref search_params) = config.initial_search {
-            let items = query::get_matching_files(&*ds, search_params)?;
+        let current_phase = if let Some(ref criteria) = config.initial_search {
+            let items = query::get_matching_files(&*ds, criteria)?;
 
-            let selected_tags: Vec<TagName> = search_params
-                .tags
-                .iter()
-                .filter_map(|t| TagName::new(t).ok())
-                .collect();
+            let selected_tags: Vec<TagName> = criteria
+                .flat_include_tags()
+                .map(|set| set.into_iter().cloned().collect())
+                .unwrap_or_default();
 
             BrowserPhase {
                 phase_type: PhaseType::FileSelection {
@@ -409,11 +407,21 @@ impl BrowseSession {
                     }
                 }
             },
-            |params| crate::browse::models::SearchCriteriaData {
-                tags: params.tags.clone(),
-                exclude_tags: params.exclude_tags.clone(),
-                file_patterns: params.file_patterns.clone(),
-                virtual_tags: params.virtual_tags.clone(),
+            |criteria| {
+                let tags = criteria
+                    .flat_include_tags()
+                    .map(|set| set.into_iter().map(ToString::to_string).collect())
+                    .unwrap_or_default();
+                let exclude_tags = criteria
+                    .flat_exclude_tags()
+                    .map(|set| set.into_iter().map(ToString::to_string).collect())
+                    .unwrap_or_default();
+                crate::browse::models::SearchCriteriaData {
+                    tags,
+                    exclude_tags,
+                    file_patterns: criteria.file_patterns.clone(),
+                    virtual_tags: criteria.virtual_tags.clone(),
+                }
             },
         )
     }
@@ -442,12 +450,12 @@ impl BrowseSession {
     ///
     /// # Arguments
     ///
-    /// * `new_params` - New search parameters to apply
+    /// * `new_criteria` - New query criteria to apply
     ///
     /// # Errors
     ///
     /// Returns error if database queries fail
-    pub fn update_search_params(&mut self, new_params: SearchParams) -> Result<()> {
+    pub fn update_search_params(&mut self, new_criteria: QueryCriteria) -> Result<()> {
         // Only applicable in file selection phase
         let PhaseType::FileSelection { selected_tags: _ } = &self.current_phase.phase_type else {
             return Err(BrowseError::InvalidState(
@@ -455,21 +463,20 @@ impl BrowseSession {
             ));
         };
 
-        let old_params = self.config.initial_search.as_ref();
+        let old_criteria = self.config.initial_search.as_ref();
 
-        let filters_relaxed = old_params.is_some_and(|old| is_filter_relaxation(old, &new_params));
+        let filters_relaxed = old_criteria.is_some_and(|old| is_filter_relaxation(old, &new_criteria));
 
-        self.config.initial_search = Some(new_params.clone());
+        self.config.initial_search = Some(new_criteria.clone());
 
-        let tag_names: Vec<TagName> = new_params
-            .tags
-            .iter()
-            .filter_map(|t| TagName::new(t).ok())
-            .collect();
+        let tag_names: Vec<TagName> = new_criteria
+            .flat_include_tags()
+            .map(|set| set.into_iter().cloned().collect())
+            .unwrap_or_default();
 
         // Use hybrid filtering: DB queries for relaxations, in-memory for restrictions
         if filters_relaxed || self.base_items.is_none() {
-            let items = query::get_matching_files(&*self.ds, &new_params)?;
+            let items = query::get_matching_files(&*self.ds, &new_criteria)?;
 
             if items.len() < HYBRID_FILTER_THRESHOLD {
                 self.base_items = Some(items.clone());
@@ -485,7 +492,7 @@ impl BrowseSession {
                 settings: self.config.file_phase_settings.clone(),
             };
         } else if let Some(ref base) = self.base_items {
-            let filtered_refs = query::filter_items_in_memory(base, &new_params);
+            let filtered_refs = query::filter_items_in_memory(base, &new_criteria);
             let items: Vec<TagrItem> = filtered_refs.into_iter().cloned().collect();
 
             self.current_phase = BrowserPhase {
@@ -496,7 +503,7 @@ impl BrowseSession {
                 settings: self.config.file_phase_settings.clone(),
             };
         } else {
-            let items = query::get_matching_files(&*self.ds, &new_params)?;
+            let items = query::get_matching_files(&*self.ds, &new_criteria)?;
 
             self.current_phase = BrowserPhase {
                 phase_type: PhaseType::FileSelection {
@@ -648,7 +655,7 @@ impl PhaseSettings {
     }
 }
 
-/// Check if new search params are less restrictive than old params
+/// Check if new query criteria are less restrictive than old criteria
 ///
 /// Returns `true` if filters are being relaxed, which requires a DB re-query
 /// to ensure we don't miss results that were filtered out initially.
@@ -658,16 +665,7 @@ impl PhaseSettings {
 /// - Removing exclude tags (e.g., `-x python` → no excludes)
 /// - Reducing number of include tags in ALL mode
 /// - Removing file patterns
-/// - Removing virtual tag constraints
-const fn is_filter_relaxation(old: &SearchParams, new: &SearchParams) -> bool {
-    if new.exclude_tags.len() < old.exclude_tags.len() {
-        return true;
-    }
-
-    if matches!(old.tag_mode, crate::cli::SearchMode::All) && new.tags.len() < old.tags.len() {
-        return true;
-    }
-
+const fn is_filter_relaxation(old: &QueryCriteria, new: &QueryCriteria) -> bool {
     if new.file_patterns.len() < old.file_patterns.len() {
         return true;
     }
@@ -676,12 +674,8 @@ const fn is_filter_relaxation(old: &SearchParams, new: &SearchParams) -> bool {
         return true;
     }
 
-    if matches!(old.tag_mode, crate::cli::SearchMode::All)
-        && matches!(new.tag_mode, crate::cli::SearchMode::Any)
-    {
-        return true;
-    }
-
+    // Comparing tag expressions is complex; conservatively re-query
+    // when tag expressions differ
     false
 }
 
@@ -711,19 +705,9 @@ mod tests {
     fn test_session_starts_at_file_phase_with_initial_search() {
         let db = TestDb::new("test_session_file_phase");
         let config = BrowseConfig {
-            initial_search: Some(SearchParams {
-                query: None,
-                tags: vec!["rust".to_string()],
-                tag_mode: crate::cli::SearchMode::Any,
-                file_patterns: vec![],
-                file_mode: crate::cli::SearchMode::All,
-                exclude_tags: vec![],
-                regex_tag: false,
-                regex_file: false,
-                glob_files: false,
-                virtual_tags: vec![],
-                virtual_mode: crate::cli::SearchMode::All,
-                no_hierarchy: false,
+            initial_search: Some(QueryCriteria {
+                tag_expr: Some(crate::types::TagExpr::Tag(TagName::new("rust").unwrap())),
+                ..QueryCriteria::default()
             }),
             ..Default::default()
         };
@@ -782,19 +766,9 @@ mod tests {
             .unwrap();
 
         let config = BrowseConfig {
-            initial_search: Some(SearchParams {
-                query: None,
-                tags: vec!["rust".to_string()],
-                tag_mode: crate::cli::SearchMode::Any,
-                file_patterns: vec![],
-                file_mode: crate::cli::SearchMode::All,
-                exclude_tags: vec![],
-                regex_tag: false,
-                regex_file: false,
-                glob_files: false,
-                virtual_tags: vec![],
-                virtual_mode: crate::cli::SearchMode::All,
-                no_hierarchy: false,
+            initial_search: Some(QueryCriteria {
+                tag_expr: Some(crate::types::TagExpr::Tag(TagName::new("rust").unwrap())),
+                ..QueryCriteria::default()
             }),
             ..Default::default()
         };
@@ -803,22 +777,15 @@ mod tests {
 
         assert_eq!(session.current_phase().items.len(), 2);
 
-        let new_params = SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec!["docs".to_string()],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        let new_criteria = QueryCriteria {
+            tag_expr: Some(crate::types::TagExpr::And(vec![
+                crate::types::TagExpr::Tag(TagName::new("rust").unwrap()),
+                crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(TagName::new("docs").unwrap()))),
+            ])),
+            ..QueryCriteria::default()
         };
 
-        session.update_search_params(new_params).unwrap();
+        session.update_search_params(new_criteria).unwrap();
 
         assert_eq!(session.current_phase().items.len(), 1);
     }
@@ -837,19 +804,9 @@ mod tests {
             .unwrap();
 
         let config = BrowseConfig {
-            initial_search: Some(SearchParams {
-                query: None,
-                tags: vec!["test".to_string()],
-                tag_mode: crate::cli::SearchMode::Any,
-                file_patterns: vec![],
-                file_mode: crate::cli::SearchMode::All,
-                exclude_tags: vec![],
-                regex_tag: false,
-                regex_file: false,
-                glob_files: false,
-                virtual_tags: vec![],
-                virtual_mode: crate::cli::SearchMode::All,
-                no_hierarchy: false,
+            initial_search: Some(QueryCriteria {
+                tag_expr: Some(crate::types::TagExpr::Tag(TagName::new("test").unwrap())),
+                ..QueryCriteria::default()
             }),
             ..Default::default()
         };
@@ -878,75 +835,30 @@ mod tests {
     }
 
     #[test]
-    fn test_is_filter_relaxation_exclude_tags() {
-        let old = SearchParams {
-            query: None,
-            tags: vec!["rust".into()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec!["python".into(), "js".into()],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+    fn test_is_filter_relaxation_file_patterns() {
+        let old = QueryCriteria {
+            file_patterns: vec!["*.rs".into(), "*.toml".into()],
+            ..QueryCriteria::default()
         };
 
-        let new = SearchParams {
-            exclude_tags: vec!["python".into()], // Removed one exclude
-            ..old.clone()
+        let new = QueryCriteria {
+            file_patterns: vec!["*.rs".into()],
+            ..QueryCriteria::default()
         };
 
         assert!(is_filter_relaxation(&old, &new));
     }
 
     #[test]
-    fn test_is_filter_relaxation_mode_change() {
-        let old = SearchParams {
-            query: None,
-            tags: vec!["rust".into(), "web".into()],
-            tag_mode: crate::cli::SearchMode::All,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+    fn test_is_filter_relaxation_virtual_tags() {
+        let old = QueryCriteria {
+            virtual_tags: vec!["size:>1MB".into(), "modified:today".into()],
+            ..QueryCriteria::default()
         };
 
-        let new = SearchParams {
-            tag_mode: crate::cli::SearchMode::Any, // Changed to Any
-            ..old.clone()
-        };
-
-        assert!(is_filter_relaxation(&old, &new));
-    }
-
-    #[test]
-    fn test_is_filter_relaxation_tag_count_in_all_mode() {
-        let old = SearchParams {
-            query: None,
-            tags: vec!["rust".into(), "web".into(), "backend".into()],
-            tag_mode: crate::cli::SearchMode::All,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
-        };
-
-        let new = SearchParams {
-            tags: vec!["rust".into(), "web".into()], // Removed one tag
-            ..old.clone()
+        let new = QueryCriteria {
+            virtual_tags: vec!["size:>1MB".into()],
+            ..QueryCriteria::default()
         };
 
         assert!(is_filter_relaxation(&old, &new));
@@ -954,24 +866,17 @@ mod tests {
 
     #[test]
     fn test_is_filter_relaxation_no_relaxation() {
-        let old = SearchParams {
-            query: None,
-            tags: vec!["rust".into()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        let old = QueryCriteria {
+            tag_expr: Some(crate::types::TagExpr::Tag(TagName::new("rust").unwrap())),
+            ..QueryCriteria::default()
         };
 
-        let new = SearchParams {
-            tags: vec!["rust".into(), "web".into()], // Added tag (more restrictive in ANY mode)
-            ..old.clone()
+        let new = QueryCriteria {
+            tag_expr: Some(crate::types::TagExpr::And(vec![
+                crate::types::TagExpr::Tag(TagName::new("rust").unwrap()),
+                crate::types::TagExpr::Tag(TagName::new("web").unwrap()),
+            ])),
+            ..QueryCriteria::default()
         };
 
         assert!(!is_filter_relaxation(&old, &new));
@@ -997,19 +902,9 @@ mod tests {
         }
 
         let config = BrowseConfig {
-            initial_search: Some(SearchParams {
-                query: None,
-                tags: vec!["rust".to_string()],
-                tag_mode: crate::cli::SearchMode::Any,
-                file_patterns: vec![],
-                file_mode: crate::cli::SearchMode::All,
-                exclude_tags: vec![],
-                regex_tag: false,
-                regex_file: false,
-                glob_files: false,
-                virtual_tags: vec![],
-                virtual_mode: crate::cli::SearchMode::All,
-                no_hierarchy: false,
+            initial_search: Some(QueryCriteria {
+                tag_expr: Some(crate::types::TagExpr::Tag(TagName::new("rust").unwrap())),
+                ..QueryCriteria::default()
             }),
             ..Default::default()
         };
@@ -1021,22 +916,15 @@ mod tests {
         assert!(session.base_items.is_none()); // Not cached yet (created in constructor)
 
         // Add exclude tag (more restrictive, should use in-memory filtering after first update)
-        let new_params = SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec!["tag1".to_string()],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        let new_criteria = QueryCriteria {
+            tag_expr: Some(crate::types::TagExpr::And(vec![
+                crate::types::TagExpr::Tag(TagName::new("rust").unwrap()),
+                crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(TagName::new("tag1").unwrap()))),
+            ])),
+            ..QueryCriteria::default()
         };
 
-        session.update_search_params(new_params).unwrap();
+        session.update_search_params(new_criteria).unwrap();
 
         // Should have cached base_items (result set < threshold)
         assert!(session.base_items.is_some());
@@ -1069,19 +957,12 @@ mod tests {
             .unwrap();
 
         let config = BrowseConfig {
-            initial_search: Some(SearchParams {
-                query: None,
-                tags: vec!["rust".to_string()],
-                tag_mode: crate::cli::SearchMode::Any,
-                file_patterns: vec![],
-                file_mode: crate::cli::SearchMode::All,
-                exclude_tags: vec!["cli".to_string()],
-                regex_tag: false,
-                regex_file: false,
-                glob_files: false,
-                virtual_tags: vec![],
-                virtual_mode: crate::cli::SearchMode::All,
-                no_hierarchy: false,
+            initial_search: Some(QueryCriteria {
+                tag_expr: Some(crate::types::TagExpr::And(vec![
+                    crate::types::TagExpr::Tag(TagName::new("rust").unwrap()),
+                    crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(TagName::new("cli").unwrap()))),
+                ])),
+                ..QueryCriteria::default()
             }),
             ..Default::default()
         };
@@ -1089,23 +970,13 @@ mod tests {
         let mut session = BrowseSession::new(store(&db), config).unwrap();
         assert_eq!(session.current_phase().items.len(), 1); // file1 only
 
-        // Remove exclude tag (relaxation - should re-query DB)
-        let new_params = SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![], // Removed exclude
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        // Remove exclude tag (change criteria) — force re-query via DB
+        let new_criteria = QueryCriteria {
+            tag_expr: Some(crate::types::TagExpr::Tag(TagName::new("rust").unwrap())),
+            ..QueryCriteria::default()
         };
 
-        session.update_search_params(new_params).unwrap();
+        session.update_search_params(new_criteria).unwrap();
 
         // Should have both files now (re-queried DB)
         assert_eq!(session.current_phase().items.len(), 2);
@@ -1125,19 +996,9 @@ mod tests {
             .unwrap();
 
         let config = BrowseConfig {
-            initial_search: Some(SearchParams {
-                query: None,
-                tags: vec!["rust".to_string()],
-                tag_mode: crate::cli::SearchMode::Any,
-                file_patterns: vec![],
-                file_mode: crate::cli::SearchMode::All,
-                exclude_tags: vec![],
-                regex_tag: false,
-                regex_file: false,
-                glob_files: false,
-                virtual_tags: vec![],
-                virtual_mode: crate::cli::SearchMode::All,
-                no_hierarchy: false,
+            initial_search: Some(QueryCriteria {
+                tag_expr: Some(crate::types::TagExpr::Tag(TagName::new("rust").unwrap())),
+                ..QueryCriteria::default()
             }),
             ..Default::default()
         };

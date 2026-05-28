@@ -47,15 +47,6 @@ impl DirectStore {
     pub const fn new(db: Database) -> Self {
         Self { db }
     }
-
-    /// Get a reference to the underlying database.
-    ///
-    /// Escape hatch for code that hasn't migrated to `TagStore` yet.
-    /// Will be removed after Phase 5.
-    #[must_use]
-    pub const fn inner(&self) -> &Database {
-        &self.db
-    }
 }
 
 /// Map a `DbError` from `Database::open()` to `StoreError`.

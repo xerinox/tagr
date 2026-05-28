@@ -108,7 +108,6 @@
 //! See `examples/custom_frontend.rs` for a complete working example.
 
 pub mod actions;
-pub mod filter;
 pub mod models;
 pub mod query;
 pub mod session;
