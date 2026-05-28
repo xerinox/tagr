@@ -34,7 +34,7 @@ pub fn dispatch_command(
             filter_args,
             criteria,
             ..
-        } => dispatch_search(command, filter_args, criteria, db, path_format, quiet, writer),
+        } => dispatch_search(command, filter_args, criteria, store, path_format, quiet, writer),
         Commands::List { variant, .. } => {
             commands::list::execute(store, *variant, path_format, quiet, writer)?;
             Ok(())
@@ -114,15 +114,15 @@ pub fn dispatch_command(
 fn dispatch_search(
     command: &Commands,
     filter_args: &crate::cli::FilterArgs,
-    criteria: &crate::cli::SearchCriteriaArgs,
-    db: &Database,
+    criteria_args: &crate::cli::SearchCriteriaArgs,
+    store: &dyn TagStore,
     path_format: crate::config::PathFormat,
     quiet: bool,
     writer: &mut impl Write,
 ) -> Result<(), TagrError> {
     use crate::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
 
-    let params = command.get_search_params().ok_or_else(|| {
+    let criteria = command.get_search_criteria().ok_or_else(|| {
         TagrError::InvalidInput("Failed to parse search parameters".into())
     })?;
 
@@ -132,16 +132,17 @@ fn dispatch_search(
         .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
 
     commands::search::execute(
-        db,
-        params,
+        store,
+        criteria,
         FilterConfig {
             apply: filter_args.filter.as_deref(),
             save: save_filter,
         },
         ExplicitFlags {
-            tag_mode: criteria.any_tag || criteria.all_tags,
-            file_mode: criteria.any_file || criteria.all_files,
-            virtual_mode: criteria.any_virtual || criteria.all_virtual,
+            tag_mode: criteria_args.any_tag || criteria_args.all_tags,
+            file_mode: criteria_args.any_file || criteria_args.all_files,
+            virtual_mode: criteria_args.any_virtual || criteria_args.all_virtual,
+            glob_files: criteria_args.glob_files,
         },
         OutputConfig {
             format: path_format,

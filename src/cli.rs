@@ -1300,6 +1300,97 @@ impl Commands {
         }
     }
 
+    /// Build `QueryCriteria` directly from the Search command's CLI args.
+    ///
+    /// Replaces the `SearchParams` bridge — converts `SearchCriteriaArgs`
+    /// fields into the unified query type without going through legacy types.
+    #[must_use]
+    pub fn get_search_criteria(&self) -> Option<crate::types::QueryCriteria> {
+        use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName};
+
+        match self {
+            Self::Search {
+                query,
+                criteria,
+                no_hierarchy,
+                ..
+            } => {
+                let tag_mode = if criteria.any_tag {
+                    MatchMode::Any
+                } else {
+                    MatchMode::All
+                };
+
+                let include_exprs: Vec<TagExpr> = criteria
+                    .tags
+                    .iter()
+                    .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+                    .collect();
+
+                let exclude_exprs: Vec<TagExpr> = criteria
+                    .excludes
+                    .iter()
+                    .filter_map(|t| {
+                        TagName::new(t)
+                            .ok()
+                            .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+                    })
+                    .collect();
+
+                let mut all_exprs = include_exprs;
+                all_exprs.extend(exclude_exprs);
+
+                let tag_expr = match all_exprs.len() {
+                    0 => None,
+                    1 => all_exprs.into_iter().next(),
+                    _ => match tag_mode {
+                        MatchMode::All => Some(TagExpr::And(all_exprs)),
+                        MatchMode::Any => {
+                            let (includes, excludes): (Vec<_>, Vec<_>) = all_exprs
+                                .into_iter()
+                                .partition(|e| !matches!(e, TagExpr::Not(_)));
+                            if excludes.is_empty() {
+                                Some(TagExpr::Or(includes))
+                            } else if includes.is_empty() {
+                                Some(TagExpr::And(excludes))
+                            } else {
+                                let include_expr = if includes.len() == 1 {
+                                    includes.into_iter().next().unwrap_or_else(|| unreachable!())
+                                } else {
+                                    TagExpr::Or(includes)
+                                };
+                                let mut combined = vec![include_expr];
+                                combined.extend(excludes);
+                                Some(TagExpr::And(combined))
+                            }
+                        }
+                    },
+                };
+
+                Some(QueryCriteria {
+                    tag_expr,
+                    regex_tags: criteria.regex_tag,
+                    expand_hierarchy: !*no_hierarchy,
+                    file_patterns: criteria.file_patterns.clone(),
+                    file_mode: if criteria.any_file {
+                        MatchMode::Any
+                    } else {
+                        MatchMode::All
+                    },
+                    regex_files: criteria.regex_file,
+                    virtual_tags: criteria.virtual_tags.clone(),
+                    virtual_mode: if criteria.any_virtual {
+                        MatchMode::Any
+                    } else {
+                        MatchMode::All
+                    },
+                    query: query.clone(),
+                })
+            }
+            _ => None,
+        }
+    }
+
     /// Get browse command context
     #[must_use]
     pub fn get_browse_context(&self) -> Option<BrowseContext> {

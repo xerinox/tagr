@@ -202,26 +202,17 @@ fn test_e2e_search_execute_with_glob_flag() {
     let f_rs = TestFile::create("e2e_s1.rs", "content").unwrap();
     db.insert(f_rs.path(), vec!["t1".into()]).unwrap();
 
-    let params = SearchParams {
-        query: None,
-        tags: vec![],
-        tag_mode: SearchMode::All,
+    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+    use tagr::types::QueryCriteria;
+
+    let criteria = QueryCriteria {
         file_patterns: vec!["*.rs".to_string()],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: true,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+        ..Default::default()
     };
 
-    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
-
     let res = search_cmd::execute(
-        db,
-        params,
+        test_db.store(),
+        criteria,
         FilterConfig {
             apply: None,
             save: None,
@@ -230,6 +221,7 @@ fn test_e2e_search_execute_with_glob_flag() {
             tag_mode: false,
             file_mode: false,
             virtual_mode: false,
+            glob_files: true,
         },
         OutputConfig {
             format: config::PathFormat::Absolute,

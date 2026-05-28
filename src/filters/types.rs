@@ -350,6 +350,143 @@ impl From<FileMode> for SearchMode {
     }
 }
 
+impl From<&FilterCriteria> for crate::types::QueryCriteria {
+    fn from(fc: &FilterCriteria) -> Self {
+        use crate::types::{MatchMode, TagExpr, TagName};
+
+        let mode = match fc.tag_mode {
+            TagMode::All => MatchMode::All,
+            TagMode::Any => MatchMode::Any,
+        };
+
+        let include_exprs: Vec<TagExpr> = fc
+            .tags
+            .iter()
+            .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+            .collect();
+
+        let exclude_exprs: Vec<TagExpr> = fc
+            .excludes
+            .iter()
+            .filter_map(|t| {
+                TagName::new(t)
+                    .ok()
+                    .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+            })
+            .collect();
+
+        let mut all_exprs = include_exprs;
+        all_exprs.extend(exclude_exprs);
+
+        let tag_expr = match all_exprs.len() {
+            0 => None,
+            1 => all_exprs.into_iter().next(),
+            _ => match mode {
+                MatchMode::All => Some(TagExpr::And(all_exprs)),
+                MatchMode::Any => {
+                    let (includes, excludes): (Vec<_>, Vec<_>) = all_exprs
+                        .into_iter()
+                        .partition(|e| !matches!(e, TagExpr::Not(_)));
+                    if excludes.is_empty() {
+                        Some(TagExpr::Or(includes))
+                    } else if includes.is_empty() {
+                        Some(TagExpr::And(excludes))
+                    } else {
+                        let include_expr = if includes.len() == 1 {
+                            includes.into_iter().next().unwrap_or_else(|| unreachable!())
+                        } else {
+                            TagExpr::Or(includes)
+                        };
+                        let mut combined = vec![include_expr];
+                        combined.extend(excludes);
+                        Some(TagExpr::And(combined))
+                    }
+                }
+            },
+        };
+
+        Self {
+            tag_expr,
+            regex_tags: fc.regex_tag,
+            expand_hierarchy: true,
+            file_patterns: fc.file_patterns.clone(),
+            file_mode: match fc.file_mode {
+                FileMode::All => MatchMode::All,
+                FileMode::Any => MatchMode::Any,
+            },
+            regex_files: fc.regex_file,
+            virtual_tags: fc.virtual_tags.clone(),
+            virtual_mode: match fc.virtual_mode {
+                TagMode::All => MatchMode::All,
+                TagMode::Any => MatchMode::Any,
+            },
+            query: None,
+        }
+    }
+}
+
+impl From<&crate::types::QueryCriteria> for FilterCriteria {
+    fn from(qc: &crate::types::QueryCriteria) -> Self {
+        let (tags, excludes) = extract_flat_tags(qc);
+
+        let tag_mode = match &qc.tag_expr {
+            Some(crate::types::TagExpr::Or(_)) => TagMode::Any,
+            _ => TagMode::All,
+        };
+
+        Self {
+            tags,
+            tag_mode,
+            file_patterns: qc.file_patterns.clone(),
+            file_mode: match qc.file_mode {
+                crate::types::MatchMode::All => FileMode::All,
+                crate::types::MatchMode::Any => FileMode::Any,
+            },
+            excludes,
+            regex_tag: qc.regex_tags,
+            regex_file: qc.regex_files,
+            glob_files: !qc.regex_files,
+            virtual_tags: qc.virtual_tags.clone(),
+            virtual_mode: match qc.virtual_mode {
+                crate::types::MatchMode::All => TagMode::All,
+                crate::types::MatchMode::Any => TagMode::Any,
+            },
+        }
+    }
+}
+
+/// Extract flat include/exclude tag lists from a `QueryCriteria`.
+fn extract_flat_tags(qc: &crate::types::QueryCriteria) -> (Vec<String>, Vec<String>) {
+    let mut includes = Vec::new();
+    let mut excludes = Vec::new();
+
+    if let Some(ref expr) = qc.tag_expr {
+        collect_flat_tags(expr, &mut includes, &mut excludes);
+    }
+
+    (includes, excludes)
+}
+
+fn collect_flat_tags(
+    expr: &crate::types::TagExpr,
+    includes: &mut Vec<String>,
+    excludes: &mut Vec<String>,
+) {
+    match expr {
+        crate::types::TagExpr::Tag(t) => includes.push(t.to_string()),
+        crate::types::TagExpr::Not(inner) => {
+            if let crate::types::TagExpr::Tag(t) = inner.as_ref() {
+                excludes.push(t.to_string());
+            }
+        }
+        crate::types::TagExpr::And(exprs) | crate::types::TagExpr::Or(exprs) => {
+            for e in exprs {
+                collect_flat_tags(e, includes, excludes);
+            }
+        }
+    }
+}
+
 /// Filter metadata (usage statistics and timestamps)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FilterMetadata {
