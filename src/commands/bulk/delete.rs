@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use super::batch::{BatchFormat, format_mismatch_hint_parsed};
 use super::core::{BulkOpSummary, SkipReason};
-use crate::{TagrError, db::Database};
+use crate::store::TagStore;
+use crate::types::TagrPath;
+use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -15,7 +17,7 @@ type Result<T> = std::result::Result<T, TagrError>;
 /// Returns `TagrError::InvalidInput` if the input cannot be read or parsed,
 /// or if records are malformed (e.g., empty path fields).
 pub fn bulk_delete_files(
-    db: &Database,
+    store: &dyn TagStore,
     input_path: &Path,
     format: BatchFormat,
     dry_run: bool,
@@ -64,7 +66,8 @@ pub fn bulk_delete_files(
     }
     let mut summary = BulkOpSummary::new();
     for file in files {
-        match db.remove(&file) {
+        let file_path = TagrPath::new(&file)?;
+        match store.remove_file(&file_path) {
             Ok(existed) => {
                 if existed {
                     summary.add_success();

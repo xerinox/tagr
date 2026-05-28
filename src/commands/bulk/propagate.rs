@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use colored::Colorize;
 use dialoguer::Confirm;
 
 use super::core::BulkOpSummary;
+use crate::store::TagStore;
+use crate::types::{TagName, TagrPath};
 use crate::TagrError;
-use crate::db::Database;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -98,7 +99,7 @@ pub(crate) fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn propagate_by_directory(
-    db: &Database,
+    store: &dyn TagStore,
     root: Option<&Path>,
     custom_mappings: &[String],
     hierarchy: bool,
@@ -113,14 +114,15 @@ pub fn propagate_by_directory(
         .map(|s| parse_dir_mapping(s))
         .collect::<Result<HashMap<_, _>>>()?;
 
-    // Get all files from database
-    let all_files: Vec<PathBuf> = db.list_all()?.into_iter().map(|p| p.file).collect();
+    // Get all files from store
+    let all_pairs = store.list_all()?;
+    let all_files: Vec<TagrPath> = all_pairs.into_iter().map(|p| p.file).collect();
 
     // Filter by root if specified
-    let files: Vec<PathBuf> = if let Some(root_path) = root {
+    let files: Vec<TagrPath> = if let Some(root_path) = root {
         all_files
             .into_iter()
-            .filter(|f| f.starts_with(root_path))
+            .filter(|f| f.as_path().starts_with(root_path))
             .collect()
     } else {
         all_files
@@ -134,38 +136,31 @@ pub fn propagate_by_directory(
     }
 
     // Build file -> tags mapping
-    let mut file_tags: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    let mut file_tags: HashMap<TagrPath, Vec<String>> = HashMap::new();
 
     for file in &files {
         let mut tags_to_add = Vec::new();
+        let path = file.as_path();
 
         if hierarchy {
-            // Add tags from all parent directories
-            let mut current = file.parent();
+            let mut current = path.parent();
             while let Some(dir) = current {
                 if let Some(dir_name) = dir.file_name().and_then(|n| n.to_str()) {
-                    // Check custom mappings first
                     if let Some(tag) = custom_map.get(dir_name) {
                         tags_to_add.push(tag.clone());
                     } else {
-                        // Use directory name as tag
                         tags_to_add.push(dir_name.to_string());
                     }
                 }
                 current = dir.parent();
             }
-        } else {
-            // Only add tag from immediate parent directory
-            if let Some(parent) = file.parent()
-                && let Some(dir_name) = parent.file_name().and_then(|n| n.to_str())
-            {
-                // Check custom mappings first
-                if let Some(tag) = custom_map.get(dir_name) {
-                    tags_to_add.push(tag.clone());
-                } else {
-                    // Use directory name as tag
-                    tags_to_add.push(dir_name.to_string());
-                }
+        } else if let Some(parent) = path.parent()
+            && let Some(dir_name) = parent.file_name().and_then(|n| n.to_str())
+        {
+            if let Some(tag) = custom_map.get(dir_name) {
+                tags_to_add.push(tag.clone());
+            } else {
+                tags_to_add.push(dir_name.to_string());
             }
         }
 
@@ -194,7 +189,7 @@ pub fn propagate_by_directory(
                 writer,
                 "  {}. {} → [{}]",
                 i + 1,
-                file.display(),
+                file,
                 tags.join(", ").cyan()
             )?;
         }
@@ -220,17 +215,24 @@ pub fn propagate_by_directory(
     let mut summary = BulkOpSummary::new();
 
     for (file, tags) in &file_tags {
-        match db.add_tags(file, tags.clone()) {
+        let tag_names: Vec<TagName> = match tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>() {
+            Ok(names) => names,
+            Err(e) => {
+                summary.add_error(format!("{file}: {e}"));
+                continue;
+            }
+        };
+        match store.add_tags(file, tag_names) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    writeln!(writer, "✓ Tagged {}: [{}]", file.display(), tags.join(", "))?;
+                    writeln!(writer, "✓ Tagged {file}: [{}]", tags.join(", "))?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to tag {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to tag {file}: {e}");
                 }
             }
         }
@@ -258,7 +260,7 @@ pub fn propagate_by_directory(
 /// for invalid mapping formats.
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn propagate_by_extension(
-    db: &Database,
+    store: &dyn TagStore,
     custom_mappings: &[String],
     no_defaults: bool,
     dry_run: bool,
@@ -292,14 +294,16 @@ pub fn propagate_by_extension(
         ));
     }
 
-    // Get all files from database
-    let all_files: Vec<PathBuf> = db.list_all()?.into_iter().map(|p| p.file).collect();
+    // Get all files from store
+    let all_pairs = store.list_all()?;
+    let all_files: Vec<TagrPath> = all_pairs.into_iter().map(|p| p.file).collect();
 
     // Build file -> tags mapping
-    let mut file_tags: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    let mut file_tags: HashMap<TagrPath, Vec<String>> = HashMap::new();
 
     for file in &all_files {
-        if let Some(ext_os) = file.extension()
+        let path = file.as_path();
+        if let Some(ext_os) = path.extension()
             && let Some(ext_str) = ext_os.to_str()
         {
             let ext_lower = ext_str.to_lowercase();
@@ -329,7 +333,7 @@ pub fn propagate_by_extension(
                 writer,
                 "  {}. {} → [{}]",
                 i + 1,
-                file.display(),
+                file,
                 tags.join(", ").cyan()
             )?;
         }
@@ -355,17 +359,24 @@ pub fn propagate_by_extension(
     let mut summary = BulkOpSummary::new();
 
     for (file, tags) in &file_tags {
-        match db.add_tags(file, tags.clone()) {
+        let tag_names: Vec<TagName> = match tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>() {
+            Ok(names) => names,
+            Err(e) => {
+                summary.add_error(format!("{file}: {e}"));
+                continue;
+            }
+        };
+        match store.add_tags(file, tag_names) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    writeln!(writer, "✓ Tagged {}: [{}]", file.display(), tags.join(", "))?;
+                    writeln!(writer, "✓ Tagged {file}: [{}]", tags.join(", "))?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to tag {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to tag {file}: {e}");
                 }
             }
         }

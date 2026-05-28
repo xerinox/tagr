@@ -65,7 +65,7 @@ pub fn dispatch_command(
             commands::tags(store, command, quiet, writer)?;
             Ok(())
         }
-        Commands::Bulk { command, .. } => dispatch_bulk(command, db, quiet, writer),
+        Commands::Bulk { command, .. } => dispatch_bulk(command, store, quiet, writer),
         Commands::Alias { command } => {
             let store_ref = match command {
                 AliasCommands::SetCanonical { .. } => Some(store),
@@ -155,7 +155,7 @@ fn dispatch_search(
 /// Handle all bulk command variants.
 fn dispatch_bulk(
     command: &BulkCommands,
-    db: &Database,
+    store: &dyn TagStore,
     quiet: bool,
     writer: &mut impl Write,
 ) -> Result<(), TagrError> {
@@ -168,7 +168,7 @@ fn dispatch_bulk(
             yes,
         } => {
             let params = SearchParams::from(criteria);
-            commands::bulk::bulk_tag(db, params, add_tags, conditions, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::bulk_tag(store, params, add_tags, conditions, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::Untag {
             criteria,
@@ -179,7 +179,7 @@ fn dispatch_bulk(
             yes,
         } => {
             let params = SearchParams::from(criteria);
-            commands::bulk::bulk_untag(db, params, remove_tags, *all, conditions, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::bulk_untag(store, params, remove_tags, *all, conditions, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::RenameTag {
             old_tag,
@@ -187,7 +187,7 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            commands::bulk::rename_tag(db, old_tag, new_tag, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::rename_tag(store, old_tag, new_tag, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::MergeTags {
             source_tags,
@@ -195,7 +195,7 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            commands::bulk::merge_tags(db, source_tags, target_tag, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::merge_tags(store, source_tags, target_tag, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::CopyTags {
             source,
@@ -212,7 +212,7 @@ fn dispatch_bulk(
                 Some(specific_tags.as_slice())
             };
             commands::bulk::copy_tags(
-                db,
+                store,
                 source,
                 params,
                 CopyTagsConfig {
@@ -233,7 +233,7 @@ fn dispatch_bulk(
             yes,
         } => {
             let fmt = convert_batch_format(format, *delimiter);
-            commands::bulk::batch_from_file(db, input, fmt, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::batch_from_file(store, input, fmt, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::MapTags {
             input,
@@ -243,7 +243,7 @@ fn dispatch_bulk(
             yes,
         } => {
             let fmt = convert_batch_format(format, *delimiter);
-            commands::bulk::bulk_map_tags(db, input, fmt, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::bulk_map_tags(store, input, fmt, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::DeleteFiles {
             input,
@@ -253,7 +253,7 @@ fn dispatch_bulk(
             yes,
         } => {
             let fmt = convert_batch_format(format, *delimiter);
-            commands::bulk::bulk_delete_files(db, input, fmt, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::bulk_delete_files(store, input, fmt, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::PropagateByDir {
             root,
@@ -263,7 +263,7 @@ fn dispatch_bulk(
             yes,
         } => {
             commands::bulk::propagate_by_directory(
-                db,
+                store,
                 root.as_deref(),
                 mappings,
                 *hierarchy,
@@ -279,7 +279,7 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            commands::bulk::propagate_by_extension(db, mappings, *no_defaults, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::propagate_by_extension(store, mappings, *no_defaults, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::Transform {
             transformation,
@@ -288,7 +288,7 @@ fn dispatch_bulk(
             filter,
             dry_run,
             yes,
-        } => dispatch_transform(transformation, param, replacement, filter, db, *dry_run, *yes, quiet, writer)?,
+        } => dispatch_transform(transformation, param, replacement, filter, store, *dry_run, *yes, quiet, writer)?,
     }
     Ok(())
 }
@@ -299,7 +299,7 @@ fn dispatch_transform(
     param: &Option<String>,
     replacement: &Option<String>,
     filter: &[String],
-    db: &Database,
+    store: &dyn TagStore,
     dry_run: bool,
     yes: bool,
     quiet: bool,
@@ -342,7 +342,7 @@ fn dispatch_transform(
         Some(filter)
     };
 
-    commands::bulk::transform_tags(db, &trans, filter_tags, dry_run, yes, quiet, writer)?;
+    commands::bulk::transform_tags(store, &trans, filter_tags, dry_run, yes, quiet, writer)?;
     Ok(())
 }
 

@@ -5,7 +5,9 @@ use colored::Colorize;
 use dialoguer::Confirm;
 
 use super::core::{BulkOpSummary, SkipReason};
-use crate::{TagrError, db::Database};
+use crate::store::TagStore;
+use crate::types::{TagName, TagrPath};
+use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -76,7 +78,7 @@ pub fn format_mismatch_hint_parsed(
 /// or if records are malformed (missing file path, invalid CSV/JSON).
 #[allow(clippy::too_many_arguments)]
 pub fn batch_from_file(
-    db: &Database,
+    store: &dyn TagStore,
     input_path: &Path,
     format: BatchFormat,
     dry_run: bool,
@@ -138,7 +140,13 @@ pub fn batch_from_file(
             summary.add_skip();
             continue;
         }
-        match db.add_tags(&entry.file, entry.tags) {
+        let file_path = TagrPath::new(&entry.file)?;
+        let tag_names: Vec<TagName> = entry
+            .tags
+            .iter()
+            .map(TagName::new)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        match store.add_tags(&file_path, tag_names) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {

@@ -1,19 +1,30 @@
 use std::collections::HashSet;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use colored::Colorize;
 
 use crate::cli::{ConditionalArgs, SearchParams};
-use crate::db::Database;
+use crate::db::query::search_params_to_criteria;
 use crate::patterns::{PatternBuilder, PatternContext};
-use crate::{Pair, TagrError};
+use crate::store::TagStore;
+use crate::types::{TagName, TagrPath};
+use crate::TagrError;
 
 use super::core::{
     BulkAction, BulkOpSummary, SkipReason, confirm_bulk_operation, print_dry_run_preview,
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
+
+/// Run `SearchParams` through the query engine against a `TagStore`.
+fn query_files(store: &dyn TagStore, params: &SearchParams) -> Result<Vec<TagrPath>> {
+    let criteria = search_params_to_criteria(params);
+    let schema = crate::schema::load_default_schema().unwrap_or_default();
+    let results = crate::query::execute(store, &criteria, &schema)?;
+    Ok(results)
+}
+
 /// Normalize and validate bulk search params using the pattern system.
 ///
 /// - Implicitly enables glob handling for file patterns in bulk context
@@ -48,12 +59,17 @@ fn normalize_bulk_params(params: &mut SearchParams) -> Result<()> {
 
 /// Check if a file meets conditional requirements
 fn check_conditions(
-    file: &Path,
-    db: &Database,
+    file: &TagrPath,
+    store: &dyn TagStore,
     conditions: &ConditionalArgs,
     tags_to_add: &[String],
 ) -> Result<bool> {
-    let file_tags = db.get_tags(file)?.unwrap_or_default();
+    let file_tags: Vec<String> = store
+        .get_tags(file)?
+        .unwrap_or_default()
+        .into_iter()
+        .map(TagName::into_inner)
+        .collect();
     if conditions.if_not_exists && tags_to_add.iter().any(|t| file_tags.contains(t)) {
         return Ok(false);
     }
@@ -80,7 +96,7 @@ fn check_conditions(
 /// for invalid arguments (e.g., empty tag list).
 #[allow(clippy::too_many_arguments)]
 pub fn bulk_tag(
-    db: &Database,
+    store: &dyn TagStore,
     mut params: SearchParams,
     tags: &[String],
     conditions: &ConditionalArgs,
@@ -93,7 +109,8 @@ pub fn bulk_tag(
         return Err(TagrError::InvalidInput("No tags provided".into()));
     }
     normalize_bulk_params(&mut params)?;
-    let files = crate::db::query::apply_search_params(db, &params)?;
+    let files = query_files(store, &params)?;
+    let path_bufs: Vec<std::path::PathBuf> = files.iter().map(|f| f.as_path().to_path_buf()).collect();
     if files.is_empty() {
         if !quiet {
             writeln!(writer, "No files match the specified criteria.")?;
@@ -101,27 +118,28 @@ pub fn bulk_tag(
         return Ok(());
     }
     if dry_run {
-        print_dry_run_preview(&files, tags, BulkAction::Add, writer)?;
+        print_dry_run_preview(&path_bufs, tags, BulkAction::Add, writer)?;
         return Ok(());
     }
-    if !yes && !confirm_bulk_operation(&files, tags, BulkAction::Add)? {
+    if !yes && !confirm_bulk_operation(&path_bufs, tags, BulkAction::Add)? {
         writeln!(writer, "Operation cancelled.")?;
         return Ok(());
     }
+    let tag_names: Vec<TagName> = tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>()?;
     let mut summary = BulkOpSummary::new();
     for file in &files {
-        match check_conditions(file, db, conditions, tags) {
-            Ok(true) => match db.add_tags(file, tags.to_vec()) {
+        match check_conditions(file, store, conditions, tags) {
+            Ok(true) => match store.add_tags(file, tag_names.clone()) {
                 Ok(()) => {
                     summary.add_success();
                     if !quiet {
-                        writeln!(writer, "✓ Tagged: {}", file.display())?;
+                        writeln!(writer, "✓ Tagged: {file}")?;
                     }
                 }
                 Err(e) => {
-                    summary.add_error(format!("{}: {}", file.display(), e));
+                    summary.add_error(format!("{file}: {e}"));
                     if !quiet {
-                        eprintln!("✗ Failed to tag {}: {}", file.display(), e);
+                        eprintln!("✗ Failed to tag {file}: {e}");
                     }
                 }
             },
@@ -129,13 +147,13 @@ pub fn bulk_tag(
                 let _ = SkipReason::ConditionNotMet;
                 summary.add_skip_condition();
                 if !quiet {
-                    writeln!(writer, "⊘ Skipped (condition): {}", file.display())?;
+                    writeln!(writer, "⊘ Skipped (condition): {file}")?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to check conditions for {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to check conditions for {file}: {e}");
                 }
             }
         }
@@ -143,7 +161,7 @@ pub fn bulk_tag(
 
     // Invalidate completion cache (bulk ops may introduce new tags)
     #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_cache(db);
+    crate::completions::invalidate_database_cache();
 
     if !quiet {
         summary.print("Bulk Tag", writer)?;
@@ -159,7 +177,7 @@ pub fn bulk_tag(
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn bulk_untag(
-    db: &Database,
+    store: &dyn TagStore,
     mut params: SearchParams,
     tags: &[String],
     remove_all: bool,
@@ -175,7 +193,8 @@ pub fn bulk_untag(
         ));
     }
     normalize_bulk_params(&mut params)?;
-    let files = crate::db::query::apply_search_params(db, &params)?;
+    let files = query_files(store, &params)?;
+    let path_bufs: Vec<std::path::PathBuf> = files.iter().map(|f| f.as_path().to_path_buf()).collect();
     if files.is_empty() {
         if !quiet {
             writeln!(writer, "No files match the specified criteria.")?;
@@ -184,7 +203,7 @@ pub fn bulk_untag(
     }
     if dry_run {
         print_dry_run_preview(
-            &files,
+            &path_bufs,
             if remove_all { &[] } else { tags },
             if remove_all {
                 BulkAction::RemoveAll
@@ -200,30 +219,31 @@ pub fn bulk_untag(
     } else {
         BulkAction::Remove
     };
-    if !yes && !confirm_bulk_operation(&files, tags, action)? {
+    if !yes && !confirm_bulk_operation(&path_bufs, tags, action)? {
         writeln!(writer, "Operation cancelled.")?;
         return Ok(());
     }
+    let tag_names: Vec<TagName> = tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>()?;
     let mut summary = BulkOpSummary::new();
     for file in &files {
-        match check_conditions(file, db, conditions, tags) {
+        match check_conditions(file, store, conditions, tags) {
             Ok(true) => {
                 let result = if remove_all {
-                    db.remove(file).map(|_| ())
+                    store.remove_file(file).map(|_| ())
                 } else {
-                    db.remove_tags(file, tags)
+                    store.remove_tags(file, &tag_names)
                 };
                 match result {
                     Ok(()) => {
                         summary.add_success();
                         if !quiet {
-                            writeln!(writer, "✓ Untagged: {}", file.display())?;
+                            writeln!(writer, "✓ Untagged: {file}")?;
                         }
                     }
                     Err(e) => {
-                        summary.add_error(format!("{}: {}", file.display(), e));
+                        summary.add_error(format!("{file}: {e}"));
                         if !quiet {
-                            eprintln!("✗ Failed to untag {}: {}", file.display(), e);
+                            eprintln!("✗ Failed to untag {file}: {e}");
                         }
                     }
                 }
@@ -232,13 +252,13 @@ pub fn bulk_untag(
                 let _ = SkipReason::ConditionNotMet;
                 summary.add_skip_condition();
                 if !quiet {
-                    writeln!(writer, "⊘ Skipped (condition): {}", file.display())?;
+                    writeln!(writer, "⊘ Skipped (condition): {file}")?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to check conditions for {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to check conditions for {file}: {e}");
                 }
             }
         }
@@ -246,7 +266,7 @@ pub fn bulk_untag(
 
     // Invalidate completion cache (bulk ops may orphan tags)
     #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_cache(db);
+    crate::completions::invalidate_database_cache();
 
     if !quiet {
         summary.print("Bulk Untag", writer)?;
@@ -260,7 +280,7 @@ pub fn bulk_untag(
 /// Returns database errors during lookups and updates, and `TagrError::InvalidInput`
 /// for invalid arguments (e.g., identical old/new names).
 pub fn rename_tag(
-    db: &Database,
+    store: &dyn TagStore,
     old_tag: &str,
     new_tag: &str,
     dry_run: bool,
@@ -273,7 +293,9 @@ pub fn rename_tag(
             "Old and new tag names are identical".into(),
         ));
     }
-    let files = db.find_by_tag(old_tag)?;
+    let old_tag_name = TagName::new(old_tag)?;
+    let new_tag_name = TagName::new(new_tag)?;
+    let files = store.find_by_tag(&old_tag_name)?;
     if files.is_empty() {
         if !quiet {
             writeln!(writer, "Tag '{old_tag}' not found in database.")?;
@@ -291,7 +313,7 @@ pub fn rename_tag(
         )?;
         writeln!(writer, "\n{}", "Affected files:".bold())?;
         for (i, file) in files.iter().enumerate().take(10) {
-            writeln!(writer, "  {}. {}", i + 1, file.display())?;
+            writeln!(writer, "  {}. {file}", i + 1)?;
         }
         if files.len() > 10 {
             writeln!(writer, "  ... and {} more", files.len() - 10)?;
@@ -317,31 +339,27 @@ pub fn rename_tag(
     }
     let mut summary = BulkOpSummary::new();
     for file in &files {
-        let Some(current_tags) = db.get_tags(file)? else {
+        let Some(current_tags) = store.get_tags(file)? else {
             summary.add_skip();
             continue;
         };
-        let new_tags: Vec<String> = current_tags
+        let new_tags: Vec<TagName> = current_tags
             .into_iter()
-            .map(|t| if t == old_tag { new_tag.to_string() } else { t })
+            .map(|t| if t == old_tag_name { new_tag_name.clone() } else { t })
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-        let pair = Pair {
-            file: file.clone(),
-            tags: new_tags,
-        };
-        match db.insert_pair(&pair) {
+        match store.insert(file, new_tags) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    writeln!(writer, "✓ Renamed in: {}", file.display())?;
+                    writeln!(writer, "✓ Renamed in: {file}")?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to rename in {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to rename in {file}: {e}");
                 }
             }
         }
@@ -455,27 +473,29 @@ pub struct CopyTagsConfig<'a> {
 /// Returns database errors during lookups and updates, and `TagrError::InvalidInput`
 /// when the source file is missing or after filtering no tags are available.
 pub fn copy_tags(
-    db: &Database,
+    store: &dyn TagStore,
     source_file: &Path,
     mut params: SearchParams,
     config: CopyTagsConfig,
     writer: &mut impl Write,
 ) -> Result<()> {
-    let source_tags = db.get_tags(source_file)?.ok_or_else(|| {
+    let source_path = TagrPath::new(source_file)?;
+    let source_tags = store.get_tags(&source_path)?.ok_or_else(|| {
         TagrError::InvalidInput(format!(
             "Source file not in database: {}",
             source_file.display()
         ))
     })?;
-    let tags_to_copy: Vec<String> = source_tags
+    let tags_to_copy: Vec<TagName> = source_tags
         .into_iter()
         .filter(|tag| {
+            let tag_str = tag.as_str();
             if let Some(specific) = config.specific_tags
-                && !specific.contains(tag)
+                && !specific.iter().any(|s| s == tag_str)
             {
                 return false;
             }
-            !config.exclude_tags.contains(tag)
+            !config.exclude_tags.iter().any(|s| s == tag_str)
         })
         .collect();
     if tags_to_copy.is_empty() {
@@ -485,16 +505,16 @@ pub fn copy_tags(
         return Ok(());
     }
     normalize_bulk_params(&mut params)?;
-    let target_files = crate::db::query::apply_search_params(db, &params)?;
+    let target_files = query_files(store, &params)?;
     if target_files.is_empty() {
         if !config.quiet {
             writeln!(writer, "No target files match the specified criteria.")?;
         }
         return Ok(());
     }
-    let target_files: Vec<PathBuf> = target_files
+    let target_files: Vec<TagrPath> = target_files
         .into_iter()
-        .filter(|f| f != source_file)
+        .filter(|f| f != &source_path)
         .collect();
     if target_files.is_empty() {
         if !config.quiet {
@@ -502,18 +522,19 @@ pub fn copy_tags(
         }
         return Ok(());
     }
+    let tag_strs: Vec<String> = tags_to_copy.iter().map(|t| t.as_str().to_string()).collect();
     if config.dry_run {
         writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
         writeln!(
             writer,
             "Would copy tags [{}] from '{}' to {} file(s)",
-            tags_to_copy.join(", ").cyan(),
+            tag_strs.join(", ").cyan(),
             source_file.display(),
             target_files.len()
         )?;
         writeln!(writer, "\n{}", "Target files:".bold())?;
         for (i, file) in target_files.iter().enumerate().take(10) {
-            writeln!(writer, "  {}. {}", i + 1, file.display())?;
+            writeln!(writer, "  {}. {file}", i + 1)?;
         }
         if target_files.len() > 10 {
             writeln!(writer, "  ... and {} more", target_files.len() - 10)?;
@@ -524,7 +545,7 @@ pub fn copy_tags(
     if !config.yes {
         let prompt = format!(
             "Copy tags [{}] from '{}' to {} file(s)?",
-            tags_to_copy.join(", ").cyan(),
+            tag_strs.join(", ").cyan(),
             source_file.display(),
             target_files.len()
         );
@@ -539,17 +560,17 @@ pub fn copy_tags(
     }
     let mut summary = BulkOpSummary::new();
     for file in &target_files {
-        match db.add_tags(file, tags_to_copy.clone()) {
+        match store.add_tags(file, tags_to_copy.clone()) {
             Ok(()) => {
                 summary.add_success();
                 if !config.quiet {
-                    writeln!(writer, "✓ Copied tags to: {}", file.display())?;
+                    writeln!(writer, "✓ Copied tags to: {file}")?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !config.quiet {
-                    eprintln!("✗ Failed to copy tags to {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to copy tags to {file}: {e}");
                 }
             }
         }
@@ -567,7 +588,7 @@ pub fn copy_tags(
 /// for invalid inputs (e.g., empty source tags, target among sources).
 #[allow(clippy::too_many_lines)]
 pub fn merge_tags(
-    db: &Database,
+    store: &dyn TagStore,
     source_tags: &[String],
     target_tag: &str,
     dry_run: bool,
@@ -583,12 +604,14 @@ pub fn merge_tags(
             "Target tag cannot be one of the source tags".into(),
         ));
     }
+    let source_tag_names: Vec<TagName> = source_tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>()?;
+    let target_tag_name = TagName::new(target_tag)?;
     let mut files_set = HashSet::new();
-    for tag in source_tags {
-        let tag_files = db.find_by_tag(tag)?;
+    for tag_name in &source_tag_names {
+        let tag_files = store.find_by_tag(tag_name)?;
         files_set.extend(tag_files);
     }
-    let files: Vec<PathBuf> = files_set.into_iter().collect();
+    let files: Vec<TagrPath> = files_set.into_iter().collect();
     if files.is_empty() {
         if !quiet {
             writeln!(
@@ -610,7 +633,7 @@ pub fn merge_tags(
         )?;
         writeln!(writer, "\n{}", "Affected files:".bold())?;
         for (i, file) in files.iter().enumerate().take(10) {
-            writeln!(writer, "  {}. {}", i + 1, file.display())?;
+            writeln!(writer, "  {}. {file}", i + 1)?;
         }
         if files.len() > 10 {
             writeln!(writer, "  ... and {} more", files.len() - 10)?;
@@ -636,15 +659,15 @@ pub fn merge_tags(
     }
     let mut summary = BulkOpSummary::new();
     for file in &files {
-        let Some(current_tags) = db.get_tags(file)? else {
+        let Some(current_tags) = store.get_tags(file)? else {
             summary.add_skip();
             continue;
         };
-        let new_tags: Vec<String> = current_tags
+        let new_tags: Vec<TagName> = current_tags
             .into_iter()
             .map(|t| {
-                if source_tags.contains(&t) {
-                    target_tag.to_string()
+                if source_tag_names.contains(&t) {
+                    target_tag_name.clone()
                 } else {
                     t
                 }
@@ -652,21 +675,17 @@ pub fn merge_tags(
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-        let pair = Pair {
-            file: file.clone(),
-            tags: new_tags,
-        };
-        match db.insert_pair(&pair) {
+        match store.insert(file, new_tags) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    writeln!(writer, "✓ Merged in: {}", file.display())?;
+                    writeln!(writer, "✓ Merged in: {file}")?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to merge in {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to merge in {file}: {e}");
                 }
             }
         }

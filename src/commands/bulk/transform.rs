@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::path::PathBuf;
 
 use colored::Colorize;
 use dialoguer::Confirm;
@@ -8,8 +7,9 @@ use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use regex::Regex;
 
 use super::core::BulkOpSummary;
-use crate::db::Database;
-use crate::{Pair, TagrError};
+use crate::store::TagStore;
+use crate::types::{TagName, TagrPath};
+use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -75,7 +75,7 @@ impl TagTransformation {
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::missing_panics_doc)]
 pub fn transform_tags(
-    db: &Database,
+    store: &dyn TagStore,
     transformation: &TagTransformation,
     filter_tags: Option<&[String]>,
     dry_run: bool,
@@ -83,10 +83,10 @@ pub fn transform_tags(
     quiet: bool,
     writer: &mut impl Write,
 ) -> Result<()> {
-    let all_pairs = db.list_all()?;
+    let all_pairs = store.list_all()?;
     let mut all_tags: HashSet<String> = HashSet::new();
     for pair in &all_pairs {
-        all_tags.extend(pair.tags.iter().cloned());
+        all_tags.extend(pair.tags.iter().map(|t| t.as_str().to_string()));
     }
 
     let tags_to_transform: Vec<String> = if let Some(filter) = filter_tags {
@@ -145,9 +145,9 @@ pub fn transform_tags(
         writeln!(writer)?;
     }
 
-    let mut affected_files: HashSet<PathBuf> = HashSet::new();
+    let mut affected_files: HashSet<TagrPath> = HashSet::new();
     for pair in &all_pairs {
-        if pair.tags.iter().any(|t| tag_mapping.contains_key(t)) {
+        if pair.tags.iter().any(|t| tag_mapping.contains_key(t.as_str())) {
             affected_files.insert(pair.file.clone());
         }
     }
@@ -192,35 +192,34 @@ pub fn transform_tags(
     let mut summary = BulkOpSummary::new();
 
     for pair in all_pairs {
-        let has_affected_tags = pair.tags.iter().any(|t| tag_mapping.contains_key(t));
+        let has_affected_tags = pair.tags.iter().any(|t| tag_mapping.contains_key(t.as_str()));
         if !has_affected_tags {
             continue;
         }
 
-        let new_tags: Vec<String> = pair
+        let new_tags: Vec<TagName> = pair
             .tags
             .iter()
-            .map(|t| tag_mapping.get(t).cloned().unwrap_or_else(|| t.clone()))
-            .collect::<HashSet<_>>() // Deduplicate in case of merges
+            .map(|t| {
+                tag_mapping
+                    .get(t.as_str())
+                    .map_or_else(|| Ok(t.clone()), TagName::new)
+            })
+            .collect::<std::result::Result<HashSet<_>, _>>()? // Deduplicate in case of merges
             .into_iter()
             .collect();
 
-        let new_pair = Pair {
-            file: pair.file.clone(),
-            tags: new_tags,
-        };
-
-        match db.insert_pair(&new_pair) {
+        match store.insert(&pair.file, new_tags) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    writeln!(writer, "✓ Transformed tags in: {}", pair.file.display())?;
+                    writeln!(writer, "✓ Transformed tags in: {}", pair.file)?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", pair.file.display(), e));
+                summary.add_error(format!("{}: {}", pair.file, e));
                 if !quiet {
-                    eprintln!("✗ Failed to transform {}: {}", pair.file.display(), e);
+                    eprintln!("✗ Failed to transform {}: {}", pair.file, e);
                 }
             }
         }

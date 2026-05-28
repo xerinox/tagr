@@ -6,7 +6,9 @@ use dialoguer::Confirm;
 
 use super::batch::{BatchFormat, format_mismatch_hint_parsed};
 use super::core::{BulkOpSummary, SkipReason};
-use crate::{Pair, TagrError, db::Database};
+use crate::store::TagStore;
+use crate::types::TagName;
+use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -23,7 +25,7 @@ pub struct TagMapping {
 /// or when mapping records are invalid (empty fields, wrong column count).
 #[allow(clippy::too_many_lines)]
 pub fn bulk_map_tags(
-    db: &Database,
+    store: &dyn TagStore,
     input_path: &Path,
     format: BatchFormat,
     dry_run: bool,
@@ -81,7 +83,8 @@ pub fn bulk_map_tags(
             }
             continue;
         }
-        let files = db.find_by_tag(&mapping.from)?;
+        let from_tag = TagName::new(&mapping.from)?;
+        let files = store.find_by_tag(&from_tag)?;
         if files.is_empty() {
             summary.add_skip();
             if !quiet {
@@ -90,18 +93,20 @@ pub fn bulk_map_tags(
             continue;
         }
         for file in files {
-            let Some(mut tags) = db.get_tags(&file)? else {
+            let Some(tags) = store.get_tags(&file)? else {
                 let _ = SkipReason::Other;
                 summary.add_skip();
                 continue;
             };
-            if !tags.iter().any(|t| t == &mapping.from) {
+            let tags_str: Vec<String> = tags.iter().map(|t| t.as_str().to_string()).collect();
+            if !tags_str.iter().any(|t| t == &mapping.from) {
                 summary.add_skip();
                 continue;
             }
-            let target_exists = tags.iter().any(|t| t == &mapping.to);
+            let target_exists = tags_str.iter().any(|t| t == &mapping.to);
+            let mut new_tag_strs = tags_str;
             let mut changed = false;
-            for t in &mut tags {
+            for t in &mut new_tag_strs {
                 if t == &mapping.from {
                     if target_exists {
                         *t = String::new();
@@ -115,17 +120,14 @@ pub fn bulk_map_tags(
                 summary.add_skip();
                 continue;
             }
-            let new_tags: Vec<String> = tags
+            let new_tags: Vec<TagName> = new_tag_strs
                 .into_iter()
                 .filter(|t| !t.is_empty())
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
-                .collect();
-            let pair = Pair {
-                file: file.clone(),
-                tags: new_tags,
-            };
-            match db.insert_pair(&pair) {
+                .map(|t| TagName::new(&t))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            match store.insert(&file, new_tags) {
                 Ok(()) => {
                     summary.add_success();
                     if !quiet {
@@ -134,18 +136,18 @@ pub fn bulk_map_tags(
                             "✓ '{}' → '{}' in {}",
                             mapping.from,
                             mapping.to,
-                            file.display()
+                            file
                         )?;
                     }
                 }
                 Err(e) => {
-                    summary.add_error(format!("{}: {}", file.display(), e));
+                    summary.add_error(format!("{file}: {e}"));
                     if !quiet {
                         eprintln!(
                             "✗ Failed '{}' → '{}' in {}: {}",
                             mapping.from,
                             mapping.to,
-                            file.display(),
+                            file,
                             e
                         );
                     }
