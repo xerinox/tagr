@@ -488,13 +488,15 @@ fn dispatch_via_ipc(
     use std::path::PathBuf;
     use tagr::cli::Commands;
     use tagr::daemon::client::send_request;
-    use tagr::ipc::wire::{Request, Response, WireSearchParams};
+    use tagr::ipc::wire::{Request, Response, WireQueryCriteria};
     use tagr::output;
 
     let req = match command {
         Commands::Search { .. } => {
-            let params = command.get_search_params().unwrap_or_default();
-            Request::SearchFiles { params: WireSearchParams::from(params) }
+            let criteria = command.get_search_criteria().unwrap_or_default();
+            Request::Query {
+                criteria: WireQueryCriteria::from(&criteria),
+            }
         }
         Commands::List { variant, .. } => {
             match variant {

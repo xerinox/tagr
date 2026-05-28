@@ -33,7 +33,7 @@ mod pair;
 mod note;
 mod error;
 
-pub use error::ValidationError;
+pub use error::{NameKind, ValidationError};
 pub use filter_name::FilterName;
 pub use note::{NoteMeta, NoteRecord};
 pub use pair::Pair;

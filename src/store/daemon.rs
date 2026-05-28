@@ -17,9 +17,9 @@ use tokio::sync::mpsc;
 
 use crate::daemon::client::PersistentClient;
 use crate::daemon::traits::DaemonError;
-use crate::ipc::wire::{Request, Response, ServerEvent, WireSearchParams};
+use crate::ipc::wire::{Request, Response, ServerEvent, WireQueryCriteria};
 use crate::schema::types::TagSchema;
-use crate::types::{NoteRecord, Pair, QueryCriteria, TagExpr, TagName, TagrPath};
+use crate::types::{NoteRecord, Pair, QueryCriteria, TagName, TagrPath};
 
 use super::{Result, StoreError, TagStore};
 
@@ -391,12 +391,9 @@ impl TagStore for DaemonStore {
     }
 
     fn query(&self, criteria: &QueryCriteria, _schema: &TagSchema) -> Result<Vec<TagrPath>> {
-        // Pass-through: convert QueryCriteria to WireSearchParams and send over IPC.
-        // Future: DaemonStore will send QueryCriteria directly when the wire protocol
-        // is upgraded to support it. For now, use the legacy WireSearchParams conversion.
-        let wire_params = wire_search_params_from_criteria(criteria);
-        let req = Request::SearchFiles {
-            params: wire_params,
+        let wire_criteria = WireQueryCriteria::from(criteria);
+        let req = Request::Query {
+            criteria: wire_criteria,
         };
         match self.send(req)? {
             Response::Files(pairs) => pairs
@@ -406,49 +403,5 @@ impl TagStore for DaemonStore {
             Response::Error(e) => Err(response_error(e, "query")),
             other => Err(unexpected_response(&other, "query")),
         }
-    }
-}
-
-/// Build a `WireSearchParams` from `QueryCriteria` (lossy conversion).
-///
-/// This is temporary — the wire protocol will eventually accept `QueryCriteria`
-/// directly. For now, extract the flat include/exclude tags and file patterns.
-fn wire_search_params_from_criteria(criteria: &QueryCriteria) -> WireSearchParams {
-    use crate::ipc::wire::WireSearchMode;
-
-    let include_tags: Vec<String> = criteria
-        .flat_include_tags()
-        .unwrap_or_default()
-        .into_iter()
-        .map(ToString::to_string)
-        .collect();
-
-    let exclude_tags: Vec<String> = criteria
-        .flat_exclude_tags()
-        .unwrap_or_default()
-        .into_iter()
-        .map(ToString::to_string)
-        .collect();
-
-    // Determine tag mode from the tag expression structure:
-    // And([...]) → All, Or([...]) → Any, single Tag → All (irrelevant for one tag)
-    let tag_mode = match &criteria.tag_expr {
-        Some(TagExpr::Or(_)) => WireSearchMode::Any,
-        _ => WireSearchMode::All,
-    };
-
-    WireSearchParams {
-        query: criteria.query.clone(),
-        tags: include_tags,
-        file_patterns: criteria.file_patterns.clone(),
-        exclude_tags,
-        virtual_tags: criteria.virtual_tags.clone(),
-        tag_mode,
-        file_mode: WireSearchMode::All,
-        virtual_mode: WireSearchMode::All,
-        no_hierarchy: !criteria.expand_hierarchy,
-        regex_tag: criteria.regex_tags,
-        regex_file: criteria.regex_files,
-        glob_files: !criteria.regex_files,
     }
 }

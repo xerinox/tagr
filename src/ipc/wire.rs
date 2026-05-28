@@ -48,6 +48,7 @@ pub enum Request {
     ListFiles,
     ListAllPaths,
     SearchFiles { params: WireSearchParams },
+    Query { criteria: WireQueryCriteria },
     GetTags { file: String },
     GetNote { file: String },
     FindByTag { tag: String },
@@ -130,6 +131,41 @@ pub struct WireNoteEntry {
     pub content: String,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+/// Wire-safe match mode.
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
+pub enum WireMatchMode {
+    All,
+    Any,
+}
+
+/// Wire-safe tag expression tree.
+///
+/// Uses `Vec` instead of `Box` for `Not` because wincode's derive macros
+/// don't support recursive types through `Box`.
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
+#[allow(clippy::use_self)]
+pub enum WireTagExpr {
+    Tag(String),
+    Not(Vec<WireTagExpr>),
+    And(Vec<WireTagExpr>),
+    Or(Vec<WireTagExpr>),
+}
+
+/// Query criteria over the wire — mirrors `types::QueryCriteria`.
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct WireQueryCriteria {
+    pub tag_expr: Option<WireTagExpr>,
+    pub regex_tags: bool,
+    pub expand_hierarchy: bool,
+    pub file_patterns: Vec<String>,
+    pub file_mode: WireMatchMode,
+    pub regex_files: bool,
+    pub virtual_tags: Vec<String>,
+    pub virtual_mode: WireMatchMode,
+    pub query: Option<String>,
 }
 
 /// Search parameters over the wire.
@@ -301,6 +337,97 @@ impl From<WireSearchParams> for crate::cli::SearchParams {
             file_mode: crate::cli::SearchMode::from(&w.file_mode),
             virtual_mode: crate::cli::SearchMode::from(&w.virtual_mode),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// QueryCriteria <-> WireQueryCriteria conversions
+// ---------------------------------------------------------------------------
+
+impl From<&crate::types::MatchMode> for WireMatchMode {
+    fn from(m: &crate::types::MatchMode) -> Self {
+        match m {
+            crate::types::MatchMode::All => Self::All,
+            crate::types::MatchMode::Any => Self::Any,
+        }
+    }
+}
+
+impl From<&WireMatchMode> for crate::types::MatchMode {
+    fn from(m: &WireMatchMode) -> Self {
+        match m {
+            WireMatchMode::All => Self::All,
+            WireMatchMode::Any => Self::Any,
+        }
+    }
+}
+
+impl From<&crate::types::TagExpr> for WireTagExpr {
+    fn from(expr: &crate::types::TagExpr) -> Self {
+        match expr {
+            crate::types::TagExpr::Tag(t) => Self::Tag(t.to_string()),
+            crate::types::TagExpr::Not(inner) => Self::Not(vec![Self::from(inner.as_ref())]),
+            crate::types::TagExpr::And(exprs) => Self::And(exprs.iter().map(Self::from).collect()),
+            crate::types::TagExpr::Or(exprs) => Self::Or(exprs.iter().map(Self::from).collect()),
+        }
+    }
+}
+
+impl TryFrom<&WireTagExpr> for crate::types::TagExpr {
+    type Error = crate::types::ValidationError;
+    fn try_from(w: &WireTagExpr) -> Result<Self, Self::Error> {
+        match w {
+            WireTagExpr::Tag(s) => Ok(Self::Tag(crate::types::TagName::new(s)?)),
+            WireTagExpr::Not(inner) => {
+                let first = inner.first().ok_or(crate::types::ValidationError::Empty {
+                    kind: crate::types::NameKind::Tag,
+                })?;
+                Ok(Self::Not(Box::new(Self::try_from(first)?)))
+            }
+            WireTagExpr::And(exprs) => {
+                Ok(Self::And(exprs.iter().map(Self::try_from).collect::<Result<_, _>>()?))
+            }
+            WireTagExpr::Or(exprs) => {
+                Ok(Self::Or(exprs.iter().map(Self::try_from).collect::<Result<_, _>>()?))
+            }
+        }
+    }
+}
+
+impl From<&crate::types::QueryCriteria> for WireQueryCriteria {
+    fn from(qc: &crate::types::QueryCriteria) -> Self {
+        Self {
+            tag_expr: qc.tag_expr.as_ref().map(WireTagExpr::from),
+            regex_tags: qc.regex_tags,
+            expand_hierarchy: qc.expand_hierarchy,
+            file_patterns: qc.file_patterns.clone(),
+            file_mode: WireMatchMode::from(&qc.file_mode),
+            regex_files: qc.regex_files,
+            virtual_tags: qc.virtual_tags.clone(),
+            virtual_mode: WireMatchMode::from(&qc.virtual_mode),
+            query: qc.query.clone(),
+        }
+    }
+}
+
+impl TryFrom<&WireQueryCriteria> for crate::types::QueryCriteria {
+    type Error = crate::types::ValidationError;
+    fn try_from(w: &WireQueryCriteria) -> Result<Self, Self::Error> {
+        Ok(Self {
+            tag_expr: w
+                .tag_expr
+                .as_ref()
+                .map(crate::types::TagExpr::try_from)
+                .transpose()?,
+            regex_tags: w.regex_tags,
+            expand_hierarchy: w.expand_hierarchy,
+            file_patterns: w.file_patterns.clone(),
+            file_mode: crate::types::MatchMode::from(&w.file_mode),
+            regex_files: w.regex_files,
+            virtual_tags: w.virtual_tags.clone(),
+            virtual_mode: crate::types::MatchMode::from(&w.virtual_mode),
+            query: w.query.clone(),
+        })
     }
 }
 
@@ -547,5 +674,59 @@ mod tests {
         let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
         let result: Option<ClientMessage> = read_frame(&mut cursor).await.unwrap();
         assert!(result.is_none(), "EOF should return None");
+    }
+
+    #[test]
+    fn test_wire_query_criteria_round_trip() {
+        use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName};
+
+        let criteria = QueryCriteria {
+            tag_expr: Some(TagExpr::And(vec![
+                TagExpr::Tag(TagName::new("rust").unwrap()),
+                TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("draft").unwrap()))),
+            ])),
+            regex_tags: false,
+            expand_hierarchy: true,
+            file_patterns: vec!["*.rs".to_string()],
+            file_mode: MatchMode::Any,
+            regex_files: false,
+            virtual_tags: vec!["size:large".to_string()],
+            virtual_mode: MatchMode::All,
+            query: Some("search term".to_string()),
+        };
+
+        let wire = WireQueryCriteria::from(&criteria);
+        let bytes = wincode::serialize(&wire).unwrap();
+        let decoded: WireQueryCriteria = wincode::deserialize(&bytes).unwrap();
+        let back = QueryCriteria::try_from(&decoded).unwrap();
+
+        assert_eq!(back, criteria);
+    }
+
+    #[test]
+    fn test_request_query_round_trip() {
+        let req = Request::Query {
+            criteria: WireQueryCriteria {
+                tag_expr: Some(WireTagExpr::Tag("rust".into())),
+                regex_tags: false,
+                expand_hierarchy: true,
+                file_patterns: vec![],
+                file_mode: WireMatchMode::All,
+                regex_files: false,
+                virtual_tags: vec![],
+                virtual_mode: WireMatchMode::All,
+                query: None,
+            },
+        };
+        let bytes = wincode::serialize(&req).unwrap();
+        let decoded: Request = wincode::deserialize(&bytes).unwrap();
+        match decoded {
+            Request::Query { criteria } => {
+                assert!(
+                    matches!(criteria.tag_expr, Some(WireTagExpr::Tag(ref s)) if s == "rust")
+                );
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }

@@ -729,6 +729,39 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             }
         }
 
+        Request::Query { criteria } => {
+            use crate::store::TagStore as _;
+            match crate::types::QueryCriteria::try_from(&criteria) {
+                Ok(qc) => {
+                    let store = DirectStore::new(db.clone());
+                    let schema = crate::schema::load_default_schema()
+                        .ok()
+                        .unwrap_or_default();
+                    match store.query(&qc, &schema) {
+                        Ok(paths) => {
+                            let wire_pairs: Vec<WireFilePair> = paths
+                                .into_iter()
+                                .filter_map(|p| {
+                                    let tags = store.get_tags(&p).ok()?.unwrap_or_default();
+                                    Some(WireFilePair {
+                                        file: p.to_string(),
+                                        tags: tags.into_iter().map(|t| t.to_string()).collect(),
+                                    })
+                                })
+                                .collect();
+                            (Response::Files(wire_pairs), false, None)
+                        }
+                        Err(e) => (Response::Error(e.to_string()), false, None),
+                    }
+                }
+                Err(e) => (
+                    Response::Error(format!("Invalid query criteria: {e}")),
+                    false,
+                    None,
+                ),
+            }
+        }
+
         Request::GetTags { file } => {
             let path = PathBuf::from(&file);
             match db.get_tags(&path) {
