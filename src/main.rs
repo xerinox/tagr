@@ -113,6 +113,7 @@ fn handle_db_add(
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)] // consistent return type with other db handlers
 fn handle_db_list(config: &config::TagrConfig, quiet: bool) -> Result<()> {
     if config.databases.is_empty() {
         if !quiet {
@@ -474,6 +475,7 @@ fn store_error_to_tagr(err: StoreError) -> TagrError {
 }
 
 /// Forward a command to the daemon via typed IPC and render the response locally.
+#[allow(clippy::too_many_lines)] // cohesive IPC dispatch matching all command variants
 fn dispatch_via_ipc(
     rt: &tokio::runtime::Runtime,
     command: &tagr::cli::Commands,
@@ -518,7 +520,7 @@ fn dispatch_via_ipc(
             let file = ctx.file.ok_or_else(|| {
                 TagrError::InvalidInput("No file specified".into())
             })?;
-            let tags: Vec<String> = ctx.tags.to_vec();
+            let tags: Vec<String> = ctx.tags.clone();
             Request::RemoveTags {
                 file: file.to_string_lossy().into_owned(),
                 tags,

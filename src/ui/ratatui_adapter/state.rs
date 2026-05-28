@@ -239,26 +239,27 @@ impl AppState {
 
     /// Populate the note cache from the data source (single bulk fetch).
     pub fn load_note_cache(&mut self) {
-        if let Some(ds) = &self.database {
-            if let Ok(notes) = ds.list_all_notes() {
-                self.note_cache.clear();
-                for (tagrpath, record) in notes {
-                    let path = PathBuf::from(tagrpath.as_str());
-                    // Also insert canonical form so lookups never need a syscall
-                    if let Ok(canonical) = path.canonicalize() {
-                        if canonical != path {
-                            self.note_cache.insert(canonical, record.clone());
-                        }
-                    }
-                    self.note_cache.insert(path, record);
+        if let Some(ds) = &self.database
+            && let Ok(notes) = ds.list_all_notes()
+        {
+            self.note_cache.clear();
+            for (tagrpath, record) in notes {
+                let path = PathBuf::from(tagrpath.as_str());
+                // Also insert canonical form so lookups never need a syscall
+                if let Ok(canonical) = path.canonicalize()
+                    && canonical != path
+                {
+                    self.note_cache.insert(canonical, record.clone());
                 }
+                self.note_cache.insert(path, record);
             }
         }
     }
 
     /// Look up a cached note by path. Both raw and canonical forms are
-    /// pre-indexed at load time, so this is a pure HashMap lookup with
+    /// pre-indexed at load time, so this is a pure `HashMap` lookup with
     /// no filesystem syscalls.
+    #[must_use]
     pub fn cached_note(&self, path: &std::path::Path) -> Option<&crate::types::NoteRecord> {
         self.note_cache.get(path)
     }
@@ -803,7 +804,7 @@ impl AppState {
             // Add files with notes but no tags
             if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(db.as_ref()) {
                 for item in notes_only_files {
-                    if let Some(path_str) = item.as_file_path().map(|p| p.as_str()) {
+                    if let Some(path_str) = item.as_file_path().map(crate::types::TagrPath::as_str) {
                         file_set.insert(path_str.to_string());
                     }
                 }
@@ -817,11 +818,11 @@ impl AppState {
             .collect();
 
         for tag in &regular_tags {
-            if let Some(tn) = crate::types::TagName::new(tag.as_str()).ok() {
-                if let Ok(files) = db.find_by_tag(&tn) {
-                    for file in files {
-                        file_set.insert(file.as_str().to_string());
-                    }
+            if let Ok(tn) = crate::types::TagName::new(tag.as_str())
+                && let Ok(files) = db.find_by_tag(&tn)
+            {
+                for file in files {
+                    file_set.insert(file.as_str().to_string());
                 }
             }
         }
@@ -830,7 +831,7 @@ impl AppState {
         let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
         if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
-                if let Some(tp) = crate::types::TagrPath::new(file_path).ok() {
+                crate::types::TagrPath::new(file_path).ok().is_none_or(|tp| {
                     if let Ok(Some(file_tags)) = db.get_tags(&tp) {
                         let has_excluded = file_tags
                             .iter()
@@ -839,9 +840,7 @@ impl AppState {
                     } else {
                         true
                     }
-                } else {
-                    true
-                }
+                })
             });
         }
 
@@ -1116,11 +1115,11 @@ impl AppState {
         let mut file_set = std::collections::HashSet::new();
 
         for tag in &expanded_tags {
-            if let Some(tn) = crate::types::TagName::new(tag.as_str()).ok() {
-                if let Ok(files) = db.find_by_tag(&tn) {
-                    for file in files {
-                        file_set.insert(file.as_str().to_string());
-                    }
+            if let Ok(tn) = crate::types::TagName::new(tag.as_str())
+                && let Ok(files) = db.find_by_tag(&tn)
+            {
+                for file in files {
+                    file_set.insert(file.as_str().to_string());
                 }
             }
         }
@@ -1129,7 +1128,7 @@ impl AppState {
         let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
         if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
-                if let Some(tp) = crate::types::TagrPath::new(file_path).ok() {
+                crate::types::TagrPath::new(file_path).ok().is_none_or(|tp| {
                     if let Ok(Some(file_tags)) = db.get_tags(&tp) {
                         let has_excluded = file_tags
                             .iter()
@@ -1138,9 +1137,7 @@ impl AppState {
                     } else {
                         true
                     }
-                } else {
-                    true
-                }
+                })
             });
         }
 

@@ -88,7 +88,7 @@ impl TagTreeNode {
         self.children.push(child);
         // Keep children sorted
         self.children
-            .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            .sort_by_key(|c| c.name.to_lowercase());
     }
 
     /// Toggle expansion state
@@ -334,7 +334,7 @@ impl TagTreeState {
         }
 
         // Sort nodes alphabetically
-        nodes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        nodes.sort_by_key(|n| n.name.to_lowercase());
         nodes
     }
 

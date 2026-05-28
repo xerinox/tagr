@@ -79,7 +79,7 @@ pub fn execute(
     // Convert to TagName at the boundary
     let final_tags: Vec<TagName> = final_tag_strings
         .iter()
-        .map(|t| TagName::new(t))
+        .map(TagName::new)
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     let success_msg = if quiet {
@@ -152,7 +152,7 @@ pub fn untag(
     // Convert to TagName at the boundary
     let tag_names: Vec<TagName> = tags
         .iter()
-        .map(|t| TagName::new(t))
+        .map(TagName::new)
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     store.remove_tags(&canonical_path, &tag_names)?;

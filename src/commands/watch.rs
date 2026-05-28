@@ -250,6 +250,10 @@ fn remove_rule_from_config(config: &mut WatchConfig, index: usize) -> anyhow::Re
 /// Handle `tagr watch list`
 ///
 /// Displays all configured watch rules as a numbered table.
+///
+/// # Errors
+/// Returns I/O errors if writing to the output fails, or config errors if
+/// the watch configuration cannot be loaded.
 pub fn watch_list(
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
@@ -267,7 +271,7 @@ fn format_rule_list(config: &WatchConfig, writer: &mut impl Write) -> anyhow::Re
         return Ok(());
     }
 
-    writeln!(writer, "{:>3}  {:<30} {:<20} {}", "#", "Patterns", "Tags", "Filter")?;
+    writeln!(writer, "{:>3}  {:<30} {:<20} Filter", "#", "Patterns", "Tags")?;
     writeln!(writer, "{}", "-".repeat(78))?;
 
     for (i, rule) in config.rules.iter().enumerate() {
@@ -305,6 +309,10 @@ fn format_rule_list(config: &WatchConfig, writer: &mut impl Write) -> anyhow::Re
 ///
 /// Shows whether the daemon is running, the number of configured rules,
 /// and the socket path.
+///
+/// # Errors
+/// Returns I/O errors if writing to the output fails, or errors from
+/// daemon status checks and socket path resolution.
 pub fn watch_status(
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
@@ -391,7 +399,7 @@ pub fn watch_stop(
     use crate::daemon::client::send_request;
     use crate::daemon::{DaemonManager, PlatformDaemonManager};
     use crate::ipc::get_ipc_socket_path;
-    use crate::ipc::wire::{Request, Response};
+    use crate::ipc::wire::Request;
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("Failed to create async runtime: {e}"))?;
@@ -405,8 +413,7 @@ pub fn watch_stop(
     }
 
     match rt.block_on(send_request(Request::Shutdown)) {
-        Ok(Response::Ok | Response::Error(_)) => {}
-        Ok(_) => {} // unexpected response shape, but shutdown was sent
+        Ok(_) => {} // any Ok means shutdown was sent
         Err(e) => anyhow::bail!("Failed to stop daemon: {e}"),
     }
 

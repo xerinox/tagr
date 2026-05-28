@@ -227,10 +227,10 @@ pub fn filter_items_in_memory<'a>(
                 crate::browse::models::ItemMetadata::Tag(_) => return true,
             };
 
-            if let Some(ref expr) = criteria.tag_expr {
-                if !expr.matches(tags) {
-                    return false;
-                }
+            if let Some(ref expr) = criteria.tag_expr
+                && !expr.matches(tags)
+            {
+                return false;
             }
 
             true

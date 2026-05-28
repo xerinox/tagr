@@ -17,6 +17,11 @@ static NEXT_REQUEST_ID: AtomicU32 = AtomicU32::new(1);
 ///
 /// Opens a fresh Unix socket connection, sends a single `ClientMessage::Request`,
 /// reads the corresponding `ServerMessage::Response`, and disconnects.
+///
+/// # Errors
+///
+/// Returns `DaemonError::ConnectionFailed` if the socket cannot be reached,
+/// or `DaemonError::IpcError` on framing / serialization failures.
 pub async fn send_request(req: Request) -> Result<Response, DaemonError> {
     let socket_path = get_ipc_socket_path()
         .map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;
@@ -35,12 +40,12 @@ pub async fn send_request(req: Request) -> Result<Response, DaemonError> {
 
     wire::write_frame(&mut writer, &msg)
         .await
-        .map_err(|e| DaemonError::IpcError(e))?;
+        .map_err(DaemonError::IpcError)?;
 
     // Read the response frame.
     let server_msg: ServerMessage = wire::read_frame(&mut reader)
         .await
-        .map_err(|e| DaemonError::IpcError(e))?
+        .map_err(DaemonError::IpcError)?
         .ok_or_else(|| DaemonError::ConnectionFailed("daemon closed connection before responding".into()))?;
 
     match server_msg {
@@ -73,7 +78,7 @@ pub struct PersistentClient {
     /// Pending request map — background reader routes responses here.
     pending: PendingMap,
     /// Handle to the background reader task (aborted on drop).
-    _reader_handle: tokio::task::JoinHandle<()>,
+    reader_handle: tokio::task::JoinHandle<()>,
 }
 
 impl PersistentClient {
@@ -81,6 +86,11 @@ impl PersistentClient {
     /// reader that demuxes responses and events.
     ///
     /// Returns `(client, event_receiver)`. The caller owns the event channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DaemonError::ConnectionFailed` if the socket cannot be reached,
+    /// or `DaemonError::IpcError` on framing failures.
     pub async fn connect() -> Result<(Self, mpsc::Receiver<ServerEvent>), DaemonError> {
         let socket_path = get_ipc_socket_path()
             .map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;
@@ -108,13 +118,18 @@ impl PersistentClient {
         let client = Self {
             writer: Mutex::new(writer),
             pending,
-            _reader_handle: reader_handle,
+            reader_handle,
         };
 
         Ok((client, event_rx))
     }
 
     /// Send a request and wait for the matching response.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DaemonError::IpcError` on write failures, or
+    /// `DaemonError::ConnectionFailed` if the daemon disconnects.
     pub async fn request(&self, req: Request) -> Result<Response, DaemonError> {
         let id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
@@ -149,7 +164,8 @@ impl PersistentClient {
                 wire::read_frame(&mut reader).await;
             match frame {
                 Ok(Some(ServerMessage::Response { id, payload })) => {
-                    if let Some(tx) = pending.lock().await.remove(&id) {
+                    let sender = pending.lock().await.remove(&id);
+                    if let Some(tx) = sender {
                         // Receiver may have been dropped (timeout) — that's fine.
                         let _ = tx.send(payload);
                     }
@@ -167,6 +183,6 @@ impl PersistentClient {
 
 impl Drop for PersistentClient {
     fn drop(&mut self) {
-        self._reader_handle.abort();
+        self.reader_handle.abort();
     }
 }

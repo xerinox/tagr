@@ -78,6 +78,8 @@ impl BulkOpSummary {
         self.errors += 1;
         self.error_messages.push(msg);
     }
+    /// # Errors
+    /// Returns I/O errors if writing to the output fails.
     pub fn print(&self, operation: &str, writer: &mut impl Write) -> Result<()> {
         writeln!(writer, "\n{}", format!("=== {operation} Summary ===").bold())?;
         writeln!(writer, "  {} {}", "✓ Success:".green(), self.success)?;

@@ -61,9 +61,8 @@ impl ActionExecutor {
             BrowseAction::ShowDetails => Self::execute_show_details(context),
             BrowseAction::EditNote => Self::execute_edit_note(context),
             BrowseAction::ToggleNotePreview => Self::execute_toggle_note_preview(context),
-            BrowseAction::RefineSearch => Ok(ActionResult::Continue), // Handled in TUI
             BrowseAction::ShowHelp => Self::execute_show_help(context),
-            _ => Ok(ActionResult::Continue),
+            _ => Ok(ActionResult::Continue), // RefineSearch handled in TUI, others are no-ops
         }
     }
 

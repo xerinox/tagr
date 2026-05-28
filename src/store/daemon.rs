@@ -252,7 +252,7 @@ fn wire_note_to_record(entry: &crate::ipc::wire::WireNoteEntry) -> NoteRecord {
 }
 
 /// Convert a response error string to `StoreError`.
-fn response_error(msg: String, context: &str) -> StoreError {
+fn response_error(msg: &str, context: &str) -> StoreError {
     StoreError::ConnectionLost {
         context: format!("{context}: daemon returned error: {msg}"),
     }
@@ -282,7 +282,7 @@ fn wire_tag_to_tagname(tag: &str, context: &str) -> Result<TagName> {
 }
 
 /// Convert a `Vec<String>` of file paths from the wire to `Vec<TagrPath>`.
-fn wire_paths_to_tagrpaths(paths: Vec<String>, context: &str) -> Result<Vec<TagrPath>> {
+fn wire_paths_to_tagrpaths(paths: &[String], context: &str) -> Result<Vec<TagrPath>> {
     paths.iter().map(|p| wire_path_to_tagrpath(p, context)).collect()
 }
 
@@ -293,11 +293,12 @@ impl TagStore for DaemonStore {
                 .iter()
                 .map(|t| wire_tag_to_tagname(&t.name, "list_all_tags"))
                 .collect(),
-            Response::Error(e) => Err(response_error(e, "list_all_tags")),
+            Response::Error(e) => Err(response_error(&e, "list_all_tags")),
             other => Err(unexpected_response(&other, "list_all_tags")),
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)] // wire uses u64, file counts won't exceed usize
     fn list_tags_with_counts(&self) -> Result<Vec<(TagName, usize)>> {
         match self.send(Request::ListTags)? {
             Response::Tags(tags) => tags
@@ -307,15 +308,15 @@ impl TagStore for DaemonStore {
                         .map(|name| (name, t.file_count as usize))
                 })
                 .collect(),
-            Response::Error(e) => Err(response_error(e, "list_tags_with_counts")),
+            Response::Error(e) => Err(response_error(&e, "list_tags_with_counts")),
             other => Err(unexpected_response(&other, "list_tags_with_counts")),
         }
     }
 
     fn list_all_files(&self) -> Result<Vec<TagrPath>> {
         match self.send(Request::ListAllPaths)? {
-            Response::FilePaths(paths) => wire_paths_to_tagrpaths(paths, "list_all_files"),
-            Response::Error(e) => Err(response_error(e, "list_all_files")),
+            Response::FilePaths(paths) => wire_paths_to_tagrpaths(&paths, "list_all_files"),
+            Response::Error(e) => Err(response_error(&e, "list_all_files")),
             other => Err(unexpected_response(&other, "list_all_files")),
         }
     }
@@ -334,7 +335,7 @@ impl TagStore for DaemonStore {
                     Ok(Pair::new(file, tags))
                 })
                 .collect(),
-            Response::Error(e) => Err(response_error(e, "list_all")),
+            Response::Error(e) => Err(response_error(&e, "list_all")),
             other => Err(unexpected_response(&other, "list_all")),
         }
     }
@@ -352,7 +353,7 @@ impl TagStore for DaemonStore {
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Some(names))
             }
-            Response::Error(e) => Err(response_error(e, "get_tags")),
+            Response::Error(e) => Err(response_error(&e, "get_tags")),
             other => Err(unexpected_response(&other, "get_tags")),
         }
     }
@@ -362,8 +363,8 @@ impl TagStore for DaemonStore {
             tag: tag.to_string(),
         };
         match self.send(req)? {
-            Response::FilePaths(paths) => wire_paths_to_tagrpaths(paths, "find_by_tag"),
-            Response::Error(e) => Err(response_error(e, "find_by_tag")),
+            Response::FilePaths(paths) => wire_paths_to_tagrpaths(&paths, "find_by_tag"),
+            Response::Error(e) => Err(response_error(&e, "find_by_tag")),
             other => Err(unexpected_response(&other, "find_by_tag")),
         }
     }
@@ -374,8 +375,8 @@ impl TagStore for DaemonStore {
             match_all: true,
         };
         match self.send(req)? {
-            Response::FilePaths(paths) => wire_paths_to_tagrpaths(paths, "find_by_all_tags"),
-            Response::Error(e) => Err(response_error(e, "find_by_all_tags")),
+            Response::FilePaths(paths) => wire_paths_to_tagrpaths(&paths, "find_by_all_tags"),
+            Response::Error(e) => Err(response_error(&e, "find_by_all_tags")),
             other => Err(unexpected_response(&other, "find_by_all_tags")),
         }
     }
@@ -386,8 +387,8 @@ impl TagStore for DaemonStore {
             match_all: false,
         };
         match self.send(req)? {
-            Response::FilePaths(paths) => wire_paths_to_tagrpaths(paths, "find_by_any_tag"),
-            Response::Error(e) => Err(response_error(e, "find_by_any_tag")),
+            Response::FilePaths(paths) => wire_paths_to_tagrpaths(&paths, "find_by_any_tag"),
+            Response::Error(e) => Err(response_error(&e, "find_by_any_tag")),
             other => Err(unexpected_response(&other, "find_by_any_tag")),
         }
     }
@@ -397,8 +398,8 @@ impl TagStore for DaemonStore {
             pattern: pattern.to_owned(),
         };
         match self.send(req)? {
-            Response::FilePaths(paths) => wire_paths_to_tagrpaths(paths, "find_by_tag_regex"),
-            Response::Error(e) => Err(response_error(e, "find_by_tag_regex")),
+            Response::FilePaths(paths) => wire_paths_to_tagrpaths(&paths, "find_by_tag_regex"),
+            Response::Error(e) => Err(response_error(&e, "find_by_tag_regex")),
             other => Err(unexpected_response(&other, "find_by_tag_regex")),
         }
     }
@@ -426,7 +427,7 @@ impl TagStore for DaemonStore {
         };
         match self.send(req)? {
             Response::Ok => Ok(()),
-            Response::Error(e) => Err(response_error(e, "insert")),
+            Response::Error(e) => Err(response_error(&e, "insert")),
             other => Err(unexpected_response(&other, "insert")),
         }
     }
@@ -438,7 +439,7 @@ impl TagStore for DaemonStore {
         };
         match self.send(req)? {
             Response::Ok => Ok(()),
-            Response::Error(e) => Err(response_error(e, "add_tags")),
+            Response::Error(e) => Err(response_error(&e, "add_tags")),
             other => Err(unexpected_response(&other, "add_tags")),
         }
     }
@@ -451,7 +452,7 @@ impl TagStore for DaemonStore {
         };
         match self.send(req)? {
             Response::Ok => Ok(()),
-            Response::Error(e) => Err(response_error(e, "remove_tags")),
+            Response::Error(e) => Err(response_error(&e, "remove_tags")),
             other => Err(unexpected_response(&other, "remove_tags")),
         }
     }
@@ -463,7 +464,7 @@ impl TagStore for DaemonStore {
         match self.send(req)? {
             Response::Ok => Ok(true),
             Response::Error(e) if e.contains("not found") => Ok(false),
-            Response::Error(e) => Err(response_error(e, "remove_file")),
+            Response::Error(e) => Err(response_error(&e, "remove_file")),
             other => Err(unexpected_response(&other, "remove_file")),
         }
     }
@@ -473,7 +474,7 @@ impl TagStore for DaemonStore {
         let files = self.find_by_tag(tag)?;
         let count = files.len() as u64;
         for file in &files {
-            self.remove_tags(file, &[tag.clone()])?;
+            self.remove_tags(file, std::slice::from_ref(tag))?;
         }
         Ok(count)
     }
@@ -493,7 +494,7 @@ impl TagStore for DaemonStore {
         match self.send(req)? {
             Response::Note(Some(entry)) => Ok(Some(wire_note_to_record(&entry))),
             Response::Note(None) => Ok(None),
-            Response::Error(e) => Err(response_error(e, "get_note")),
+            Response::Error(e) => Err(response_error(&e, "get_note")),
             other => Err(unexpected_response(&other, "get_note")),
         }
     }
@@ -505,7 +506,7 @@ impl TagStore for DaemonStore {
         };
         match self.send(req)? {
             Response::Ok => Ok(()),
-            Response::Error(e) => Err(response_error(e, "set_note")),
+            Response::Error(e) => Err(response_error(&e, "set_note")),
             other => Err(unexpected_response(&other, "set_note")),
         }
     }
@@ -516,7 +517,7 @@ impl TagStore for DaemonStore {
         };
         match self.send(req)? {
             Response::Ok => Ok(true),
-            Response::Error(e) => Err(response_error(e, "delete_note")),
+            Response::Error(e) => Err(response_error(&e, "delete_note")),
             other => Err(unexpected_response(&other, "delete_note")),
         }
     }
@@ -542,7 +543,7 @@ impl TagStore for DaemonStore {
                     Ok((path, wire_note_to_record(e)))
                 })
                 .collect(),
-            Response::Error(e) => Err(response_error(e, "list_all_notes")),
+            Response::Error(e) => Err(response_error(&e, "list_all_notes")),
             other => Err(unexpected_response(&other, "list_all_notes")),
         }
     }
@@ -604,7 +605,7 @@ impl TagStore for DaemonStore {
                     Ok(Pair::new(file, tags))
                 })
                 .collect::<Result<Vec<Pair>>>()?,
-            Response::Error(e) => return Err(response_error(e, "query")),
+            Response::Error(e) => return Err(response_error(&e, "query")),
             other => return Err(unexpected_response(&other, "query")),
         };
 

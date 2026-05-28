@@ -69,7 +69,7 @@ pub fn first_time_setup() -> Result<TagrConfig, ConfigError> {
         {
              println!("Installing systemd units...");
              if let Err(e) = crate::daemon::linux::install_systemd_units() {
-                 eprintln!("Warning: Failed to install systemd units: {}", e);
+                 eprintln!("Warning: Failed to install systemd units: {e}");
              } else {
                  println!("Systemd units installed and enabled.");
              }

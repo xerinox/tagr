@@ -36,8 +36,8 @@ pub struct WatchRule {
     /// Tags to apply when files match
     pub tags: Vec<String>,
 
-    /// Optional saved filter name to apply (e.g., "markdown-files").
-    /// This is resolved to a QueryCriteria at daemon startup.
+    /// Optional saved filter name to apply (e.g., `"markdown-files"`).
+    /// This is resolved to a `QueryCriteria` at daemon startup.
     pub filter: Option<String>,
 
     /// Inline virtual-tag conditions (e.g., `["size:small", "modified:today"]`).
@@ -65,7 +65,11 @@ pub struct WatchConfig {
 }
 
 impl WatchConfig {
-    /// Load configuration from default location
+    /// Load configuration from default location.
+    ///
+    /// # Errors
+    /// Returns `WatchError` if the config directory cannot be determined,
+    /// or if reading/parsing the file fails.
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
         if !path.exists() {
@@ -73,15 +77,18 @@ impl WatchConfig {
         }
 
         let content = std::fs::read_to_string(&path)?;
-        let config: WatchConfig = toml::from_str(&content)?;
+        let config: Self = toml::from_str(&content)?;
         Ok(config)
     }
 
-    /// Save configuration to default location
+    /// Save configuration to default location.
+    ///
+    /// # Errors
+    /// Returns `WatchError` if the config directory cannot be determined,
+    /// or if creating directories or writing the file fails.
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
         
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -91,13 +98,19 @@ impl WatchConfig {
         Ok(())
     }
 
-    /// Append a new rule and save
+    /// Append a new rule and save.
+    ///
+    /// # Errors
+    /// Returns `WatchError` if saving the configuration fails.
     pub fn append_rule(&mut self, rule: WatchRule) -> Result<()> {
         self.rules.push(rule);
         self.save()
     }
     
-    /// Get the path to watch.toml
+    /// Get the path to `watch.toml`.
+    ///
+    /// # Errors
+    /// Returns `WatchError::LoadError` if the config directory cannot be determined.
     pub fn config_path() -> Result<PathBuf> {
         let config_dir = dirs::config_dir()
             .ok_or_else(|| WatchError::LoadError("Could not determine config directory".to_string()))?;
@@ -105,16 +118,22 @@ impl WatchConfig {
     }
 
     /// Load configuration from a specific path (useful for testing).
+    ///
+    /// # Errors
+    /// Returns `WatchError` if reading or parsing the file fails.
     pub fn load_from(path: &Path) -> Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
         }
         let content = std::fs::read_to_string(path)?;
-        let config: WatchConfig = toml::from_str(&content)?;
+        let config: Self = toml::from_str(&content)?;
         Ok(config)
     }
 
     /// Save configuration to a specific path (useful for testing).
+    ///
+    /// # Errors
+    /// Returns `WatchError` if creating directories or writing the file fails.
     pub fn save_to(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;

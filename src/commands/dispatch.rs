@@ -145,6 +145,7 @@ fn dispatch_search(
 }
 
 /// Handle all bulk command variants.
+#[allow(clippy::too_many_lines)] // cohesive match dispatching all bulk subcommands
 fn dispatch_bulk(
     command: &BulkCommands,
     store: &dyn TagStore,
@@ -224,7 +225,7 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            let fmt = convert_batch_format(format, *delimiter);
+            let fmt = convert_batch_format(*format, *delimiter);
             commands::bulk::batch_from_file(store, input, fmt, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::MapTags {
@@ -234,7 +235,7 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            let fmt = convert_batch_format(format, *delimiter);
+            let fmt = convert_batch_format(*format, *delimiter);
             commands::bulk::bulk_map_tags(store, input, fmt, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::DeleteFiles {
@@ -244,7 +245,7 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            let fmt = convert_batch_format(format, *delimiter);
+            let fmt = convert_batch_format(*format, *delimiter);
             commands::bulk::bulk_delete_files(store, input, fmt, *dry_run, *yes, quiet, writer)?;
         }
         BulkCommands::PropagateByDir {
@@ -280,16 +281,17 @@ fn dispatch_bulk(
             filter,
             dry_run,
             yes,
-        } => dispatch_transform(transformation, param, replacement, filter, store, *dry_run, *yes, quiet, writer)?,
+        } => dispatch_transform(*transformation, param.as_deref(), replacement.as_deref(), filter, store, *dry_run, *yes, quiet, writer)?,
     }
     Ok(())
 }
 
 /// Handle bulk transform command — convert CLI transformation type to library type.
+#[allow(clippy::too_many_arguments)] // dispatches from CLI, mirrors clap struct fields
 fn dispatch_transform(
-    transformation: &TransformationType,
-    param: &Option<String>,
-    replacement: &Option<String>,
+    transformation: TransformationType,
+    param: Option<&str>,
+    replacement: Option<&str>,
     filter: &[String],
     store: &dyn TagStore,
     dry_run: bool,
@@ -298,7 +300,7 @@ fn dispatch_transform(
     writer: &mut impl Write,
 ) -> Result<(), TagrError> {
     let required_param = |name: &str| -> Result<String, TagrError> {
-        param.clone().ok_or_else(|| required_arg(name))
+        param.map(String::from).ok_or_else(|| required_arg(name))
     };
 
     let trans = match transformation {
@@ -323,7 +325,7 @@ fn dispatch_transform(
         TransformationType::RegexReplace => TagTransformation::RegexReplace {
             pattern: required_param("param")?,
             replacement: replacement
-                .clone()
+                .map(String::from)
                 .ok_or_else(|| required_arg("replacement"))?,
         },
     };
@@ -338,7 +340,7 @@ fn dispatch_transform(
     Ok(())
 }
 
-fn convert_batch_format(format: &crate::cli::BatchFormatArg, delimiter: char) -> BatchFormat {
+const fn convert_batch_format(format: crate::cli::BatchFormatArg, delimiter: char) -> BatchFormat {
     use crate::cli::BatchFormatArg;
 
     match format {

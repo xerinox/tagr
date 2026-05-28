@@ -28,8 +28,5 @@ pub use propagate::{propagate_by_directory, propagate_by_extension};
 pub use tag_ops::{CopyTagsConfig, bulk_tag, bulk_untag, copy_tags, merge_tags, rename_tag};
 pub use transform::{TagTransformation, transform_tags};
 
-// Re-export used parsing types for external callers that may switch on format.
-pub use batch::BatchFormat as _BatchFormatForExternal; // compatibility alias (if needed)
-
 #[cfg(test)]
 mod tests;

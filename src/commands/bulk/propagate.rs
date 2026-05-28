@@ -58,7 +58,7 @@ static DEFAULT_EXT_MAPPINGS: &[(&str, &[&str])] = &[
 ];
 
 /// Parse a directory-to-tag mapping string in "dir:tag" format
-pub(crate) fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
+pub(super) fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
     let (dir, tag) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!("Invalid mapping format '{s}'. Expected 'dir:tag'"))
     })?;
@@ -66,7 +66,7 @@ pub(crate) fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
 }
 
 /// Parse an extension-to-tags mapping string in "ext:tag1,tag2" format
-pub(crate) fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
+pub(super) fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
     let (ext, tags_str) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!(
             "Invalid mapping format '{s}'. Expected 'ext:tag1,tag2'"
@@ -259,6 +259,7 @@ pub fn propagate_by_directory(
 /// Returns database errors during file queries and updates, and `TagrError::InvalidInput`
 /// for invalid mapping formats.
 #[allow(clippy::fn_params_excessive_bools)]
+#[allow(clippy::too_many_lines)] // cohesive: builds ext map, scans files, applies tags
 pub fn propagate_by_extension(
     store: &dyn TagStore,
     custom_mappings: &[String],

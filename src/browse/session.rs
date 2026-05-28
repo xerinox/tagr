@@ -212,7 +212,7 @@ impl BrowseSession {
     /// # Errors
     ///
     /// Returns error if database queries fail
-    pub fn handle_accept(&mut self, selected_ids: Vec<String>) -> Result<AcceptResult> {
+    pub fn handle_accept(&mut self, selected_ids: &[String]) -> Result<AcceptResult> {
         match &self.current_phase.phase_type {
             PhaseType::TagSelection => {
                 if selected_ids.is_empty() {
@@ -238,7 +238,7 @@ impl BrowseSession {
                     regular_files.append(&mut notes_files);
                     regular_files
                 } else {
-                    query::get_files_by_tags(&*self.ds, &selected_ids, MatchMode::Any)?
+                    query::get_files_by_tags(&*self.ds, selected_ids, MatchMode::Any)?
                 };
 
                 if items.is_empty() {
@@ -442,7 +442,7 @@ impl BrowseSession {
     /// # Errors
     ///
     /// Returns error if database queries fail
-    pub fn update_search_params(&mut self, new_criteria: QueryCriteria) -> Result<()> {
+    pub fn update_search_params(&mut self, new_criteria: &QueryCriteria) -> Result<()> {
         // Only applicable in file selection phase
         let PhaseType::FileSelection { selected_tags: _ } = &self.current_phase.phase_type else {
             return Err(BrowseError::InvalidState(
@@ -452,7 +452,7 @@ impl BrowseSession {
 
         let old_criteria = self.config.initial_search.as_ref();
 
-        let filters_relaxed = old_criteria.is_some_and(|old| is_filter_relaxation(old, &new_criteria));
+        let filters_relaxed = old_criteria.is_some_and(|old| is_filter_relaxation(old, new_criteria));
 
         self.config.initial_search = Some(new_criteria.clone());
 
@@ -463,7 +463,7 @@ impl BrowseSession {
 
         // Use hybrid filtering: DB queries for relaxations, in-memory for restrictions
         if filters_relaxed || self.base_items.is_none() {
-            let items = query::get_matching_files(&*self.ds, &new_criteria)?;
+            let items = query::get_matching_files(&*self.ds, new_criteria)?;
 
             if items.len() < HYBRID_FILTER_THRESHOLD {
                 self.base_items = Some(items.clone());
@@ -479,7 +479,7 @@ impl BrowseSession {
                 settings: self.config.file_phase_settings.clone(),
             };
         } else if let Some(ref base) = self.base_items {
-            let filtered_refs = query::filter_items_in_memory(base, &new_criteria);
+            let filtered_refs = query::filter_items_in_memory(base, new_criteria);
             let items: Vec<TagrItem> = filtered_refs.into_iter().cloned().collect();
 
             self.current_phase = BrowserPhase {
@@ -490,7 +490,7 @@ impl BrowseSession {
                 settings: self.config.file_phase_settings.clone(),
             };
         } else {
-            let items = query::get_matching_files(&*self.ds, &new_criteria)?;
+            let items = query::get_matching_files(&*self.ds, new_criteria)?;
 
             self.current_phase = BrowserPhase {
                 phase_type: PhaseType::FileSelection {
@@ -713,7 +713,7 @@ mod tests {
         let config = BrowseConfig::default();
         let mut session = BrowseSession::new(store(&db), config).unwrap();
 
-        let result = session.handle_accept(vec![]).unwrap();
+        let result = session.handle_accept(&[]).unwrap();
 
         assert!(matches!(result, AcceptResult::Cancelled));
     }
@@ -772,7 +772,7 @@ mod tests {
             ..QueryCriteria::default()
         };
 
-        session.update_search_params(new_criteria).unwrap();
+        session.update_search_params(&new_criteria).unwrap();
 
         assert_eq!(session.current_phase().items.len(), 1);
     }
@@ -911,7 +911,7 @@ mod tests {
             ..QueryCriteria::default()
         };
 
-        session.update_search_params(new_criteria).unwrap();
+        session.update_search_params(&new_criteria).unwrap();
 
         // Should have cached base_items (result set < threshold)
         assert!(session.base_items.is_some());
@@ -963,7 +963,7 @@ mod tests {
             ..QueryCriteria::default()
         };
 
-        session.update_search_params(new_criteria).unwrap();
+        session.update_search_params(&new_criteria).unwrap();
 
         // Should have both files now (re-queried DB)
         assert_eq!(session.current_phase().items.len(), 2);

@@ -75,6 +75,7 @@ async fn sigterm_or_pending() {
     std::future::pending::<()>().await;
 }
 
+#[allow(clippy::too_many_lines)]
 async fn async_run(db: &Database) -> Result<()> {
     println!("Daemon started. PID: {}", std::process::id());
 
@@ -89,7 +90,7 @@ async fn async_run(db: &Database) -> Result<()> {
         .create_tokio()?;
 
     let _socket_guard = SocketGuard(socket_path.clone());
-    println!("IPC socket: {:?}", socket_path);
+    println!("IPC socket: {}", socket_path.display());
 
     // Central event channel — all sources (FS watcher, IPC connections) feed here.
     let (event_tx, mut event_rx) = mpsc::channel::<DaemonEvent>(512);
@@ -117,7 +118,7 @@ async fn async_run(db: &Database) -> Result<()> {
             std::fs::create_dir_all(config_dir).ok();
         }
         if let Err(e) = debouncer.watch(config_dir, RecursiveMode::NonRecursive) {
-            eprintln!("Warning: could not watch config directory {:?}: {}", config_dir, e);
+            eprintln!("Warning: could not watch config directory {}: {e}", config_dir.display());
         }
     }
 
@@ -173,7 +174,7 @@ async fn async_run(db: &Database) -> Result<()> {
                 match event {
                     DaemonEvent::FsEvents(debounced_events) => {
                         let work = handle_debounced_events(
-                            debounced_events,
+                            &debounced_events,
                             &mut current_config,
                             &config_path,
                             &mut debouncer,
@@ -213,7 +214,7 @@ async fn async_run(db: &Database) -> Result<()> {
                 println!("Received SIGINT. Stopping daemon.");
                 break;
             }
-            _ = &mut sigterm => {
+            () = &mut sigterm => {
                 println!("Received SIGTERM. Stopping daemon.");
                 break;
             }
@@ -346,7 +347,7 @@ fn spawn_tag_work_with_events(
         #[cfg(feature = "dynamic-completions")]
         let db_for_cache = db.clone();
         tokio::spawn(async move {
-            println!("Auto-tagging {:?} with {:?}", path, tags);
+            println!("Auto-tagging {} with {tags:?}", path.display());
             let result = tokio::task::spawn_blocking(move || {
                 let store = crate::store::DirectStore::new(db_ref);
                 let mut stdout = std::io::stdout();
@@ -358,12 +359,12 @@ fn spawn_tag_work_with_events(
                     true,
                     &mut stdout,
                 )
-                .map_err(|e| (path, e))
+                .map_err(|e| Box::new((path, e)))
             })
             .await;
             match result {
-                Ok(Err((path, e))) => eprintln!("Auto-tag failed for {:?}: {}", path, e),
-                Err(e) => eprintln!("Spawn error: {}", e),
+                Ok(Err(boxed)) => eprintln!("Auto-tag failed for {}: {}", boxed.0.display(), boxed.1),
+                Err(e) => eprintln!("Spawn error: {e}"),
                 Ok(Ok(())) => {
                     #[cfg(feature = "dynamic-completions")]
                     crate::completions::invalidate_cache(&db_for_cache);
@@ -380,7 +381,7 @@ fn spawn_tag_work_with_events(
 /// so that IPC connections are never blocked.
 #[allow(clippy::too_many_arguments)]
 fn handle_debounced_events(
-    events: Vec<DebouncedEvent>,
+    events: &[DebouncedEvent],
     config: &mut WatchConfig,
     config_path: &Path,
     debouncer: &mut Debouncer<notify::RecommendedWatcher, notify_debouncer_full::NoCache>,
@@ -392,15 +393,14 @@ fn handle_debounced_events(
     let mut work: Vec<(PathBuf, Vec<String>)> = Vec::new();
     let store = DirectStore::new(db.clone());
 
-    for debounced in &events {
+    for debounced in events {
         let event = &debounced.event;
 
         // If any path in the event IS the config file, reload config — with debounce.
         if event.paths.iter().any(|p| p == config_path) {
             let now = Instant::now();
             let too_soon = last_config_reload
-                .map(|prev| now.duration_since(prev) < Duration::from_millis(500))
-                .unwrap_or(false);
+                .is_some_and(|prev| now.duration_since(prev) < Duration::from_millis(500));
             if too_soon {
                 continue;
             }
@@ -440,10 +440,10 @@ fn handle_debounced_events(
                 if !matches_patterns(path, &rule.patterns) {
                     continue;
                 }
-                if let Some(criteria) = &rule.filter_criteria {
-                    if !filter_evaluator.matches(path, criteria, &store) {
-                        continue;
-                    }
+                if let Some(criteria) = &rule.filter_criteria
+                    && !filter_evaluator.matches(path, criteria, &store)
+                {
+                    continue;
                 }
                 work.push((path.clone(), rule.tags.clone()));
             }
@@ -515,17 +515,17 @@ fn add_new_watch_roots(
             }
             if !root.exists() {
                 eprintln!(
-                    "Watch root {:?} does not exist yet (will not be watched until it is created)",
-                    root
+                    "Watch root {} does not exist yet (will not be watched until it is created)",
+                    root.display()
                 );
                 continue;
             }
-            println!("Watching directory: {:?}", root);
+            println!("Watching directory: {}", root.display());
             match debouncer.watch(&root, RecursiveMode::Recursive) {
                 Ok(()) => {
                     watched.insert(root);
                 }
-                Err(e) => eprintln!("Failed to watch {:?}: {}", root, e),
+                Err(e) => eprintln!("Failed to watch {}: {e}", root.display()),
             }
         }
     }
@@ -539,8 +539,7 @@ fn add_new_watch_roots(
 fn glob_parent(pattern: &str) -> PathBuf {
     let expanded = if pattern.starts_with("~/") {
         dirs::home_dir()
-            .map(|h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1))
-            .unwrap_or_else(|| pattern.to_string())
+            .map_or_else(|| pattern.to_string(), |h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1))
     } else {
         pattern.to_string()
     };
@@ -602,7 +601,7 @@ fn retroactive_scan(
                 glob::glob(&expanded)
                     .into_iter()
                     .flatten()
-                    .filter_map(|r| r.ok())
+                    .filter_map(Result::ok)
                     .filter(|p| p.is_file())
                     .collect()
             } else {
@@ -613,21 +612,20 @@ fn retroactive_scan(
 
             for path in &paths {
                 // Skip if the file already carries all the rule's tags.
-                if let Ok(tagr_path) = crate::types::TagrPath::new(path) {
-                    if let Ok(Some(existing)) = store.get_tags(&tagr_path) {
-                        if rule.tags.iter().all(|t| {
-                            existing.iter().any(|e| e.as_str() == t)
-                        }) {
-                            continue;
-                        }
-                    }
+                if let Ok(tagr_path) = crate::types::TagrPath::new(path)
+                    && let Ok(Some(existing)) = store.get_tags(&tagr_path)
+                    && rule.tags.iter().all(|t| {
+                        existing.iter().any(|e| e.as_str() == t)
+                    })
+                {
+                    continue;
                 }
 
                 // Honour filter criteria if any.
-                if let Some(criteria) = &rule.filter_criteria {
-                    if !filter_evaluator.matches(path, criteria, store) {
-                        continue;
-                    }
+                if let Some(criteria) = &rule.filter_criteria
+                    && !filter_evaluator.matches(path, criteria, store)
+                {
+                    continue;
                 }
 
                 work.push((path.clone(), rule.tags.clone()));
@@ -658,12 +656,12 @@ fn spawn_tag_work(work: Vec<(PathBuf, Vec<String>)>, db: &Database) {
                     true,
                     &mut stdout,
                 )
-                .map_err(|e| (path, e))
+                .map_err(|e| Box::new((path, e)))
             })
             .await;
             match result {
-                Ok(Err((path, e))) => eprintln!("Retroactive tag failed for {:?}: {}", path, e),
-                Err(e) => eprintln!("Spawn error: {}", e),
+                Ok(Err(boxed)) => eprintln!("Retroactive tag failed for {}: {}", boxed.0.display(), boxed.1),
+                Err(e) => eprintln!("Spawn error: {e}"),
                 Ok(Ok(())) => {}
             }
         });
@@ -674,8 +672,7 @@ fn spawn_tag_work(work: Vec<(PathBuf, Vec<String>)>, db: &Database) {
 fn expand_tilde(pattern: &str) -> String {
     if pattern.starts_with("~/") {
         dirs::home_dir()
-            .map(|h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1))
-            .unwrap_or_else(|| pattern.to_string())
+            .map_or_else(|| pattern.to_string(), |h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1))
     } else {
         pattern.to_string()
     }
@@ -687,6 +684,7 @@ fn expand_tilde(pattern: &str) -> String {
 
 /// Execute a wire protocol request and return the response.
 /// Returns `(Response, should_shutdown, optional_event_to_broadcast)`.
+#[allow(clippy::too_many_lines)]
 fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<ServerEvent>) {
     match req {
         Request::Ping => (Response::Pong, false, None),

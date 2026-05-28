@@ -20,14 +20,12 @@ impl DaemonManager for LinuxDaemonManager {
             .arg("tagr.service")
             .output();
             
-        if let Ok(output) = status {
-            if output.status.success() {
-                 for _ in 0..10 {
-                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                     if self.is_running().await? {
-                         return Ok(());
-                     }
-                 }
+        if let Ok(output) = status && output.status.success() {
+            for _ in 0..10 {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                if self.is_running().await? {
+                    return Ok(());
+                }
             }
         }
         
@@ -41,12 +39,17 @@ impl DaemonManager for LinuxDaemonManager {
     async fn is_running(&self) -> Result<bool> {
         match send_request(Request::Ping).await {
             Ok(_) => Ok(true),
-            Err(DaemonError::ConnectionFailed(_)) => Ok(false),
             Err(_) => Ok(false),
         }
     }
 }
 
+/// Install systemd service and socket unit files for the tagr daemon.
+///
+/// # Errors
+///
+/// Returns `DaemonError::StartFailed` if the config directory cannot be
+/// determined, or `DaemonError::Io` on filesystem failures.
 pub fn install_systemd_units() -> Result<()> {
     let config_dir = dirs::config_dir()
         .ok_or_else(|| DaemonError::StartFailed("Could not determine config directory".into()))?;
@@ -57,24 +60,24 @@ pub fn install_systemd_units() -> Result<()> {
     let exe_path = exe.to_string_lossy();
     
     // Service file
-    let service_content = format!(r#"[Unit]
+    let service_content = format!(r"[Unit]
 Description=Tagr File Watcher Daemon
 Documentation=https://github.com/xerinox/tagr
 
 [Service]
-ExecStart={} watch --daemon
+ExecStart={exe_path} watch --daemon
 Restart=on-failure
 StandardOutput=journal
 StandardError=journal
 
 [Install]
 WantedBy=default.target
-"#, exe_path);
+");
 
     // Socket file
     // Note: %t resolves to XDG_RUNTIME_DIR.
     // We assume IPC socket is at runtime_dir/tagr_daemon.sock
-    let socket_content = r#"[Unit]
+    let socket_content = r"[Unit]
 Description=Tagr Daemon Socket
 
 [Socket]
@@ -83,7 +86,7 @@ Accept=no
 
 [Install]
 WantedBy=sockets.target
-"#;
+";
 
     std::fs::write(systemd_dir.join("tagr.service"), service_content)?;
     std::fs::write(systemd_dir.join("tagr.socket"), socket_content)?;

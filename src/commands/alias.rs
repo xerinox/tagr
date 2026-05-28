@@ -313,11 +313,11 @@ fn set_canonical(
 
     // Step 2: Rename tags in database
     for file in &affected_files {
-        if let Ok(Some(mut tags)) = store.get_tags(file) {
-            if let Some(pos) = tags.iter().position(|t| t == &canonical_tag) {
-                tags[pos] = alias_tag.clone();
-                store.insert(file, tags)?;
-            }
+        if let Ok(Some(mut tags)) = store.get_tags(file)
+            && let Some(pos) = tags.iter().position(|t| t == &canonical_tag)
+        {
+            tags[pos] = alias_tag.clone();
+            store.insert(file, tags)?;
         }
     }
     writeln!(

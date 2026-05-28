@@ -1,7 +1,7 @@
 //! Abstraction layer for completion APIs
 //!
-//! Wraps clap_complete types to isolate upstream API changes.
-//! If clap_complete changes its API, only this module needs updating.
+//! Wraps `clap_complete` types to isolate upstream API changes.
+//! If `clap_complete` changes its API, only this module needs updating.
 
 use std::ffi::OsStr;
 

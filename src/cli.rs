@@ -1270,7 +1270,7 @@ impl Commands {
                     || !criteria.virtual_tags.is_empty()
                 {
                     let mut qc = criteria.to_query_criteria();
-                    qc.query = query.clone();
+                    qc.query.clone_from(query);
                     qc.expand_hierarchy = !*no_hierarchy;
                     Some(qc)
                 } else {

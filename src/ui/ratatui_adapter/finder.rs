@@ -44,7 +44,7 @@ pub struct RatatuiFinder {
     styled_generator: Option<StyledPreviewGenerator>,
     theme: Theme,
     /// Daemon event receiver for live updates (only in Remote mode).
-    /// Wrapped in RefCell to allow taking from &self (FuzzyFinder trait requires &self).
+    /// Wrapped in `RefCell` to allow taking from `&self` (`FuzzyFinder` trait requires `&self`).
     event_rx: std::cell::RefCell<Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>>,
 }
 
@@ -816,8 +816,8 @@ impl RatatuiFinder {
                         ));
                     }
                 }
-                EventResult::Action { action, context } => {
-                    // Generic action handling - return immediately with context
+                EventResult::Action { action, context }
+                | EventResult::ConfirmSubmitted { action, context } => {
                     return Ok(FinderResult::with_action(
                         context,
                         action.as_str().to_string(),
@@ -920,15 +920,6 @@ impl RatatuiFinder {
                         values,
                     ));
                 }
-                EventResult::ConfirmSubmitted { action, context } => {
-                    // Confirmation dialog was confirmed - return to caller with action info
-                    // The context contains the file paths that were selected for the action
-                    return Ok(FinderResult::with_action(
-                        context,
-                        action.as_str().to_string(),
-                        Vec::new(), // No additional values for confirmation-only actions
-                    ));
-                }
                 EventResult::InputCancelled
                 | EventResult::ConfirmCancelled
                 | EventResult::Continue
@@ -989,16 +980,16 @@ impl RatatuiFinder {
                     if let Some(content) = content {
                         let record = crate::types::NoteRecord::new(content);
                         // Insert canonical form too for consistent lookups
-                        if let Ok(canonical) = path.canonicalize() {
-                            if canonical != path {
-                                state.note_cache.insert(canonical, record.clone());
-                            }
+                        if let Ok(canonical) = path.canonicalize()
+                            && canonical != path
+                        {
+                            state.note_cache.insert(canonical, record.clone());
                         }
                         state.note_cache.insert(path, record);
+                    } else if let Ok(canonical) = path.canonicalize() {
+                        state.note_cache.remove(&canonical);
+                        state.note_cache.remove(&path);
                     } else {
-                        if let Ok(canonical) = path.canonicalize() {
-                            state.note_cache.remove(&canonical);
-                        }
                         state.note_cache.remove(&path);
                     }
                     // Invalidate preview cache so the note preview regenerates
@@ -1009,45 +1000,43 @@ impl RatatuiFinder {
             }
         }
 
-        if tag_tree_dirty {
-            // Rebuild tag tree from database
-            if let Some(ds) = &state.database {
-                if let Ok(all_tags) = ds.list_all_tags() {
-                    let tags_with_counts: Vec<(String, usize)> = all_tags
-                        .into_iter()
-                        .filter_map(|tag| {
-                            ds.find_by_tag(&tag).ok().map(|files| (tag.to_string(), files.len()))
-                        })
-                        .collect();
+        if tag_tree_dirty
+            && let Some(ds) = &state.database
+            && let Ok(all_tags) = ds.list_all_tags()
+        {
+            let tags_with_counts: Vec<(String, usize)> = all_tags
+                .into_iter()
+                .filter_map(|tag| {
+                    ds.find_by_tag(&tag).ok().map(|files| (tag.to_string(), files.len()))
+                })
+                .collect();
 
-                    let display_map: std::collections::HashMap<String, String> =
-                        state.tag_schema.as_ref().map_or_else(
-                            || {
-                                tags_with_counts
-                                    .iter()
-                                    .map(|(tag, _)| (tag.clone(), tag.clone()))
-                                    .collect()
-                            },
-                            |schema| {
-                                tags_with_counts
-                                    .iter()
-                                    .map(|(tag, _)| {
-                                        let canonical = schema.canonicalize(tag);
-                                        let display = if canonical == tag.as_str() {
-                                            tag.clone()
-                                        } else {
-                                            format!("{tag} ({canonical})")
-                                        };
-                                        (tag.clone(), display)
-                                    })
-                                    .collect()
-                            },
-                        );
+            let display_map: std::collections::HashMap<String, String> =
+                state.tag_schema.as_ref().map_or_else(
+                    || {
+                        tags_with_counts
+                            .iter()
+                            .map(|(tag, _)| (tag.clone(), tag.clone()))
+                            .collect()
+                    },
+                    |schema| {
+                        tags_with_counts
+                            .iter()
+                            .map(|(tag, _)| {
+                                let canonical = schema.canonicalize(tag);
+                                let display = if canonical == tag.as_str() {
+                                    tag.clone()
+                                } else {
+                                    format!("{tag} ({canonical})")
+                                };
+                                (tag.clone(), display)
+                            })
+                            .collect()
+                    },
+                );
 
-                    if let Some(tree) = &mut state.tag_tree_state {
-                        tree.build_from_tags_with_display(&tags_with_counts, &display_map);
-                    }
-                }
+            if let Some(tree) = &mut state.tag_tree_state {
+                tree.build_from_tags_with_display(&tags_with_counts, &display_map);
             }
         }
 

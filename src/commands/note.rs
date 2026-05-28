@@ -506,6 +506,9 @@ fn execute_search(
 // ==================== Helpers ====================
 
 /// Create a temporary file for note editing
+///
+/// # Errors
+/// Returns [`NoteError`] if the temporary file cannot be written.
 pub fn create_temp_note_file(content: &str) -> Result<PathBuf, NoteError> {
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!("tagr_note_{}.md", std::process::id()));

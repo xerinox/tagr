@@ -15,6 +15,7 @@ use std::io::Write;
 type Result<T> = std::result::Result<T, TagrError>;
 
 #[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)] // mirrors CLI flag group from clap
 pub struct ExplicitFlags {
     pub tag_mode: bool,
     pub file_mode: bool,
@@ -204,10 +205,7 @@ fn validate_patterns(criteria: &QueryCriteria, flags: ExplicitFlags) -> Result<(
         Some(crate::types::TagExpr::Or(_)) => MatchMode::Any,
         _ => MatchMode::All,
     };
-    let file_mode = match criteria.file_mode {
-        MatchMode::Any => MatchMode::Any,
-        MatchMode::All => MatchMode::All,
-    };
+    let file_mode = criteria.file_mode;
 
     let _ = builder.build(tag_mode, file_mode)?;
     Ok(())

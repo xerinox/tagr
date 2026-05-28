@@ -9,30 +9,26 @@ use std::path::Path;
 use std::time::Duration;
 
 /// Check if a file matches a list of glob patterns.
+#[must_use]
 pub fn matches_patterns<P: AsRef<Path>>(path: P, patterns: &[String]) -> bool {
-    let path_str = match path.as_ref().to_str() {
-        Some(s) => s,
-        None => return false,
+    let Some(path_str) = path.as_ref().to_str() else {
+        return false;
     };
 
-    // Use globwalk or similar for robust matching, but here we can use simple glob matching
-    // since we receive full paths from notify
     for pattern in patterns {
-        // Expand tilde if present
         let pattern_expanded = if pattern.starts_with("~/") {
-             if let Some(home) = dirs::home_dir() {
-                 pattern.replacen("~", home.to_string_lossy().as_ref(), 1)
-             } else {
-                 pattern.clone()
-             }
+            dirs::home_dir().map_or_else(
+                || pattern.clone(),
+                |home| pattern.replacen('~', home.to_string_lossy().as_ref(), 1),
+            )
         } else {
             pattern.clone()
         };
 
-        if let Ok(glob) = glob::Pattern::new(&pattern_expanded) {
-            if glob.matches(path_str) {
-                return true;
-            }
+        if let Ok(glob) = glob::Pattern::new(&pattern_expanded)
+            && glob.matches(path_str)
+        {
+            return true;
         }
     }
     false
@@ -43,12 +39,18 @@ pub struct FilterEvaluator {
     vtag_evaluator: VirtualTagEvaluator,
 }
 
+impl Default for FilterEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FilterEvaluator {
-    /// Create a new evaluator
+    /// Create a new evaluator.
+    #[must_use]
     pub fn new() -> Self {
-        // TODO: Load config from actual settings if available
         let config = VirtualTagConfig::default();
-        // Use a short cache TTL for watch mode as we want fresh metadata
+        // Short cache TTL for watch mode — we want fresh metadata
         let vtag_evaluator = VirtualTagEvaluator::new(Duration::from_secs(1), config);
         
         Self { vtag_evaluator }

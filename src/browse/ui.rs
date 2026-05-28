@@ -96,7 +96,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
 
             match browser_result {
                 BrowserResult::Accept(selected_ids) => {
-                    match self.session.handle_accept(selected_ids)? {
+                    match self.session.handle_accept(&selected_ids)? {
                         AcceptResult::PhaseTransition => {
                             // Transitioned to file phase, loop continues
                         }
@@ -226,7 +226,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
                         query: current.query.clone(),
                     };
 
-                    self.session.update_search_params(new_criteria)?;
+                    self.session.update_search_params(&new_criteria)?;
                     // Continue browsing with updated criteria
                 }
                 BrowserResult::InputAction {
@@ -353,7 +353,7 @@ impl<F: FuzzyFinder> BrowseController<F> {
             .with_database(database);
 
         let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
-            config.with_preview(preview_cfg.into())
+            config.with_preview(preview_cfg)
         } else {
             config
         };

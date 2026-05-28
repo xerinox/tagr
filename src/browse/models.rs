@@ -413,7 +413,7 @@ impl MetadataCache {
     /// Create new cache with default TTL (300s)
     #[must_use]
     pub fn new() -> Self {
-        Self::with_ttl(std::time::Duration::from_secs(300))
+        Self::with_ttl(std::time::Duration::from_mins(5))
     }
 
     /// Create cache with custom TTL
