@@ -343,12 +343,39 @@ Delete `datasource.rs`.
 
 ---
 
-## Phase 5: Adopt Newtypes Throughout
+## Phase 5: Adopt Newtypes Throughout ✅
 
-**Status:** Not started
+**Status:** Complete
 
 **Goal:** Replace raw `String`/`PathBuf` with `TagName`/`TagrPath` at all
-boundaries. Delete bridge conversions.
+boundaries. Delete bridge conversions. Implement DaemonStore cache.
+
+### Sub-phases completed
+
+1. **5.1** (`3878f83`) — `main.rs` opens `DirectStore` instead of `Database`
+2. **5.2** (`21a4d30`) — Read-only commands (`list`, `info`, `stats`, `note read`) → `&dyn TagStore`
+3. **5.3** (`6cfef2f`) — Mutation commands (`tag`, `untag`, `note write`) → `&dyn TagStore`
+4. **5.4** (`bbf004e`) — Bulk commands (`bulk tag`, `bulk untag`, `copy-tags`) → `&dyn TagStore`
+5. **5.5** (`5d3240b`) — Search command → `QueryCriteria` + `&dyn TagStore`; added `FilterCriteria ↔ QueryCriteria` conversions
+6. **5.6** (`4a98ffa`) — Watch subsystem → `QueryCriteria` + `&dyn TagStore`; `WatchRule.filter_criteria` now `Option<QueryCriteria>`
+7. **5.7** (`a9da54d`) — Wire protocol → `WireQueryCriteria`; added `Request::Query` variant; deleted `wire_search_params_from_criteria()` bridge
+8. **5.8a** (`f2a33e2`) — Browse module adopts `TagName`/`TagrPath` newtypes throughout models, query, actions, session
+9. **5.8b** (`aa2c537`) — Replace `ActiveFilter` with `QueryCriteria` in TUI state; sync functions use `flat_include_tags()`/`flat_exclude_tags()`
+10. **5.9** (`a2fafce`) — Completions cache → `&dyn TagStore` (was `&Database`)
+11. **5.10** (`5797552`) — Delete all bridge types: `SearchParams`, `ActiveFilter`, `WireSearchParams`, `Request::SearchFiles`, `execute_search()`, `apply_search_params()`, `search_params_to_criteria()`, `get_search_params()`, `DirectStore::inner()`. Removed `db: &Database` from `dispatch_command`. Net −1,385 lines.
+12. **Cache** (`510b40a`) — DaemonStore widest-result cache (deferred from Phase 4): `QueryCache` with `RwLock`, narrow/widen logic, `drain_events()`, `is_narrower_than()` flat-only subset check, cache-backed note lookups, incremental `ServerEvent` updates. +615 lines, 18 new tests.
+
+### Key decisions made during Phase 5
+
+- **`PatternBuilder.tag_tokens` stays `Vec<String>`** — raw CLI tokens before validation; not valid `TagName`s (glob/regex patterns)
+- **`dispatch_command` uses `Arc<dyn TagStore>`** — browse needs owned store reference
+- **DaemonStore owns event_rx** — `connect()` returns `Self` (not tuple); `drain_events()` for TUI frame loop
+- **Flat-only subset check** — `is_narrower_than()` returns `false` for complex `TagExpr` trees (NP-hard); those always go to IPC
+
+### Remaining `&Database` usage (intentional)
+
+- `daemon/core.rs` — daemon process owns the `Database` directly, creates `DirectStore` wrappers as needed
+- `db/` internals — `Database` is the sled wrapper; `DirectStore` delegates to it
 
 ---
 
@@ -356,6 +383,6 @@ boundaries. Delete bridge conversions.
 
 **Status:** Not started
 
-**Goal:** Remove `SearchParams`, `FilterCriteria`, `ActiveFilter`,
-`WireSearchParams`, old `Pair`, `DataSource`, `PathString`. Merge confused
-modules. Final cleanup.
+**Goal:** Remove remaining dead types (`FilterCriteria` if superseded,
+old `Pair` variants, `DataSource`, `PathString`). Merge confused modules.
+Final cleanup.
