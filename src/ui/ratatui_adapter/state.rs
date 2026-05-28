@@ -175,7 +175,7 @@ pub struct AppState {
     /// File details for the details modal
     pub file_details: Option<FileDetails>,
     /// Pre-loaded note cache to avoid per-file IPC round-trips
-    pub note_cache: HashMap<PathBuf, crate::db::NoteRecord>,
+    pub note_cache: HashMap<PathBuf, crate::types::NoteRecord>,
 }
 
 impl AppState {
@@ -259,7 +259,7 @@ impl AppState {
     /// Look up a cached note by path. Both raw and canonical forms are
     /// pre-indexed at load time, so this is a pure HashMap lookup with
     /// no filesystem syscalls.
-    pub fn cached_note(&self, path: &std::path::Path) -> Option<&crate::db::NoteRecord> {
+    pub fn cached_note(&self, path: &std::path::Path) -> Option<&crate::types::NoteRecord> {
         self.note_cache.get(path)
     }
 
@@ -961,7 +961,8 @@ impl AppState {
 
     /// Sync tag tree `excluded_tags` from `QueryCriteria`
     ///
-    /// Should be called whenever `active_filter` changes to keep UI in sync.
+    /// Bridges between `QueryCriteria` (TagName-based) and tag tree UI state
+    /// (String-based). Will be eliminated when tag tree adopts `TagName` directly.
     pub fn sync_tag_tree_exclusions(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.excluded_tags = self
@@ -976,8 +977,8 @@ impl AppState {
 
     /// Sync tag tree state from `active_filter` (both selected and excluded tags)
     ///
-    /// This makes `active_filter` the single source of truth for tag filtering state.
-    /// Should be called whenever `active_filter` changes.
+    /// Bridges between `QueryCriteria` (TagName-based) and tag tree UI state
+    /// (String-based). Will be eliminated when tag tree adopts `TagName` directly.
     pub fn sync_tag_tree_from_filter(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.selected_tags = self
@@ -999,8 +1000,8 @@ impl AppState {
 
     /// Sync `active_filter` from tag tree state (reverse of `sync_tag_tree_from_filter`)
     ///
-    /// Rebuilds `tag_expr` from the tree's selected/excluded tag strings.
-    /// Should be called when tag tree is initialized or manually modified.
+    /// Bridges between tag tree UI state (String-based) and `QueryCriteria`
+    /// (TagName-based). Will be eliminated when tag tree adopts `TagName` directly.
     pub fn sync_filter_from_tag_tree(&mut self) {
         if let Some(ref tree) = self.tag_tree_state {
             use crate::types::TagExpr;

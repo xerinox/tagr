@@ -366,7 +366,7 @@ impl ActionExecutor {
             existing.update_content(updated_content);
             existing
         } else {
-            crate::db::NoteRecord::new(updated_content)
+            crate::types::NoteRecord::new(updated_content)
         };
 
         context.ds.set_note(&tagrpath, &note)?;

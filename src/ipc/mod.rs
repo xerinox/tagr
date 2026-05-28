@@ -108,7 +108,7 @@ pub enum IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteEntry {
     pub path: PathBuf,
-    pub note: crate::db::NoteRecord,
+    pub note: crate::types::NoteRecord,
 }
 
 impl IpcResponse {

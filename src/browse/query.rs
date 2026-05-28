@@ -438,8 +438,8 @@ mod tests {
 
     #[test]
     fn test_get_notes_only_files() {
-        use crate::db::NoteMeta;
-        use crate::db::NoteRecord;
+        use crate::types::NoteMeta;
+        use crate::types::NoteRecord;
 
         let test_db = TestDb::new("test_notes_only");
         let db = test_db.db();

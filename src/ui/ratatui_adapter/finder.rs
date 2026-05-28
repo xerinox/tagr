@@ -743,7 +743,7 @@ impl RatatuiFinder {
                                                     existing.update_content(updated_content);
                                                     existing
                                                 } else {
-                                                    crate::db::NoteRecord::new(updated_content)
+                                                    crate::types::NoteRecord::new(updated_content)
                                                 };
 
                                                 let _ = tagr_path.as_ref().map(|tp| ds.set_note(tp, &note));
@@ -987,7 +987,7 @@ impl RatatuiFinder {
                 crate::ipc::wire::ServerEvent::NoteChanged { file, content } => {
                     let path = std::path::PathBuf::from(&file);
                     if let Some(content) = content {
-                        let record = crate::db::NoteRecord::new(content);
+                        let record = crate::types::NoteRecord::new(content);
                         // Insert canonical form too for consistent lookups
                         if let Ok(canonical) = path.canonicalize() {
                             if canonical != path {

@@ -169,9 +169,6 @@ impl DaemonStore {
 
     /// Create a `DaemonStore` from pre-existing runtime and client.
     ///
-    /// Used during the `DataSource` → `TagStore` migration to wrap legacy
-    /// `DataSource::Remote { rt, client }` values without reconnecting.
-    ///
     /// Creates a dummy event channel since no subscription exists.
     #[must_use]
     pub fn from_parts(rt: tokio::runtime::Runtime, client: PersistentClient) -> Self {

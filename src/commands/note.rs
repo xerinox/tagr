@@ -1,7 +1,7 @@
 //! Note management commands
 
 use crate::config::TagrConfig;
-use crate::db::NoteRecord;
+use crate::types::NoteRecord;
 use crate::store::TagStore;
 use crate::types::TagrPath;
 use crate::{config, output};

@@ -60,17 +60,6 @@ impl AsRef<Path> for PathKey {
     }
 }
 
-/// Metadata for a note
-///
-/// Canonical type lives in [`crate::types::NoteMeta`]. Re-exported here
-/// for backward compatibility with existing `use crate::db::NoteMeta`.
-pub use crate::types::NoteMeta;
-
-/// A note attached to a file
-///
-/// Canonical type lives in [`crate::types::NoteRecord`]. Re-exported here
-/// for backward compatibility with existing `use crate::db::NoteRecord`.
-pub use crate::types::NoteRecord;
 
 #[cfg(test)]
 #[path = "types_tests.rs"]

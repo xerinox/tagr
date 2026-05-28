@@ -168,6 +168,6 @@ pub use output::{MessageLevel, OutputWriter, StatusBarWriter, StdoutWriter};
 pub use ratatui_adapter::{RatatuiFinder, RatatuiPreviewProvider};
 pub use crate::config::PreviewConfig;
 pub use traits::{
-    FinderConfig, FuzzyFinder, PreviewProvider, PreviewText, RefineSearchCriteria,
+    FinderConfig, FuzzyFinder, PreviewProvider, PreviewText,
 };
 pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition, RefinedSearchCriteria};

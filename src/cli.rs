@@ -1159,8 +1159,7 @@ impl Commands {
 
     /// Build `QueryCriteria` directly from the Search command's CLI args.
     ///
-    /// Replaces the `SearchParams` bridge — converts `SearchCriteriaArgs`
-    /// fields into the unified query type without going through legacy types.
+    /// Converts `SearchCriteriaArgs` fields into the unified query type.
     #[must_use]
     pub fn get_search_criteria(&self) -> Option<crate::types::QueryCriteria> {
         use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName};

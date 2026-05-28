@@ -343,12 +343,12 @@ impl<F: FuzzyFinder> BrowseController<F> {
             .with_ansi(true)
             .with_binds(keybinds)
             .with_available_tags(available_tags)
-            .with_search_criteria(crate::ui::RefineSearchCriteria::new(
-                search_criteria.tags,
-                search_criteria.exclude_tags,
-                search_criteria.file_patterns,
-                search_criteria.virtual_tags,
-            ))
+            .with_search_criteria(crate::ui::RefinedSearchCriteria {
+                include_tags: search_criteria.tags,
+                exclude_tags: search_criteria.exclude_tags,
+                file_patterns: search_criteria.file_patterns,
+                virtual_tags: search_criteria.virtual_tags,
+            })
             .with_schema(tag_schema)
             .with_database(database);
 

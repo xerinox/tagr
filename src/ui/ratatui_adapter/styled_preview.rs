@@ -72,7 +72,7 @@ impl StyledPreview {
 
     /// Create a preview for a note with syntax highlighting
     #[must_use]
-    pub fn note(note_record: &crate::db::NoteRecord) -> Self {
+    pub fn note(note_record: &crate::types::NoteRecord) -> Self {
         use chrono::{Local, TimeZone};
 
         let dim_style = Style::default().fg(Color::DarkGray);

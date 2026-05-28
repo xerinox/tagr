@@ -1,39 +1,8 @@
 //! Core traits for UI abstraction layer
 
 use super::error::Result;
-use super::types::{DisplayItem, FinderResult};
+use super::types::{DisplayItem, FinderResult, RefinedSearchCriteria};
 use crate::config::PreviewConfig;
-
-/// Search criteria for refine search feature
-#[derive(Debug, Clone, Default)]
-pub struct RefineSearchCriteria {
-    /// Tags to include in search
-    pub include_tags: Vec<String>,
-    /// Tags to exclude from search
-    pub exclude_tags: Vec<String>,
-    /// File patterns to match
-    pub file_patterns: Vec<String>,
-    /// Virtual tag patterns
-    pub virtual_tags: Vec<String>,
-}
-
-impl RefineSearchCriteria {
-    /// Create new search criteria
-    #[must_use]
-    pub const fn new(
-        include_tags: Vec<String>,
-        exclude_tags: Vec<String>,
-        file_patterns: Vec<String>,
-        virtual_tags: Vec<String>,
-    ) -> Self {
-        Self {
-            include_tags,
-            exclude_tags,
-            file_patterns,
-            virtual_tags,
-        }
-    }
-}
 
 /// Configuration for fuzzy finder
 #[derive(Clone)]
@@ -53,7 +22,7 @@ pub struct FinderConfig {
     /// Available tags from database (for refine search)
     pub available_tags: Vec<String>,
     /// Current search criteria for refine search
-    pub search_criteria: Option<RefineSearchCriteria>,
+    pub search_criteria: Option<RefinedSearchCriteria>,
     /// Tag schema for canonicalization (used for CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries (used in tag selection phase)
@@ -104,7 +73,7 @@ impl FinderConfig {
 
     /// Set current search criteria for refine search
     #[must_use]
-    pub fn with_search_criteria(mut self, criteria: RefineSearchCriteria) -> Self {
+    pub fn with_search_criteria(mut self, criteria: RefinedSearchCriteria) -> Self {
         self.search_criteria = Some(criteria);
         self
     }

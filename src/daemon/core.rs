@@ -869,7 +869,7 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
 
         Request::SetNote { file, content } => {
             let path = PathBuf::from(&file);
-            let note = crate::db::NoteRecord::new(content.clone());
+            let note = crate::types::NoteRecord::new(content.clone());
             match db.set_note(&path, &note) {
                 Ok(()) => {
                     let event = ServerEvent::NoteChanged { file, content: Some(content) };

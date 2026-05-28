@@ -18,7 +18,8 @@ pub mod error;
 pub mod types;
 
 pub use error::DbError;
-pub use types::{NoteMeta, NoteRecord, PathKey};
+pub use crate::types::{NoteMeta, NoteRecord};
+pub use types::PathKey;
 
 /// Database wrapper that encapsulates all database operations
 ///
