@@ -296,6 +296,15 @@ impl TagStore for DirectStore {
             .collect()
     }
 
+    fn search_notes(&self, query: &str) -> Result<Vec<(TagrPath, NoteRecord)>> {
+        self.db
+            .search_notes(query)
+            .map_err(|e| map_db_error(e, "searching notes"))?
+            .into_iter()
+            .map(|(p, n)| path_to_tagrpath(&p, "search_notes").map(|tp| (tp, n)))
+            .collect()
+    }
+
     fn query(&self, criteria: &QueryCriteria, schema: &TagSchema) -> Result<Vec<TagrPath>> {
         crate::query::execute(self, criteria, schema)
     }

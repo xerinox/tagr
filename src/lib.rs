@@ -42,6 +42,9 @@ pub enum TagrError {
     /// Store error
     #[error("Store error: {0}")]
     StoreError(#[from] store::StoreError),
+    /// Validation error (newtype construction)
+    #[error("Validation error: {0}")]
+    ValidationError(#[from] types::ValidationError),
     /// Search error
     #[error("Search error: {0}")]
     SearchError(#[from] query::SearchError),

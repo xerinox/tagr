@@ -380,6 +380,16 @@ impl TagStore for DaemonStore {
         }
     }
 
+    fn search_notes(&self, query: &str) -> Result<Vec<(TagrPath, NoteRecord)>> {
+        // Filter client-side until the wire protocol gains a SearchNotes request (Phase 5.7)
+        let all = self.list_all_notes()?;
+        let query_lower = query.to_lowercase();
+        Ok(all
+            .into_iter()
+            .filter(|(_, n)| n.content.to_lowercase().contains(&query_lower))
+            .collect())
+    }
+
     fn query(&self, criteria: &QueryCriteria, _schema: &TagSchema) -> Result<Vec<TagrPath>> {
         // Pass-through: convert QueryCriteria to WireSearchParams and send over IPC.
         // Future: DaemonStore will send QueryCriteria directly when the wire protocol

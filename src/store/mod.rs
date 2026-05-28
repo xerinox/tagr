@@ -280,6 +280,15 @@ pub trait TagStore: Send + Sync {
     /// Returns `StoreError` on backend I/O failure.
     fn list_all_notes(&self) -> Result<Vec<(TagrPath, NoteRecord)>>;
 
+    /// Search notes by content substring.
+    ///
+    /// Returns all file-note pairs where the note content contains the query.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` on backend I/O failure.
+    fn search_notes(&self, query: &str) -> Result<Vec<(TagrPath, NoteRecord)>>;
+
     // -- Composite query --
 
     /// Execute a query against the store.

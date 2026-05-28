@@ -345,9 +345,10 @@ fn spawn_tag_work_with_events(
         tokio::spawn(async move {
             println!("Auto-tagging {:?} with {:?}", path, tags);
             let result = tokio::task::spawn_blocking(move || {
+                let store = crate::store::DirectStore::new(db_ref);
                 let mut stdout = std::io::stdout();
                 crate::commands::tag::execute(
-                    &db_ref,
+                    &store,
                     Some(path.clone()),
                     &tags,
                     false,
@@ -627,9 +628,10 @@ fn spawn_tag_work(work: Vec<(PathBuf, Vec<String>)>, db: &Database) {
         let db_ref = db.clone();
         tokio::spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
+                let store = crate::store::DirectStore::new(db_ref);
                 let mut stdout = std::io::stdout();
                 crate::commands::tag::execute(
-                    &db_ref,
+                    &store,
                     Some(path.clone()),
                     &tags,
                     false,
@@ -797,8 +799,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
 
         Request::AddTags { file, tags } => {
             let path = PathBuf::from(&file);
+            let store = crate::store::DirectStore::new(db.clone());
             let mut stdout = std::io::stdout();
-            match crate::commands::tag::execute(db, Some(path), &tags, false, true, &mut stdout) {
+            match crate::commands::tag::execute(&store, Some(path), &tags, false, true, &mut stdout) {
                 Ok(()) => (Response::Ok, false, None),
                 Err(e) => (Response::Error(e.to_string()), false, None),
             }
@@ -814,8 +817,9 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
 
         Request::RemoveTags { file, tags, all } => {
             let path = PathBuf::from(&file);
+            let store = crate::store::DirectStore::new(db.clone());
             let mut stdout = std::io::stdout();
-            match crate::commands::tag::untag(db, Some(path), &tags, all, true, &mut stdout) {
+            match crate::commands::tag::untag(&store, Some(path), &tags, all, true, &mut stdout) {
                 Ok(()) => (Response::Ok, false, None),
                 Err(e) => (Response::Error(e.to_string()), false, None),
             }

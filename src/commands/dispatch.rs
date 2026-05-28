@@ -43,14 +43,14 @@ pub fn dispatch_command(
             let ctx = command.get_tag_context().ok_or_else(|| {
                 TagrError::InvalidInput("Failed to extract tag context from command".into())
             })?;
-            commands::tag::execute(db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet, writer)?;
+            commands::tag::execute(store, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet, writer)?;
             Ok(())
         }
         Commands::Untag { .. } => {
             let ctx = command.get_untag_context().ok_or_else(|| {
                 TagrError::InvalidInput("Failed to extract untag context from command".into())
             })?;
-            commands::tag::untag(db, ctx.file, &ctx.tags, ctx.all, quiet, writer)?;
+            commands::tag::untag(store, ctx.file, &ctx.tags, ctx.all, quiet, writer)?;
             Ok(())
         }
         Commands::Cleanup { .. } => {
@@ -58,7 +58,7 @@ pub fn dispatch_command(
             Ok(())
         }
         Commands::Note { command, .. } => {
-            command.execute(db, config, path_format, writer)?;
+            command.execute(store, config, path_format, writer)?;
             Ok(())
         }
         Commands::Tags { command, .. } => {

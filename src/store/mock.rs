@@ -294,6 +294,18 @@ impl TagStore for MockStore {
         Ok(notes)
     }
 
+    fn search_notes(&self, query: &str) -> Result<Vec<(TagrPath, NoteRecord)>> {
+        let query_lower = query.to_lowercase();
+        let mut results: Vec<(TagrPath, NoteRecord)> = self
+            .notes
+            .iter()
+            .filter(|(_, n)| n.content.to_lowercase().contains(&query_lower))
+            .map(|(f, n)| (f.clone(), n.clone()))
+            .collect();
+        results.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(results)
+    }
+
     fn query(&self, criteria: &QueryCriteria, _schema: &TagSchema) -> Result<Vec<TagrPath>> {
         if criteria.is_empty() {
             return self.list_all_files();

@@ -1544,7 +1544,7 @@ fn test_note_list_empty() {
     });
     let mut out = Vec::new();
     cmd.execute(
-        test_db.db(),
+        test_db.store(),
         &config,
         config::PathFormat::Absolute,
         &mut out,
@@ -1572,7 +1572,7 @@ fn test_note_add_and_show() {
     });
     let mut out = Vec::new();
     add_cmd
-        .execute(db, &config, config::PathFormat::Absolute, &mut out)
+        .execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
         .unwrap();
 
     // Show the note
@@ -1583,7 +1583,7 @@ fn test_note_add_and_show() {
     });
     let mut out = Vec::new();
     show_cmd
-        .execute(db, &config, config::PathFormat::Absolute, &mut out)
+        .execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
         .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("test note content"));
@@ -1604,7 +1604,7 @@ fn test_note_delete_dry_run() {
         file: canonical.clone(),
         content: "to delete".into(),
     });
-    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
         .unwrap();
 
     // Dry-run delete
@@ -1614,7 +1614,7 @@ fn test_note_delete_dry_run() {
         yes: true,
     });
     let mut out = Vec::new();
-    del.execute(db, &config, config::PathFormat::Absolute, &mut out)
+    del.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
         .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Would delete"));
@@ -1636,7 +1636,7 @@ fn test_note_delete_applied() {
         file: canonical.clone(),
         content: "to delete".into(),
     });
-    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
         .unwrap();
 
     let del = NoteSubcommand::Delete(DeleteArgs {
@@ -1644,7 +1644,7 @@ fn test_note_delete_applied() {
         dry_run: false,
         yes: true,
     });
-    del.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+    del.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
         .unwrap();
     assert!(db.get_note(&canonical).unwrap().is_none(), "note should be deleted");
 }
@@ -1664,7 +1664,7 @@ fn test_note_show_nonexistent() {
         format: OutputFormat::Text,
         verbose: false,
     });
-    let result = cmd.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink());
+    let result = cmd.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink());
     assert!(result.is_err(), "showing note for file without note should error");
 }
 
@@ -1682,7 +1682,7 @@ fn test_note_list_with_notes() {
         file: canonical.clone(),
         content: "some note".into(),
     });
-    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
         .unwrap();
 
     let list = NoteSubcommand::List(ListArgs {
@@ -1690,7 +1690,7 @@ fn test_note_list_with_notes() {
         verbose: false,
     });
     let mut out = Vec::new();
-    list.execute(db, &config, config::PathFormat::Absolute, &mut out)
+    list.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
         .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("note_list_file"));
@@ -1710,7 +1710,7 @@ fn test_note_list_json_format() {
         file: canonical.clone(),
         content: "json test".into(),
     });
-    add.execute(db, &config, config::PathFormat::Absolute, &mut std::io::sink())
+    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
         .unwrap();
 
     let list = NoteSubcommand::List(ListArgs {
@@ -1718,7 +1718,7 @@ fn test_note_list_json_format() {
         verbose: false,
     });
     let mut out = Vec::new();
-    list.execute(db, &config, config::PathFormat::Absolute, &mut out)
+    list.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
         .unwrap();
     let output = String::from_utf8(out).unwrap();
     // Should be valid JSON
