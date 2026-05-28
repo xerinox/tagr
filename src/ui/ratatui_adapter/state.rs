@@ -2,11 +2,10 @@
 //!
 //! Manages all mutable state for the fuzzy finder interface,
 //! including items, selection, query, and UI mode.
-use crate::filters::TagMode;
 use crate::keybinds::actions::BrowseAction;
 use crate::ui::ratatui_adapter::events::EventResult;
 
-use crate::browse::ActiveFilter;
+use crate::types::QueryCriteria;
 use crate::ui::output::MessageLevel;
 use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
@@ -164,7 +163,7 @@ pub struct AppState {
     /// Whether user is actively typing in search field (vs browsing filtered results)
     pub search_active: bool,
     /// Unified filter state (single source of truth for all filter criteria)
-    pub active_filter: ActiveFilter,
+    pub active_filter: QueryCriteria,
     /// The prompt to display in the search bar
     pub prompt: String,
     /// Static key hints for the help bar
@@ -228,7 +227,7 @@ impl AppState {
             file_preview_selected: HashSet::new(),
             search_initiated_from: None,
             search_active: false,
-            active_filter: ActiveFilter::new(),
+            active_filter: QueryCriteria::default(),
             prompt,
             hints,
             preview_config,
@@ -828,18 +827,16 @@ impl AppState {
         }
 
         // Apply exclusion filter if any tags are excluded
-        if !self.active_filter.criteria.excludes.is_empty() {
+        let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
+        if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
-                // Get tags for this file
                 if let Some(tp) = crate::types::TagrPath::new(file_path).ok() {
                     if let Ok(Some(file_tags)) = db.get_tags(&tp) {
-                        // Check if file has any excluded tags
                         let has_excluded = file_tags
                             .iter()
-                            .any(|tag| self.active_filter.criteria.excludes.contains(&tag.to_string()));
+                            .any(|tag| excluded_set.iter().any(|ex| ex.as_str() == tag.as_str()));
                         !has_excluded
                     } else {
-                        // Files without tags pass through
                         true
                     }
                 } else {
@@ -962,17 +959,17 @@ impl AppState {
             .map_or_else(Vec::new, TagTreeState::selected_tag_paths)
     }
 
-    /// Sync tag tree `excluded_tags` from `ActiveFilter`
+    /// Sync tag tree `excluded_tags` from `QueryCriteria`
     ///
     /// Should be called whenever `active_filter` changes to keep UI in sync.
     pub fn sync_tag_tree_exclusions(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.excluded_tags = self
                 .active_filter
-                .criteria
-                .excludes
-                .iter()
-                .cloned()
+                .flat_exclude_tags()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
                 .collect();
         }
     }
@@ -983,34 +980,74 @@ impl AppState {
     /// Should be called whenever `active_filter` changes.
     pub fn sync_tag_tree_from_filter(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
-            tree.selected_tags = self.active_filter.criteria.tags.iter().cloned().collect();
+            tree.selected_tags = self
+                .active_filter
+                .flat_include_tags()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
+                .collect();
             tree.excluded_tags = self
                 .active_filter
-                .criteria
-                .excludes
-                .iter()
-                .cloned()
+                .flat_exclude_tags()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| t.as_str().to_owned())
                 .collect();
         }
     }
 
     /// Sync `active_filter` from tag tree state (reverse of `sync_tag_tree_from_filter`)
     ///
-    /// This makes the tag tree the source of truth and updates `active_filter` to match.
+    /// Rebuilds `tag_expr` from the tree's selected/excluded tag strings.
     /// Should be called when tag tree is initialized or manually modified.
     pub fn sync_filter_from_tag_tree(&mut self) {
         if let Some(ref tree) = self.tag_tree_state {
-            // Update include tags from tag tree selections
-            self.active_filter.criteria.tags = tree.selected_tags.iter().cloned().collect();
-            // Update exclude tags from tag tree exclusions
-            self.active_filter.criteria.excludes = tree.excluded_tags.iter().cloned().collect();
+            use crate::types::TagExpr;
 
-            // Set tag mode: Any (OR) when multiple tags selected, All (AND) for single tag
-            // This matches tagr's CLI default behavior (multiple -t flags use OR logic)
-            self.active_filter.criteria.tag_mode = if self.active_filter.criteria.tags.len() > 1 {
-                TagMode::Any
-            } else {
-                TagMode::All
+            let mut include_exprs: Vec<TagExpr> = tree
+                .selected_tags
+                .iter()
+                .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                .map(TagExpr::Tag)
+                .collect();
+
+            let exclude_exprs: Vec<TagExpr> = tree
+                .excluded_tags
+                .iter()
+                .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                .map(|t| TagExpr::Not(Box::new(TagExpr::Tag(t))))
+                .collect();
+
+            include_exprs.extend(exclude_exprs);
+
+            self.active_filter.tag_expr = match include_exprs.len() {
+                0 => None,
+                1 => include_exprs.into_iter().next(),
+                _ => {
+                    // Use Or when multiple includes and current expression uses Or
+                    let use_any =
+                        matches!(&self.active_filter.tag_expr, Some(TagExpr::Or(_)));
+                    if use_any && tree.selected_tags.len() > 1 {
+                        let includes: Vec<_> = tree
+                            .selected_tags
+                            .iter()
+                            .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                            .map(TagExpr::Tag)
+                            .collect();
+                        let excludes: Vec<_> = tree
+                            .excluded_tags
+                            .iter()
+                            .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                            .map(|t| TagExpr::Not(Box::new(TagExpr::Tag(t))))
+                            .collect();
+                        let mut combined = vec![TagExpr::Or(includes)];
+                        combined.extend(excludes);
+                        Some(TagExpr::And(combined))
+                    } else {
+                        Some(TagExpr::And(include_exprs))
+                    }
+                }
             };
         }
     }
@@ -1028,19 +1065,19 @@ impl AppState {
             return Some("tagr browse".to_string());
         }
 
-        // Use active_filter's Display impl to generate the base command
-        let mut cmd = format!("{}", self.active_filter);
+        // Use QueryCriteria's to_cli_string() for the base command
+        let mut cmd = self.active_filter.to_cli_string();
 
-        // Canonicalize tags for file count calculation
+        // Extract flat include tags for file count calculation
         let canonical_tags: Vec<String> = self
             .active_filter
-            .criteria
-            .tags
-            .iter()
+            .flat_include_tags()
+            .unwrap_or_default()
+            .into_iter()
             .map(|tag| {
                 self.tag_schema
                     .as_ref()
-                    .map_or_else(|| tag.clone(), |schema| schema.canonicalize(tag))
+                    .map_or_else(|| tag.as_str().to_owned(), |schema| schema.canonicalize(tag.as_str()))
             })
             .collect();
 
@@ -1088,13 +1125,14 @@ impl AppState {
         }
 
         // Apply exclusion filter if any tags are excluded
-        if !self.active_filter.criteria.excludes.is_empty() {
+        let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
+        if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
                 if let Some(tp) = crate::types::TagrPath::new(file_path).ok() {
                     if let Ok(Some(file_tags)) = db.get_tags(&tp) {
                         let has_excluded = file_tags
                             .iter()
-                            .any(|tag| self.active_filter.criteria.excludes.contains(&tag.to_string()));
+                            .any(|tag| excluded_set.iter().any(|ex| ex.as_str() == tag.as_str()));
                         !has_excluded
                     } else {
                         true
@@ -1480,28 +1518,26 @@ impl AppState {
             (tag, children, is_actual)
         };
 
-        let toggle = match op {
-            TagFilterOp::Include => ActiveFilter::toggle_include_tag,
-            TagFilterOp::Exclude => ActiveFilter::toggle_exclude_tag,
+        // Convert string tag to TagName; skip if invalid (e.g. pseudo-tags)
+        let apply_toggle = |filter: &mut QueryCriteria, tag_str: &str| {
+            if let Ok(tag_name) = crate::types::TagName::new(tag_str) {
+                match op {
+                    TagFilterOp::Include => { filter.toggle_include_tag(tag_name); }
+                    TagFilterOp::Exclude => { filter.toggle_exclude_tag(&tag_name); }
+                }
+            }
         };
 
         if children.is_empty() {
-            toggle(&mut self.active_filter, current_tag);
+            apply_toggle(&mut self.active_filter, &current_tag);
         } else {
             if is_actual {
-                toggle(&mut self.active_filter, current_tag);
+                apply_toggle(&mut self.active_filter, &current_tag);
             }
             for child in children {
-                toggle(&mut self.active_filter, child);
+                apply_toggle(&mut self.active_filter, &child);
             }
         }
-
-        self.active_filter.criteria.tag_mode =
-            if self.active_filter.criteria.tags.len() > 1 {
-                TagMode::Any
-            } else {
-                TagMode::All
-            };
     }
 
     /// Delete the word before the cursor in the search query.

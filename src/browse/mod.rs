@@ -118,7 +118,6 @@ pub use actions::{
     execute_add_tag, execute_copy_files, execute_copy_path, execute_delete_from_db,
     execute_open_in_default, execute_open_in_editor, execute_remove_tag,
 };
-pub use filter::ActiveFilter;
 pub use models::{
     ActionContext, ActionData, ActionOutcome, CachedMetadata, FileMetadata, ItemMetadata,
     MetadataCache, PairWithCache, PathWithDb, SearchMode, SelectionState, TagMetadata, TagWithDb,

@@ -41,7 +41,7 @@ pub struct TagTreeState {
     visible_nodes: Vec<TagTreeNodeRef>,
     /// Set of selected tag paths (for multi-select / inclusion)
     pub selected_tags: HashSet<String>,
-    /// Set of excluded tag paths (synced from `ActiveFilter`)
+    /// Set of excluded tag paths (synced from `QueryCriteria`)
     pub excluded_tags: HashSet<String>,
 }
 
