@@ -321,6 +321,48 @@ impl QueryCriteria {
         true
     }
 
+    /// Check if this criteria is narrower (more restrictive) than `other`.
+    ///
+    /// Used by `DaemonStore`'s widest-result cache to decide narrow vs widen path.
+    /// Only works for flat tag expressions — returns `false` for complex/nested
+    /// expressions (those always trigger an IPC query).
+    ///
+    /// "Narrower" means: more include tags (superset), more exclude tags (superset),
+    /// and identical file patterns / vtags / query / `file_mode` / `regex_files`.
+    #[must_use]
+    pub fn is_narrower_than(&self, other: &Self) -> bool {
+        // Non-tag fields must be identical — can't subset-compare these locally
+        if self.file_patterns != other.file_patterns
+            || self.virtual_tags != other.virtual_tags
+            || self.query != other.query
+            || self.file_mode != other.file_mode
+            || self.regex_files != other.regex_files
+        {
+            return false;
+        }
+
+        // Both must have flat tag expressions we can reason about
+        if !is_flat_expr(self.tag_expr.as_ref()) || !is_flat_expr(other.tag_expr.as_ref()) {
+            return false;
+        }
+
+        let Some(self_include) = self.flat_include_tags() else {
+            return false;
+        };
+        let Some(other_include) = other.flat_include_tags() else {
+            return false;
+        };
+        let Some(self_exclude) = self.flat_exclude_tags() else {
+            return false;
+        };
+        let Some(other_exclude) = other.flat_exclude_tags() else {
+            return false;
+        };
+
+        // More include tags = narrower, more exclude tags = narrower
+        self_include.is_superset(&other_include) && self_exclude.is_superset(&other_exclude)
+    }
+
     /// Generate a CLI-equivalent string for this criteria.
     ///
     /// Used by TUI status bar to show users the headless command equivalent.
@@ -375,6 +417,22 @@ fn collapse_tag_expr(tag_expr: &mut Option<TagExpr>) {
 /// Check if a `TagExpr` is `Not(Tag(target))`.
 fn is_not_tag(expr: &TagExpr, target: &TagName) -> bool {
     matches!(expr, TagExpr::Not(inner) if matches!(inner.as_ref(), TagExpr::Tag(t) if *t == *target))
+}
+
+/// Check if a `TagExpr` is "flat" — amenable to subset comparison.
+///
+/// Flat means: `None`, single `Tag`, or a top-level `And`/`Or` whose children
+/// are all `Tag(_)` or `Not(Tag(_))`. Nested `And`/`Or` or complex `Not` are not flat.
+fn is_flat_expr(expr: Option<&TagExpr>) -> bool {
+    match expr {
+        None | Some(TagExpr::Tag(_)) => true,
+        Some(TagExpr::Not(inner)) => matches!(inner.as_ref(), TagExpr::Tag(_)),
+        Some(TagExpr::And(exprs) | TagExpr::Or(exprs)) => exprs.iter().all(|e| match e {
+            TagExpr::Tag(_) => true,
+            TagExpr::Not(inner) => matches!(inner.as_ref(), TagExpr::Tag(_)),
+            TagExpr::And(_) | TagExpr::Or(_) => false,
+        }),
+    }
 }
 
 /// Collect CLI flag representations from a tag expression.

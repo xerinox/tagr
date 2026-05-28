@@ -85,7 +85,6 @@ pub fn dispatch_command(
 
             commands::browse::execute(
                 store,
-                None,
                 ctx.search_criteria,
                 filter_args.filter.as_deref(),
                 save_filter,

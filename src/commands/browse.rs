@@ -34,7 +34,6 @@ impl From<config::PathFormat> for crate::browse::session::PathFormat {
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn execute(
     store: std::sync::Arc<dyn TagStore>,
-    event_rx: Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>,
     mut search_criteria: Option<QueryCriteria>,
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
@@ -130,10 +129,7 @@ pub fn execute(
     let session =
         BrowseSession::new(store, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
 
-    let mut finder = RatatuiFinder::with_styled_preview(100);
-    if let Some(rx) = event_rx {
-        finder = finder.with_event_receiver(rx);
-    }
+    let finder = RatatuiFinder::with_styled_preview(100);
 
     let controller = BrowseController::new(session, finder);
 

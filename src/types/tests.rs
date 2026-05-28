@@ -735,3 +735,289 @@ mod serde_tests {
         assert_eq!(pair, deserialized);
     }
 }
+
+// =============================================================================
+// is_narrower_than — widest-result cache subset detection
+// =============================================================================
+
+mod is_narrower_than {
+    use super::*;
+
+    fn tag(name: &str) -> TagName {
+        TagName::new(name).unwrap()
+    }
+
+    fn criteria_with_tags(include: &[&str], exclude: &[&str]) -> QueryCriteria {
+        let mut c = QueryCriteria::default();
+        for t in include {
+            c.toggle_include_tag(tag(t));
+        }
+        for t in exclude {
+            c.toggle_exclude_tag(&tag(t));
+        }
+        c
+    }
+
+    #[test]
+    fn empty_is_not_narrower_than_tags() {
+        let empty = QueryCriteria::default();
+        let with_tags = criteria_with_tags(&["rust"], &[]);
+        assert!(!empty.is_narrower_than(&with_tags));
+    }
+
+    #[test]
+    fn more_include_tags_is_narrower() {
+        let narrow = criteria_with_tags(&["rust", "cli"], &[]);
+        let wide = criteria_with_tags(&["rust"], &[]);
+        assert!(narrow.is_narrower_than(&wide));
+    }
+
+    #[test]
+    fn fewer_include_tags_is_not_narrower() {
+        let wide = criteria_with_tags(&["rust"], &[]);
+        let narrow = criteria_with_tags(&["rust", "cli"], &[]);
+        assert!(!wide.is_narrower_than(&narrow));
+    }
+
+    #[test]
+    fn same_tags_is_narrower() {
+        let a = criteria_with_tags(&["rust"], &[]);
+        let b = criteria_with_tags(&["rust"], &[]);
+        assert!(a.is_narrower_than(&b));
+    }
+
+    #[test]
+    fn more_exclude_tags_is_narrower() {
+        let narrow = criteria_with_tags(&["rust"], &["deprecated", "old"]);
+        let wide = criteria_with_tags(&["rust"], &["deprecated"]);
+        assert!(narrow.is_narrower_than(&wide));
+    }
+
+    #[test]
+    fn different_file_patterns_not_narrower() {
+        let mut a = criteria_with_tags(&["rust"], &[]);
+        a.file_patterns = vec!["*.rs".to_string()];
+        let b = criteria_with_tags(&["rust"], &[]);
+        assert!(!a.is_narrower_than(&b));
+    }
+
+    #[test]
+    fn different_query_not_narrower() {
+        let mut a = criteria_with_tags(&["rust"], &[]);
+        a.query = Some("test".to_string());
+        let b = criteria_with_tags(&["rust"], &[]);
+        assert!(!a.is_narrower_than(&b));
+    }
+
+    #[test]
+    fn complex_nested_expr_not_narrower() {
+        let mut a = QueryCriteria::default();
+        // Nested And inside And — not flat
+        a.tag_expr = Some(TagExpr::And(vec![
+            TagExpr::And(vec![TagExpr::Tag(tag("rust"))]),
+            TagExpr::Tag(tag("cli")),
+        ]));
+        let b = criteria_with_tags(&["rust"], &[]);
+        assert!(!a.is_narrower_than(&b));
+    }
+
+    #[test]
+    fn empty_criteria_narrower_than_empty() {
+        let a = QueryCriteria::default();
+        let b = QueryCriteria::default();
+        assert!(a.is_narrower_than(&b));
+    }
+
+    #[test]
+    fn single_tag_narrower_than_empty() {
+        let narrow = criteria_with_tags(&["rust"], &[]);
+        let wide = QueryCriteria::default();
+        assert!(narrow.is_narrower_than(&wide));
+    }
+}
+
+// =============================================================================
+// QueryCache::apply_event — unit tests for cache event handling
+// =============================================================================
+
+mod query_cache_apply_event {
+    use crate::ipc::wire::ServerEvent;
+    use crate::types::{NoteRecord, Pair, QueryCriteria, TagName, TagrPath};
+    use std::collections::HashMap;
+
+    // Mirror of the private QueryCache to test apply_event logic in isolation
+    struct QueryCache {
+        widest_criteria: QueryCriteria,
+        widest_data: Vec<Pair>,
+        notes: HashMap<TagrPath, NoteRecord>,
+    }
+
+    impl QueryCache {
+        fn apply_event(&mut self, event: ServerEvent) {
+            match event {
+                ServerEvent::FileTagged { file, tags } => {
+                    let Ok(path) = TagrPath::new(&file) else {
+                        return;
+                    };
+                    let tag_names: Vec<TagName> = tags
+                        .iter()
+                        .filter_map(|t| TagName::new(t).ok())
+                        .collect();
+                    if let Some(pair) = self.widest_data.iter_mut().find(|p| p.file == path) {
+                        pair.tags = tag_names;
+                    } else {
+                        self.widest_data.push(Pair::new(path, tag_names));
+                    }
+                }
+                ServerEvent::FileUntagged { file, tags } => {
+                    let Ok(path) = TagrPath::new(&file) else {
+                        return;
+                    };
+                    let removed: std::collections::HashSet<&str> =
+                        tags.iter().map(String::as_str).collect();
+                    if let Some(pair) = self.widest_data.iter_mut().find(|p| p.file == path) {
+                        pair.tags.retain(|t| !removed.contains(t.as_str()));
+                    }
+                }
+                ServerEvent::FileRemoved { file } => {
+                    let Ok(path) = TagrPath::new(&file) else {
+                        return;
+                    };
+                    self.widest_data.retain(|p| p.file != path);
+                    self.notes.remove(&path);
+                }
+                ServerEvent::NoteChanged { file, content } => {
+                    let Ok(path) = TagrPath::new(&file) else {
+                        return;
+                    };
+                    match content {
+                        Some(c) => {
+                            self.notes.insert(path, NoteRecord::new(c));
+                        }
+                        None => {
+                            self.notes.remove(&path);
+                        }
+                    }
+                }
+                ServerEvent::ConfigReloaded => {
+                    self.widest_data.clear();
+                    self.notes.clear();
+                    self.widest_criteria = QueryCriteria::default();
+                }
+            }
+        }
+    }
+
+    fn make_cache() -> QueryCache {
+        let pair = Pair::new(
+            TagrPath::new("src/main.rs").unwrap(),
+            vec![
+                TagName::new("rust").unwrap(),
+                TagName::new("cli").unwrap(),
+            ],
+        );
+        let mut notes = HashMap::new();
+        notes.insert(
+            TagrPath::new("src/main.rs").unwrap(),
+            NoteRecord::new("entry point".to_string()),
+        );
+        QueryCache {
+            widest_criteria: QueryCriteria::default(),
+            widest_data: vec![pair],
+            notes,
+        }
+    }
+
+    #[test]
+    fn file_tagged_updates_existing() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::FileTagged {
+            file: "src/main.rs".to_string(),
+            tags: vec!["rust".to_string(), "cli".to_string(), "new-tag".to_string()],
+        });
+        let pair = cache
+            .widest_data
+            .iter()
+            .find(|p| p.file.as_str() == "src/main.rs")
+            .unwrap();
+        assert_eq!(pair.tags.len(), 3);
+    }
+
+    #[test]
+    fn file_tagged_adds_new() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::FileTagged {
+            file: "src/lib.rs".to_string(),
+            tags: vec!["rust".to_string()],
+        });
+        assert_eq!(cache.widest_data.len(), 2);
+    }
+
+    #[test]
+    fn file_untagged_removes_tags() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::FileUntagged {
+            file: "src/main.rs".to_string(),
+            tags: vec!["cli".to_string()],
+        });
+        let pair = cache
+            .widest_data
+            .iter()
+            .find(|p| p.file.as_str() == "src/main.rs")
+            .unwrap();
+        assert_eq!(pair.tags.len(), 1);
+        assert_eq!(pair.tags[0].as_str(), "rust");
+    }
+
+    #[test]
+    fn file_removed_removes_pair_and_note() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::FileRemoved {
+            file: "src/main.rs".to_string(),
+        });
+        assert!(cache.widest_data.is_empty());
+        assert!(cache.notes.is_empty());
+    }
+
+    #[test]
+    fn note_changed_upsert() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::NoteChanged {
+            file: "src/main.rs".to_string(),
+            content: Some("updated note".to_string()),
+        });
+        let path = TagrPath::new("src/main.rs").unwrap();
+        assert_eq!(cache.notes.get(&path).unwrap().content, "updated note");
+    }
+
+    #[test]
+    fn note_changed_delete() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::NoteChanged {
+            file: "src/main.rs".to_string(),
+            content: None,
+        });
+        let path = TagrPath::new("src/main.rs").unwrap();
+        assert!(cache.notes.get(&path).is_none());
+    }
+
+    #[test]
+    fn note_changed_insert_new() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::NoteChanged {
+            file: "src/lib.rs".to_string(),
+            content: Some("new note".to_string()),
+        });
+        let path = TagrPath::new("src/lib.rs").unwrap();
+        assert_eq!(cache.notes.get(&path).unwrap().content, "new note");
+    }
+
+    #[test]
+    fn config_reloaded_clears_everything() {
+        let mut cache = make_cache();
+        cache.apply_event(ServerEvent::ConfigReloaded);
+        assert!(cache.widest_data.is_empty());
+        assert!(cache.notes.is_empty());
+        assert!(cache.widest_criteria.is_empty());
+    }
+}

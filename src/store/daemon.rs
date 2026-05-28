@@ -1,17 +1,37 @@
-//! `DaemonStore` — IPC-backed `TagStore` implementation.
+//! `DaemonStore` — IPC-backed `TagStore` with widest-result cache.
 //!
 //! Wraps [`PersistentClient`](crate::daemon::client::PersistentClient) behind
-//! the [`TagStore`](super::TagStore) trait. Every method does a synchronous
-//! `block_on()` IPC round-trip to the daemon.
+//! the [`TagStore`](super::TagStore) trait. A **widest-result cache** makes
+//! narrowing filter operations instant (local iteration) while widening triggers
+//! an IPC query to the daemon.
 //!
-//! This is the pass-through implementation — no local caching. A future iteration
-//! will add a widest-result cache (`RwLock<QueryCache>`) for instant TUI filtering.
+//! # Cache Design
+//!
+//! The cache holds the result of the least-restrictive query seen so far.
+//! When the TUI toggles a tag filter:
+//!
+//! - **Narrower** criteria (more tags selected) → filter `widest_data` locally
+//! - **Wider** criteria (fewer tags, or different dimensions) → IPC query, replace cache
+//!
+//! Server-push events (`FileTagged`, `NoteChanged`, etc.) are drained between
+//! TUI frames via [`drain_events()`](DaemonStore::drain_events) and applied
+//! incrementally — no full re-query needed.
+//!
+//! # Lock Discipline
+//!
+//! - `RwLock<Option<QueryCache>>` — read lock for narrow path, write lock for widen/events
+//! - `Mutex<mpsc::Receiver>` — brief lock to drain events
+//! - **Never** hold a lock across I/O (IPC, filesystem)
+//! - **Never** nest locks (`event_rx` + cache simultaneously)
 //!
 //! # Thread Safety
 //!
 //! `DaemonStore` is `Send + Sync` because `PersistentClient` uses `Arc<Mutex<...>>`
 //! internally and `Runtime` is thread-safe. The `block_on()` calls are serialized
 //! per-connection.
+
+use std::collections::HashMap;
+use std::sync::{Mutex, RwLock};
 
 use tokio::sync::mpsc;
 
@@ -23,13 +43,94 @@ use crate::types::{NoteRecord, Pair, QueryCriteria, TagName, TagrPath};
 
 use super::{Result, StoreError, TagStore};
 
-/// IPC-backed tag store — delegates all operations to the watch daemon.
+/// Cached query result — the widest (least restrictive) query seen so far.
+///
+/// Narrowing operations filter `widest_data` locally; widening replaces the
+/// entire cache with a fresh IPC result.
+struct QueryCache {
+    /// The least restrictive query criteria we've issued.
+    widest_criteria: QueryCriteria,
+    /// Full result set from that query (file + tags pairs).
+    widest_data: Vec<Pair>,
+    /// All notes for the result set — updated incrementally via events.
+    notes: HashMap<TagrPath, NoteRecord>,
+}
+
+impl QueryCache {
+    /// Apply a server-push event to the cache incrementally.
+    ///
+    /// Avoids full re-queries for most mutations. `ConfigReloaded` is the
+    /// exception — it invalidates everything because schema/expansions may differ.
+    fn apply_event(&mut self, event: ServerEvent) {
+        match event {
+            ServerEvent::FileTagged { file, tags } => {
+                let Ok(path) = TagrPath::new(&file) else {
+                    return;
+                };
+                let tag_names: Vec<TagName> = tags
+                    .iter()
+                    .filter_map(|t| TagName::new(t).ok())
+                    .collect();
+
+                if let Some(pair) = self.widest_data.iter_mut().find(|p| p.file == path) {
+                    pair.tags = tag_names;
+                } else {
+                    self.widest_data.push(Pair::new(path, tag_names));
+                }
+            }
+            ServerEvent::FileUntagged { file, tags } => {
+                let Ok(path) = TagrPath::new(&file) else {
+                    return;
+                };
+                let removed: std::collections::HashSet<&str> =
+                    tags.iter().map(String::as_str).collect();
+
+                if let Some(pair) = self.widest_data.iter_mut().find(|p| p.file == path) {
+                    pair.tags.retain(|t| !removed.contains(t.as_str()));
+                }
+            }
+            ServerEvent::FileRemoved { file } => {
+                let Ok(path) = TagrPath::new(&file) else {
+                    return;
+                };
+                self.widest_data.retain(|p| p.file != path);
+                self.notes.remove(&path);
+            }
+            ServerEvent::NoteChanged { file, content } => {
+                let Ok(path) = TagrPath::new(&file) else {
+                    return;
+                };
+                match content {
+                    Some(c) => {
+                        self.notes.insert(path, NoteRecord::new(c));
+                    }
+                    None => {
+                        self.notes.remove(&path);
+                    }
+                }
+            }
+            ServerEvent::ConfigReloaded => {
+                self.widest_data.clear();
+                self.notes.clear();
+                self.widest_criteria = QueryCriteria::default();
+            }
+        }
+    }
+}
+
+/// IPC-backed tag store with widest-result cache.
 ///
 /// Created via [`DaemonStore::connect()`], which establishes a persistent
-/// connection and subscribes to server-push events.
+/// connection and subscribes to server-push events. The event receiver is
+/// owned internally — call [`drain_events()`](Self::drain_events) between
+/// TUI frames to apply incremental updates.
 pub struct DaemonStore {
     rt: tokio::runtime::Runtime,
     client: PersistentClient,
+    /// `None` before first query, `Some(...)` after initialization.
+    cache: RwLock<Option<QueryCache>>,
+    /// Server-push event receiver — drained by [`drain_events()`](Self::drain_events).
+    event_rx: Mutex<mpsc::Receiver<ServerEvent>>,
 }
 
 impl std::fmt::Debug for DaemonStore {
@@ -41,15 +142,15 @@ impl std::fmt::Debug for DaemonStore {
 impl DaemonStore {
     /// Connect to the daemon and subscribe to events.
     ///
-    /// Returns the store and a channel receiver for [`ServerEvent`] push
-    /// notifications. The caller (usually `main.rs`) owns the event channel
-    /// and passes it to the TUI event loop.
+    /// The event receiver is kept internally for cache updates via
+    /// [`drain_events()`](Self::drain_events). The caller no longer
+    /// receives it — `DaemonStore` owns the full event lifecycle.
     ///
     /// # Errors
     ///
     /// Returns `StoreError::ConnectionLost` if the runtime cannot be created
     /// or the daemon is unreachable.
-    pub fn connect() -> std::result::Result<(Self, mpsc::Receiver<ServerEvent>), StoreError> {
+    pub fn connect() -> std::result::Result<Self, StoreError> {
         let rt = tokio::runtime::Runtime::new().map_err(|e| StoreError::ConnectionLost {
             context: format!("failed to create tokio runtime: {e}"),
         })?;
@@ -58,16 +159,58 @@ impl DaemonStore {
             .block_on(PersistentClient::connect())
             .map_err(|e| map_daemon_error(&e, "connecting to daemon"))?;
 
-        Ok((Self { rt, client }, event_rx))
+        Ok(Self {
+            rt,
+            client,
+            cache: RwLock::new(None),
+            event_rx: Mutex::new(event_rx),
+        })
     }
 
     /// Create a `DaemonStore` from pre-existing runtime and client.
     ///
     /// Used during the `DataSource` → `TagStore` migration to wrap legacy
     /// `DataSource::Remote { rt, client }` values without reconnecting.
+    ///
+    /// Creates a dummy event channel since no subscription exists.
     #[must_use]
     pub fn from_parts(rt: tokio::runtime::Runtime, client: PersistentClient) -> Self {
-        Self { rt, client }
+        let (_tx, rx) = mpsc::channel(1);
+        Self {
+            rt,
+            client,
+            cache: RwLock::new(None),
+            event_rx: Mutex::new(rx),
+        }
+    }
+
+    /// Drain pending server events and update the cache.
+    ///
+    /// Called by the TUI between render frames. Non-blocking — processes
+    /// whatever events are available, then returns immediately.
+    ///
+    /// Lock discipline: acquires `event_rx` mutex briefly, releases it,
+    /// then acquires `cache` write lock if events were drained. Never nested.
+    pub fn drain_events(&self) {
+        let events: Vec<ServerEvent> = {
+            let Ok(mut rx) = self.event_rx.lock() else {
+                return;
+            };
+            std::iter::from_fn(|| rx.try_recv().ok()).collect()
+        }; // Mutex drops
+
+        if events.is_empty() {
+            return;
+        }
+
+        let Ok(mut cache) = self.cache.write() else {
+            return;
+        };
+        if let Some(ref mut qc) = *cache {
+            for event in events {
+                qc.apply_event(event);
+            }
+        }
     }
 
     /// Send an IPC request and return the response.
@@ -75,6 +218,13 @@ impl DaemonStore {
         self.rt
             .block_on(self.client.request(req))
             .map_err(|e| map_daemon_error(&e, "sending IPC request"))
+    }
+}
+
+/// Create a `StoreError` for a poisoned lock.
+fn poison_error() -> StoreError {
+    StoreError::ConnectionLost {
+        context: "internal lock poisoned".to_string(),
     }
 }
 
@@ -332,6 +482,14 @@ impl TagStore for DaemonStore {
     }
 
     fn get_note(&self, file: &TagrPath) -> Result<Option<NoteRecord>> {
+        // Try cache first — avoids IPC when cache is populated
+        {
+            let cache = self.cache.read().map_err(|_| poison_error())?;
+            if let Some(ref qc) = *cache {
+                return Ok(qc.notes.get(file).cloned());
+            }
+        }
+        // Fallback to IPC if cache not initialized
         let req = Request::GetNote {
             file: file.to_string(),
         };
@@ -367,6 +525,18 @@ impl TagStore for DaemonStore {
     }
 
     fn list_all_notes(&self) -> Result<Vec<(TagrPath, NoteRecord)>> {
+        // Use cache if populated
+        {
+            let cache = self.cache.read().map_err(|_| poison_error())?;
+            if let Some(ref qc) = *cache {
+                return Ok(qc
+                    .notes
+                    .iter()
+                    .map(|(path, note)| (path.clone(), note.clone()))
+                    .collect());
+            }
+        }
+        // Fallback to IPC
         match self.send(Request::ListNotes)? {
             Response::Notes(entries) => entries
                 .iter()
@@ -381,7 +551,20 @@ impl TagStore for DaemonStore {
     }
 
     fn search_notes(&self, query: &str) -> Result<Vec<(TagrPath, NoteRecord)>> {
-        // Filter client-side until the wire protocol gains a SearchNotes request (Phase 5.7)
+        // Use cache if populated — filter locally
+        {
+            let cache = self.cache.read().map_err(|_| poison_error())?;
+            if let Some(ref qc) = *cache {
+                let query_lower = query.to_lowercase();
+                return Ok(qc
+                    .notes
+                    .iter()
+                    .filter(|(_, n)| n.content.to_lowercase().contains(&query_lower))
+                    .map(|(path, note)| (path.clone(), note.clone()))
+                    .collect());
+            }
+        }
+        // Fallback to IPC + local filter
         let all = self.list_all_notes()?;
         let query_lower = query.to_lowercase();
         Ok(all
@@ -391,17 +574,83 @@ impl TagStore for DaemonStore {
     }
 
     fn query(&self, criteria: &QueryCriteria, _schema: &TagSchema) -> Result<Vec<TagrPath>> {
+        // Narrow path — filter cached widest result locally
+        {
+            let cache = self.cache.read().map_err(|_| poison_error())?;
+            if let Some(ref qc) = *cache
+                && criteria.is_narrower_than(&qc.widest_criteria)
+            {
+                return Ok(qc
+                    .widest_data
+                    .iter()
+                    .filter(|p| criteria.matches_pair(p))
+                    .map(|p| p.file.clone())
+                    .collect());
+            }
+        } // read lock drops
+
+        // Widen path — IPC outside any lock
         let wire_criteria = WireQueryCriteria::from(criteria);
         let req = Request::Query {
             criteria: wire_criteria,
         };
-        match self.send(req)? {
-            Response::Files(pairs) => pairs
+        let pairs: Vec<Pair> = match self.send(req)? {
+            Response::Files(wire_pairs) => wire_pairs
                 .iter()
-                .map(|p| wire_path_to_tagrpath(&p.file, "query"))
-                .collect(),
-            Response::Error(e) => Err(response_error(e, "query")),
-            other => Err(unexpected_response(&other, "query")),
+                .map(|p| {
+                    let file = wire_path_to_tagrpath(&p.file, "query")?;
+                    let tags = p
+                        .tags
+                        .iter()
+                        .map(|t| wire_tag_to_tagname(t, "query"))
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok(Pair::new(file, tags))
+                })
+                .collect::<Result<Vec<Pair>>>()?,
+            Response::Error(e) => return Err(response_error(e, "query")),
+            other => return Err(unexpected_response(&other, "query")),
+        };
+
+        let result_paths: Vec<TagrPath> = pairs.iter().map(|p| p.file.clone()).collect();
+
+        // Fetch notes on first cache population (two IPC calls on init)
+        let is_first_load = {
+            let cache = self.cache.read().map_err(|_| poison_error())?;
+            cache.is_none()
+        };
+        let note_data = if is_first_load {
+            match self.send(Request::ListNotes) {
+                Ok(Response::Notes(entries)) => entries
+                    .iter()
+                    .filter_map(|e| {
+                        let path = wire_path_to_tagrpath(&e.path, "cache_notes").ok()?;
+                        Some((path, wire_note_to_record(e)))
+                    })
+                    .collect(),
+                _ => HashMap::new(),
+            }
+        } else {
+            HashMap::new()
+        };
+
+        // Brief write lock to swap cache
+        {
+            let mut cache = self.cache.write().map_err(|_| poison_error())?;
+            match *cache {
+                Some(ref mut qc) => {
+                    qc.widest_criteria = criteria.clone();
+                    qc.widest_data = pairs;
+                }
+                None => {
+                    *cache = Some(QueryCache {
+                        widest_criteria: criteria.clone(),
+                        widest_data: pairs,
+                        notes: note_data,
+                    });
+                }
+            }
         }
+
+        Ok(result_paths)
     }
 }
