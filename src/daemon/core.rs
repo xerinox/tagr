@@ -1,7 +1,9 @@
 //! Core daemon logic: event loop, file watching, and IPC handling.
 
 use crate::db::Database;
-use crate::filters::{FilterCriteria, FilterManager, get_filter_path};
+use crate::filters::{FilterManager, get_filter_path};
+use crate::store::DirectStore;
+use crate::types::QueryCriteria;
 use crate::ipc::get_ipc_socket_path;
 use crate::ipc::wire::{
     self, ClientMessage, Request, Response, ServerEvent, ServerMessage,
@@ -127,7 +129,8 @@ async fn async_run(db: &Database) -> Result<()> {
     println!("Loaded config: {} rules", current_config.rules.len());
     add_new_watch_roots(&mut debouncer, &current_config, &mut watched_roots);
 
-    let initial_work = retroactive_scan(&current_config, db, &mut filter_evaluator);
+    let store = DirectStore::new(db.clone());
+    let initial_work = retroactive_scan(&current_config, &store, &mut filter_evaluator);
     spawn_tag_work(initial_work, db);
 
     println!("Daemon ready.");
@@ -387,6 +390,7 @@ fn handle_debounced_events(
     filter_evaluator: &mut FilterEvaluator,
 ) -> Vec<(PathBuf, Vec<String>)> {
     let mut work: Vec<(PathBuf, Vec<String>)> = Vec::new();
+    let store = DirectStore::new(db.clone());
 
     for debounced in &events {
         let event = &debounced.event;
@@ -408,7 +412,7 @@ fn handle_debounced_events(
                     *config = new_config;
                     println!("Config reloaded: {} rules", config.rules.len());
                     add_new_watch_roots(debouncer, config, watched_roots);
-                    work.extend(retroactive_scan(config, db, filter_evaluator));
+                    work.extend(retroactive_scan(config, &store, filter_evaluator));
                 }
                 Err(e) => eprintln!("Failed to reload watch config: {e}"),
             }
@@ -437,7 +441,7 @@ fn handle_debounced_events(
                     continue;
                 }
                 if let Some(criteria) = &rule.filter_criteria {
-                    if !filter_evaluator.matches(path, criteria, db) {
+                    if !filter_evaluator.matches(path, criteria, &store) {
                         continue;
                     }
                 }
@@ -448,7 +452,7 @@ fn handle_debounced_events(
     work
 }
 
-/// Resolve each rule's named filter + inline vtags + filter_by_tags into
+/// Resolve each rule's named filter + inline vtags + `filter_by_tags` into
 /// its `filter_criteria` field so that the hot path only does evaluation,
 /// not I/O.
 fn resolve_all_rules(rules: &mut [WatchRule]) {
@@ -457,15 +461,15 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
         .map(FilterManager::new);
 
     for rule in rules.iter_mut() {
-        let mut criteria = FilterCriteria::default();
+        let mut criteria = QueryCriteria::default();
 
         // Merge any saved/named filter first so inline flags can override.
-        if let Some(name) = &rule.filter {
-            if let Some(ref fm) = filter_manager {
-                match fm.get(name) {
-                    Ok(f) => criteria = f.criteria.clone(),
-                    Err(e) => eprintln!("Watch: could not load filter '{name}': {e}"),
-                }
+        if let Some(name) = &rule.filter
+            && let Some(ref fm) = filter_manager
+        {
+            match fm.get(name) {
+                Ok(f) => criteria = QueryCriteria::from(&f.criteria),
+                Err(e) => eprintln!("Watch: could not load filter '{name}': {e}"),
             }
         }
 
@@ -473,14 +477,26 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
         criteria.virtual_tags.extend(rule.vtags.iter().cloned());
 
         // DB-tag gate: file must already carry all of these tags.
-        criteria.tags.extend(rule.filter_by_tags.iter().cloned());
+        if !rule.filter_by_tags.is_empty() {
+            use crate::types::{TagExpr, TagName};
+            let tag_exprs: Vec<TagExpr> = rule.filter_by_tags.iter()
+                .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+                .collect();
 
-        let is_empty = criteria.tags.is_empty()
-            && criteria.virtual_tags.is_empty()
-            && criteria.file_patterns.is_empty()
-            && criteria.excludes.is_empty();
+            if !tag_exprs.is_empty() {
+                let new_expr = if tag_exprs.len() == 1 {
+                    tag_exprs.into_iter().next().unwrap_or_else(|| unreachable!())
+                } else {
+                    TagExpr::And(tag_exprs)
+                };
+                criteria.tag_expr = Some(match criteria.tag_expr.take() {
+                    Some(existing) => TagExpr::And(vec![existing, new_expr]),
+                    None => new_expr,
+                });
+            }
+        }
 
-        rule.filter_criteria = if is_empty { None } else { Some(criteria) };
+        rule.filter_criteria = if criteria.is_empty() { None } else { Some(criteria) };
     }
 }
 
@@ -564,7 +580,7 @@ fn glob_parent(pattern: &str) -> PathBuf {
 /// file just to trigger the rule.
 fn retroactive_scan(
     config: &WatchConfig,
-    db: &Database,
+    store: &dyn crate::store::TagStore,
     filter_evaluator: &mut FilterEvaluator,
 ) -> Vec<(PathBuf, Vec<String>)> {
     let mut work: Vec<(PathBuf, Vec<String>)> = Vec::new();
@@ -597,15 +613,19 @@ fn retroactive_scan(
 
             for path in &paths {
                 // Skip if the file already carries all the rule's tags.
-                if let Ok(Some(existing)) = db.get_tags(path) {
-                    if rule.tags.iter().all(|t| existing.contains(t)) {
-                        continue;
+                if let Ok(tagr_path) = crate::types::TagrPath::new(path) {
+                    if let Ok(Some(existing)) = store.get_tags(&tagr_path) {
+                        if rule.tags.iter().all(|t| {
+                            existing.iter().any(|e| e.as_str() == t)
+                        }) {
+                            continue;
+                        }
                     }
                 }
 
                 // Honour filter criteria if any.
                 if let Some(criteria) = &rule.filter_criteria {
-                    if !filter_evaluator.matches(path, criteria, db) {
+                    if !filter_evaluator.matches(path, criteria, store) {
                         continue;
                     }
                 }

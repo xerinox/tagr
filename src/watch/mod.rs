@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use crate::filters::FilterCriteria;
+use crate::types::QueryCriteria;
 
 pub mod matcher;
 
@@ -53,7 +53,7 @@ pub struct WatchRule {
     /// Resolved filter criteria (internal use, not serialized).
     /// Populated from `filter`, `vtags`, and `filter_by_tags` at daemon startup.
     #[serde(skip)]
-    pub filter_criteria: Option<FilterCriteria>,
+    pub filter_criteria: Option<QueryCriteria>,
 }
 
 /// Configuration structure stored in ~/.config/tagr/watch.toml
