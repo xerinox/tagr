@@ -379,10 +379,25 @@ boundaries. Delete bridge conversions. Implement DaemonStore cache.
 
 ---
 
-## Phase 6: Delete Old Types & Cleanup
+## Phase 6: Delete Old Types & Cleanup ✅
 
-**Status:** Not started
+**Status:** ✅ Complete
 
-**Goal:** Remove remaining dead types (`FilterCriteria` if superseded,
-old `Pair` variants, `DataSource`, `PathString`). Merge confused modules.
-Final cleanup.
+**Goal:** Remove remaining dead types, merge confused modules, final cleanup.
+
+### Sub-phases completed
+
+1. **6.1** (`515b0e9`) — Delete empty `db/query.rs` bridge module
+2. **6.2** (`515b0e9`) — Delete `PathString` from `db/types.rs`; replaced with direct `to_str()` + error mapping
+3. **6.3** (`ff3f94e`) — Consolidate `PathFormat` (3 definitions → 1); added `Basename` variant to `config::PathFormat`
+4. **6.4** (`c171b53`) — Consolidate `PreviewConfig` (2 → 1); kept `config::PreviewConfig`, deleted `ui::traits::PreviewConfig`
+5. **6.5** (`31c21d5`) — Replace both `SearchMode` enums with unified `MatchMode`; added `description()`/`toggle()` methods
+6. **6.6** (`3910534`) — Replace `FilterCriteria` with `QueryCriteria` in saved filters; `FilterCriteria`/`TagMode`/`FileMode` demoted to `pub(crate)` serde helpers; `Filter` → `SavedFilter` with `QueryCriteria` field; `RawSavedFilter`/`RawFilterStorage` for backward-compatible TOML persistence
+7. **6.7** (`019eb78`) — BrowseError review: two-level hierarchy is architecturally correct, kept as-is
+8. **6.8** (`019eb78`) — Merge `RefineSearchCriteria` into `RefinedSearchCriteria` (2 → 1)
+9. **6.9** (`019eb78`) — Sync functions retained (bridge `String` ↔ `TagName` gap in tag tree UI); docs updated marking them as future cleanup when tag tree adopts `TagName`
+10. **6.10** (`019eb78`) — Remove stale comments (`DataSource`, `SearchParams`); migrate all `crate::db::NoteRecord`/`NoteMeta` → `crate::types::*`; delete backward-compat re-exports from `db/types.rs`
+
+### Deferred
+
+- **Sync function deletion** — `sync_tag_tree_from_filter()`, `sync_filter_from_tag_tree()`, `sync_tag_tree_exclusions()` bridge `String`-based tag tree UI state and `TagName`-based `QueryCriteria`. Full elimination requires migrating the tag tree to use `TagName` directly (separate task).
