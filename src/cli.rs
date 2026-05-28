@@ -49,15 +49,6 @@ use crate::commands::watch::WatchCommands;
 #[cfg(feature = "dynamic-completions")]
 use clap_complete::engine::ArgValueCompleter;
 
-/// Path display format
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathFormat {
-    /// Display absolute paths
-    Absolute,
-    /// Display relative paths (relative to current directory)
-    Relative,
-}
-
 /// List variant for the list command
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListVariant {
@@ -1427,12 +1418,12 @@ impl Cli {
 
     /// Helper method to get the path format override from command-specific flags
     #[must_use]
-    pub fn get_path_format(&self) -> Option<PathFormat> {
+    pub fn get_path_format(&self) -> Option<crate::config::PathFormat> {
         let to_format = |absolute: bool, relative: bool| {
             if absolute {
-                Some(PathFormat::Absolute)
+                Some(crate::config::PathFormat::Absolute)
             } else if relative {
-                Some(PathFormat::Relative)
+                Some(crate::config::PathFormat::Relative)
             } else {
                 None
             }

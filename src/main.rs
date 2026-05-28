@@ -281,9 +281,10 @@ fn handle_config_command(
                     let new_value = match value.to_lowercase().as_str() {
                         "absolute" | "abs" => config::PathFormat::Absolute,
                         "relative" | "rel" => config::PathFormat::Relative,
+                        "basename" | "base" => config::PathFormat::Basename,
                         _ => {
                             return Err(TagrError::InvalidInput(format!(
-                                "Invalid value for path_format: '{value}'. Use 'absolute' or 'relative'"
+                                "Invalid value for path_format: '{value}'. Use 'absolute', 'relative', or 'basename'"
                             )));
                         }
                     };
@@ -308,6 +309,7 @@ fn handle_config_command(
                 let value = match config.path_format {
                     config::PathFormat::Absolute => "absolute",
                     config::PathFormat::Relative => "relative",
+                    config::PathFormat::Basename => "basename",
                 };
                 println!("{value}");
             }
@@ -418,14 +420,7 @@ fn main() -> Result<()> {
         })?;
 
         // Determine path format: CLI override > config default
-        let path_format = if let Some(cli_format) = cli.get_path_format() {
-            match cli_format {
-                tagr::cli::PathFormat::Absolute => config::PathFormat::Absolute,
-                tagr::cli::PathFormat::Relative => config::PathFormat::Relative,
-            }
-        } else {
-            config.path_format
-        };
+        let path_format = cli.get_path_format().unwrap_or(config.path_format);
 
         // Try to open the DB directly first — this is the fast path and works
         // even when the daemon is running (sled allows a second reader only if

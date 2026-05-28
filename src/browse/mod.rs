@@ -55,7 +55,8 @@
 //! ## Custom Configuration
 //!
 //! ```no_run
-//! use tagr::browse::{BrowseSession, BrowseConfig, PathFormat};
+//! use tagr::browse::{BrowseSession, BrowseConfig};
+//! use tagr::config::PathFormat;
 //! use tagr::db::Database;
 //! use tagr::store::DirectStore;
 //!
@@ -125,6 +126,6 @@ pub use models::{
 pub use query::{get_available_tags, get_files_by_tags, get_matching_files};
 pub use session::{
     AcceptResult, BrowseConfig, BrowseError, BrowseResult, BrowseSession, BrowserPhase, HelpText,
-    PathFormat, PhaseSettings, PhaseType,
+    PhaseSettings, PhaseType,
 };
 pub use ui::BrowseController;

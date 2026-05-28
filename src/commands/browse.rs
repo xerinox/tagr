@@ -18,15 +18,6 @@ use crate::{
 
 type Result<T> = std::result::Result<T, TagrError>;
 
-impl From<config::PathFormat> for crate::browse::session::PathFormat {
-    fn from(format: config::PathFormat) -> Self {
-        match format {
-            config::PathFormat::Absolute => Self::Absolute,
-            config::PathFormat::Relative => Self::Relative,
-        }
-    }
-}
-
 /// Execute the browse command
 ///
 /// # Errors
@@ -121,7 +112,7 @@ pub fn execute(
 
     let config = BrowseConfig {
         initial_search: search_criteria.clone(),
-        path_format: path_format.into(),
+        path_format,
         tag_phase_settings,
         file_phase_settings,
     };

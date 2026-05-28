@@ -29,7 +29,7 @@
 
 use crate::browse::actions;
 use crate::browse::models::{ActionOutcome, ItemMetadata, TagrItem};
-use crate::browse::session::{AcceptResult, BrowseResult, BrowseSession, PathFormat, PhaseType};
+use crate::browse::session::{AcceptResult, BrowseResult, BrowseSession, PhaseType};
 use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input};
 use crate::types::{TagName, TagrPath};
@@ -505,9 +505,11 @@ impl<F: FuzzyFinder> BrowseController<F> {
     ///
     /// Applies `PathFormat` settings from session config
     fn format_path(&self, path: &Path, phase_type: &PhaseType) -> String {
+        use crate::config::PathFormat;
+
         let path_format = match phase_type {
-            PhaseType::FileSelection { .. } => &self.session.config().path_format,
-            PhaseType::TagSelection => &PathFormat::Absolute,
+            PhaseType::FileSelection { .. } => self.session.config().path_format,
+            PhaseType::TagSelection => PathFormat::Absolute,
         };
 
         match path_format {

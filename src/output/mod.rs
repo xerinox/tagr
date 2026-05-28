@@ -22,6 +22,11 @@ pub fn format_path(path: impl AsRef<Path>, format: PathFormat) -> String {
             // Fallback to absolute if relative path cannot be computed
             path.display().to_string()
         }
+        PathFormat::Basename => path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string(),
     }
 }
 

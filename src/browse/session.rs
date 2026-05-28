@@ -85,26 +85,13 @@ pub struct BrowseConfig {
     pub initial_search: Option<QueryCriteria>,
 
     /// Path display format
-    pub path_format: PathFormat,
+    pub path_format: crate::config::PathFormat,
 
     /// Tag selection phase settings
     pub tag_phase_settings: PhaseSettings,
 
     /// File selection phase settings
     pub file_phase_settings: PhaseSettings,
-}
-
-/// Path display format options
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathFormat {
-    /// Full absolute path
-    Absolute,
-
-    /// Relative to current directory
-    Relative,
-
-    /// Just the filename
-    Basename,
 }
 
 /// Configuration for a specific browser phase
@@ -607,7 +594,7 @@ impl Default for BrowseConfig {
     fn default() -> Self {
         Self {
             initial_search: None,
-            path_format: PathFormat::Absolute,
+            path_format: crate::config::PathFormat::Absolute,
             tag_phase_settings: PhaseSettings::default_for_tags(),
             file_phase_settings: PhaseSettings::default_for_files(),
         }

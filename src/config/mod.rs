@@ -25,6 +25,8 @@ pub enum PathFormat {
     Absolute,
     /// Display relative paths (relative to current directory)
     Relative,
+    /// Display only the filename
+    Basename,
 }
 
 /// UI backend selection
