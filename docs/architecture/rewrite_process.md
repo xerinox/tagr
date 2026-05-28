@@ -296,12 +296,50 @@ and `search/`. Delete `src/search/` module entirely.
 
 ---
 
-## Phase 4: DirectStore + DaemonStore
+## Phase 4: DirectStore + DaemonStore ✅
 
-**Status:** Not started
+**Status:** Complete
 
 **Goal:** Split `DataSource` enum into `DirectStore` + `DaemonStore` trait impls.
 Delete `datasource.rs`.
+
+### Completed work
+
+1. **Created `DaemonStore`** (`src/store/daemon.rs`)
+   - Pass-through IPC implementation of `TagStore`
+   - Every method does `block_on()` IPC via `PersistentClient`
+   - `DaemonStore::connect()` factory returns `(Self, Receiver<ServerEvent>)`
+   - `DaemonStore::from_parts()` escape hatch for wrapping existing runtime/client
+   - Error mapping: `DaemonError`/`IpcError` → `StoreError` (no `#[from]`)
+   - Temporary `wire_search_params_from_criteria()` for legacy wire protocol
+
+2. **Migrated browse stack** — `Arc<DataSource>` → `Arc<dyn TagStore>`
+   - `browse/session.rs` — field, constructor, accessor
+   - `browse/models.rs` — `PathWithDb`, `TagWithDb` context structs
+   - `browse/query.rs` — all query functions
+   - `browse/actions.rs` — tag add/remove/delete actions
+   - `browse/ui.rs` — error variants
+
+3. **Migrated UI layer** — `Option<Arc<DataSource>>` → `Option<Arc<dyn TagStore>>`
+   - `ui/traits.rs` — `FinderConfig.database`
+   - `ui/ratatui_adapter/state.rs` — `AppState.database`
+
+4. **Migrated keybinds** — `ActionContext.ds: &dyn TagStore`
+
+5. **Migrated command layer**
+   - `commands/browse.rs` — takes `Arc<dyn TagStore>` directly
+   - `commands/dispatch.rs` — constructs `Arc<DirectStore>` for browse path
+   - `main.rs` — uses `DaemonStore::connect()` for daemon mode
+
+6. **Deleted `src/datasource.rs`** — 485 lines removed, no remaining references
+
+### Deferred to Phase 5
+- `&Database` command-layer migration (commands/*, watch/matcher, completions/cache)
+- DaemonStore widest-result cache (pass-through is sufficient for now)
+
+### Test results
+- 637 lib tests pass, 33 doctests pass
+- 0 clippy warnings in changed files
 
 ---
 
