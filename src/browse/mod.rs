@@ -120,7 +120,7 @@ pub use actions::{
 };
 pub use models::{
     ActionContext, ActionData, ActionOutcome, CachedMetadata, FileMetadata, ItemMetadata,
-    MetadataCache, PairWithCache, PathWithDb, SearchMode, SelectionState, TagMetadata, TagWithDb,
+    MetadataCache, PairWithCache, PathWithDb, SelectionState, TagMetadata, TagWithDb,
     TagrItem,
 };
 pub use query::{get_available_tags, get_files_by_tags, get_matching_files};

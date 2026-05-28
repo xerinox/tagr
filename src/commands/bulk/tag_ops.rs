@@ -44,15 +44,12 @@ fn validate_bulk_criteria(criteria: &QueryCriteria) -> Result<()> {
         builder.add_file_token(f);
     }
 
-    let to_search_mode = |m: MatchMode| match m {
-        MatchMode::All => crate::cli::SearchMode::All,
-        MatchMode::Any => crate::cli::SearchMode::Any,
-    };
+    let to_search_mode = |m: MatchMode| m;
 
     let tag_mode = if criteria.tag_expr.as_ref().is_some_and(|e| matches!(e, TagExpr::And(_))) {
-        crate::cli::SearchMode::All
+        MatchMode::All
     } else {
-        crate::cli::SearchMode::Any
+        MatchMode::Any
     };
 
     let _ = builder.build(tag_mode, to_search_mode(criteria.file_mode))?;

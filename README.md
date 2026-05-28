@@ -1575,7 +1575,7 @@ for tag in tags {
 use tagr::cli::SearchParams;
 let search = SearchParams {
     tags: vec!["rust".to_string()],
-    tag_mode: tagr::cli::SearchMode::Any,
+    tag_mode: tagr::types::MatchMode::Any,
     ..Default::default()
 };
 

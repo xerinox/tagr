@@ -18,6 +18,25 @@ pub enum MatchMode {
     Any,
 }
 
+impl MatchMode {
+    /// Get description for UI
+    #[must_use]
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Any => "ANY (files with any of these tags)",
+            Self::All => "ALL (files with all of these tags)",
+        }
+    }
+
+    /// Toggle between modes
+    pub const fn toggle(&mut self) {
+        *self = match self {
+            Self::Any => Self::All,
+            Self::All => Self::Any,
+        };
+    }
+}
+
 impl fmt::Display for MatchMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

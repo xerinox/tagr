@@ -202,12 +202,12 @@ fn validate_patterns(criteria: &QueryCriteria, flags: ExplicitFlags) -> Result<(
 
     // Determine tag/file modes for validation
     let tag_mode = match &criteria.tag_expr {
-        Some(crate::types::TagExpr::Or(_)) => crate::cli::SearchMode::Any,
-        _ => crate::cli::SearchMode::All,
+        Some(crate::types::TagExpr::Or(_)) => MatchMode::Any,
+        _ => MatchMode::All,
     };
     let file_mode = match criteria.file_mode {
-        MatchMode::Any => crate::cli::SearchMode::Any,
-        MatchMode::All => crate::cli::SearchMode::All,
+        MatchMode::Any => MatchMode::Any,
+        MatchMode::All => MatchMode::All,
     };
 
     let _ = builder.build(tag_mode, file_mode)?;

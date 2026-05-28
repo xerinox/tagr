@@ -6,7 +6,7 @@
 //! - `Filter`: Complete filter with criteria and metadata
 //! - `FilterStorage`: Container for all filters
 
-use crate::cli::SearchMode;
+use crate::types::MatchMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -303,16 +303,16 @@ pub enum TagMode {
     Any,
 }
 
-impl From<SearchMode> for TagMode {
-    fn from(mode: SearchMode) -> Self {
+impl From<MatchMode> for TagMode {
+    fn from(mode: MatchMode) -> Self {
         match mode {
-            SearchMode::All => Self::All,
-            SearchMode::Any => Self::Any,
+            MatchMode::All => Self::All,
+            MatchMode::Any => Self::Any,
         }
     }
 }
 
-impl From<TagMode> for SearchMode {
+impl From<TagMode> for MatchMode {
     fn from(mode: TagMode) -> Self {
         match mode {
             TagMode::All => Self::All,
@@ -332,16 +332,16 @@ pub enum FileMode {
     Any,
 }
 
-impl From<SearchMode> for FileMode {
-    fn from(mode: SearchMode) -> Self {
+impl From<MatchMode> for FileMode {
+    fn from(mode: MatchMode) -> Self {
         match mode {
-            SearchMode::All => Self::All,
-            SearchMode::Any => Self::Any,
+            MatchMode::All => Self::All,
+            MatchMode::Any => Self::Any,
         }
     }
 }
 
-impl From<FileMode> for SearchMode {
+impl From<FileMode> for MatchMode {
     fn from(mode: FileMode) -> Self {
         match mode {
             FileMode::All => Self::All,

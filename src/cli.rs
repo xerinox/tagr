@@ -41,7 +41,6 @@
 //! ```
 
 use clap::{Args, Parser, Subcommand, ValueEnum, ValueHint};
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use crate::commands::watch::WatchCommands;
 
@@ -56,16 +55,6 @@ pub enum ListVariant {
     Files,
     /// List all tags in the database
     Tags,
-}
-
-/// Search mode for combining multiple criteria
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum SearchMode {
-    /// Match ANY of the criteria (OR logic)
-    #[default]
-    Any,
-    /// Match ALL of the criteria (AND logic)
-    All,
 }
 
 /// Preview configuration overrides from CLI

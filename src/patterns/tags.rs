@@ -72,7 +72,7 @@ impl Eq for TagPattern {}
 #[derive(Debug, Clone)]
 pub struct TagQuery {
     pub patterns: Vec<TagPattern>,
-    pub mode: crate::cli::SearchMode,
+    pub mode: crate::types::MatchMode,
 }
 
 impl TagQuery {
@@ -82,7 +82,7 @@ impl TagQuery {
     /// Returns `PatternError::TooManyPatterns` when `patterns.len() > max`.
     pub fn new(
         patterns: Vec<TagPattern>,
-        mode: crate::cli::SearchMode,
+        mode: crate::types::MatchMode,
         max: usize,
     ) -> Result<Self, PatternError> {
         if patterns.len() > max {

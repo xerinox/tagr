@@ -5,7 +5,7 @@
 //! filtering (idiomatic Rust style).
 
 use crate::store::{StoreError, TagStore};
-use crate::types::{TagName, TagrPath};
+use crate::types::{MatchMode, TagName, TagrPath};
 use crate::ui::DisplayItem;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -121,20 +121,10 @@ pub struct SelectionState {
     pub selected_files: Vec<TagrPath>,
 
     /// Search mode (how to combine multiple tags)
-    pub search_mode: SearchMode,
+    pub search_mode: MatchMode,
 
     /// Metadata cache for performance
     pub metadata_cache: MetadataCache,
-}
-
-/// How to combine multiple selected tags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchMode {
-    /// Match files with ANY of the selected tags (OR logic)
-    Any,
-
-    /// Match files with ALL of the selected tags (AND logic)
-    All,
 }
 
 /// Cache for file metadata to avoid repeated syscalls
@@ -399,7 +389,7 @@ impl SelectionState {
             selected_tags: Vec::new(),
             available_files: Vec::new(),
             selected_files: Vec::new(),
-            search_mode: SearchMode::Any,
+            search_mode: MatchMode::Any,
             metadata_cache: MetadataCache::new(),
         }
     }
@@ -418,24 +408,6 @@ impl Default for SelectionState {
     }
 }
 
-impl SearchMode {
-    /// Get description for UI
-    #[must_use]
-    pub const fn description(self) -> &'static str {
-        match self {
-            Self::Any => "ANY (files with any of these tags)",
-            Self::All => "ALL (files with all of these tags)",
-        }
-    }
-
-    /// Toggle between modes
-    pub const fn toggle(&mut self) {
-        *self = match self {
-            Self::Any => Self::All,
-            Self::All => Self::Any,
-        };
-    }
-}
 
 impl MetadataCache {
     /// Create new cache with default TTL (300s)
@@ -704,14 +676,14 @@ mod tests {
 
     #[test]
     fn test_search_mode_toggle() {
-        let mut mode = SearchMode::Any;
-        assert_eq!(mode, SearchMode::Any);
+        let mut mode = MatchMode::Any;
+        assert_eq!(mode, MatchMode::Any);
 
         mode.toggle();
-        assert_eq!(mode, SearchMode::All);
+        assert_eq!(mode, MatchMode::All);
 
         mode.toggle();
-        assert_eq!(mode, SearchMode::Any);
+        assert_eq!(mode, MatchMode::Any);
     }
 
     #[test]

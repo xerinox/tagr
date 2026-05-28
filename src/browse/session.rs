@@ -30,14 +30,14 @@
 
 use std::sync::Arc;
 
-use crate::browse::models::{ActionOutcome, SearchMode, TagrItem};
+use crate::browse::models::{ActionOutcome, TagrItem};
 use crate::browse::{actions, query};
 use crate::config::PreviewConfig;
 use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::config::KeybindConfig;
 use crate::schema::{self, TagSchema};
 use crate::store::TagStore;
-use crate::types::{QueryCriteria, TagName, TagrPath};
+use crate::types::{MatchMode, QueryCriteria, TagName, TagrPath};
 
 /// Threshold for switching between in-memory and DB filtering
 ///
@@ -233,12 +233,12 @@ impl BrowseSession {
                         .cloned()
                         .collect();
                     let mut regular_files =
-                        query::get_files_by_tags(&*self.ds, &regular_tags, SearchMode::Any)?;
+                        query::get_files_by_tags(&*self.ds, &regular_tags, MatchMode::Any)?;
                     let mut notes_files = query::get_notes_only_files(&*self.ds)?;
                     regular_files.append(&mut notes_files);
                     regular_files
                 } else {
-                    query::get_files_by_tags(&*self.ds, &selected_ids, SearchMode::Any)?
+                    query::get_files_by_tags(&*self.ds, &selected_ids, MatchMode::Any)?
                 };
 
                 if items.is_empty() {
@@ -528,7 +528,7 @@ impl BrowseSession {
                 let tag_strings: Vec<String> =
                     selected_tags.iter().map(ToString::to_string).collect();
                 self.current_phase.items =
-                    query::get_files_by_tags(&*self.ds, &tag_strings, SearchMode::Any)?;
+                    query::get_files_by_tags(&*self.ds, &tag_strings, MatchMode::Any)?;
             }
         }
         Ok(())

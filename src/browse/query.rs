@@ -184,12 +184,9 @@ pub fn get_matching_files(ds: &dyn TagStore, criteria: &QueryCriteria) -> Result
 pub fn get_files_by_tags(
     ds: &dyn TagStore,
     tags: &[String],
-    mode: crate::browse::models::SearchMode,
+    mode: MatchMode,
 ) -> Result<Vec<TagrItem>, StoreError> {
-    let match_mode = match mode {
-        crate::browse::models::SearchMode::Any => MatchMode::Any,
-        crate::browse::models::SearchMode::All => MatchMode::All,
-    };
+    let match_mode = mode;
 
     let tag_exprs: Vec<TagExpr> = tags
         .iter()
@@ -245,7 +242,7 @@ pub fn filter_items_in_memory<'a>(
 mod tests {
     use super::*;
     use crate::Pair;
-    use crate::browse::models::SearchMode;
+    use crate::types::MatchMode;
     use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
 
@@ -379,7 +376,7 @@ mod tests {
 
         let source = ds(&test_db);
         let files =
-            get_files_by_tags(&source, &["rust".into(), "python".into()], SearchMode::Any).unwrap();
+            get_files_by_tags(&source, &["rust".into(), "python".into()], MatchMode::Any).unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -404,7 +401,7 @@ mod tests {
             .unwrap();
 
         let source = ds(&test_db);
-        let files = get_files_by_tags(&source, &["rust".into(), "web".into()], SearchMode::All).unwrap();
+        let files = get_files_by_tags(&source, &["rust".into(), "web".into()], MatchMode::All).unwrap();
         assert_eq!(files.len(), 1);
 
         let item = &files[0];
