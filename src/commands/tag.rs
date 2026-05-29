@@ -155,6 +155,15 @@ pub fn untag(
         .map(TagName::new)
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
+    // Warn about tags that don't exist on this file
+    if let Ok(Some(existing_tags)) = store.get_tags(&canonical_path) {
+        for tag in &tag_names {
+            if !existing_tags.iter().any(|t| t == tag) {
+                eprintln!("warning: file '{}' does not have tag '{}'", file_path.display(), tag.as_str());
+            }
+        }
+    }
+
     store.remove_tags(&canonical_path, &tag_names)?;
 
     #[cfg(feature = "dynamic-completions")]

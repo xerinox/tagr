@@ -112,6 +112,14 @@ pub fn execute(
             let desc = criteria_description(&criteria);
             writeln!(writer, "No files found matching {desc}")?;
         }
+        // Warn on stderr if searched tags don't exist in the database
+        if let Some(include_tags) = criteria.flat_include_tags() {
+            for tag in &include_tags {
+                if store.find_by_tag(tag).map_or(true, |f| f.is_empty()) {
+                    eprintln!("warning: tag '{}' does not exist in database", tag.as_str());
+                }
+            }
+        }
     } else {
         if !output_config.quiet {
             let description = search_description(&criteria);

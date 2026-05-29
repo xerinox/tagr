@@ -42,6 +42,8 @@
 //! On first run, tagr will prompt for initial setup. Configuration is stored in
 //! the user's config directory (`~/.config/tagr/config.toml` on Linux).
 
+use std::io::IsTerminal;
+
 use clap::CommandFactory;
 use tagr::{
     TagrError,
@@ -137,7 +139,8 @@ fn handle_db_list(config: &config::TagrConfig, quiet: bool) -> Result<()> {
             let marker = if is_default { " (default)" } else { "" };
 
             if quiet {
-                println!("{name}");
+                let prefix = if is_default { "* " } else { "" };
+                println!("{prefix}{name}");
             } else {
                 println!("  {} -> {}{}", name, path.display(), marker);
             }
@@ -343,7 +346,7 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse_args();
 
-    let quiet = cli.quiet || config.quiet;
+    let quiet = cli.quiet || config.quiet || !std::io::stdout().is_terminal();
 
     let command = cli.get_command();
 
@@ -547,101 +550,21 @@ fn store_error_to_tagr(err: StoreError) -> TagrError {
     }
 }
 
-/// Forward a command to the daemon via typed IPC and render the response locally.
-#[allow(clippy::too_many_lines)] // cohesive IPC dispatch matching all command variants
+/// Forward a command to the daemon via DaemonStore (IPC-backed TagStore).
 fn dispatch_via_ipc(
-    rt: &tokio::runtime::Runtime,
+    _rt: &tokio::runtime::Runtime,
     command: &tagr::cli::Commands,
     path_format: config::PathFormat,
     quiet: bool,
 ) -> Result<()> {
-    use std::path::PathBuf;
     use tagr::cli::Commands;
-    use tagr::daemon::client::send_request;
-    use tagr::ipc::wire::{Request, Response, WireQueryCriteria};
-    use tagr::output;
 
-    let req = match command {
-        Commands::Search { .. } => {
-            let criteria = command.get_search_criteria().unwrap_or_default();
-            Request::Query {
-                criteria: WireQueryCriteria::from(&criteria),
-            }
-        }
-        Commands::List { variant, .. } => {
-            match variant {
-                tagr::cli::ListVariant::Tags => Request::ListTags,
-                tagr::cli::ListVariant::Files => Request::ListFiles,
-            }
-        }
-        Commands::Tag { .. } => {
-            let ctx = command.get_tag_context().ok_or_else(|| {
-                TagrError::InvalidInput("Failed to extract tag context from command".into())
-            })?;
-            let file = ctx.file.ok_or_else(|| {
-                TagrError::InvalidInput("No file specified".into())
-            })?;
-            // Resolve relative path on client side (daemon may have different cwd)
-            let resolved = file.canonicalize().map_err(|e| {
-                TagrError::InvalidInput(format!(
-                    "Cannot access path '{}': {}",
-                    file.display(),
-                    e
-                ))
-            })?;
-            Request::AddTags {
-                file: resolved.to_string_lossy().into_owned(),
-                tags: ctx.tags,
-            }
-        }
-        Commands::Untag { .. } => {
-            let ctx = command.get_untag_context().ok_or_else(|| {
-                TagrError::InvalidInput("Failed to extract untag context from command".into())
-            })?;
-            let file = ctx.file.ok_or_else(|| {
-                TagrError::InvalidInput("No file specified".into())
-            })?;
-            // Resolve relative path on client side (daemon may have different cwd)
-            let resolved = file.canonicalize().map_err(|e| {
-                TagrError::InvalidInput(format!(
-                    "Cannot access path '{}': {}",
-                    file.display(),
-                    e
-                ))
-            })?;
-            let tags: Vec<String> = ctx.tags.clone();
-            Request::RemoveTags {
-                file: resolved.to_string_lossy().into_owned(),
-                tags,
-                all: ctx.all,
-            }
-        }
-        Commands::Cleanup { .. } => Request::Cleanup,
-        Commands::Browse { filter_args, .. } => {
-            let ctx = command.get_browse_context().ok_or_else(|| {
-                TagrError::InvalidInput("Failed to extract browse context from command".into())
-            })?;
-
-            let store = tagr::store::DaemonStore::connect()
-                .map_err(|e| TagrError::InvalidInput(format!("Failed to connect to daemon: {e}")))?;
-
-            let save_filter = filter_args
-                .save_filter
-                .as_ref()
-                .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
-
-            return commands::browse::execute(
-                std::sync::Arc::new(store),
-                ctx.search_criteria,
-                filter_args.filter.as_deref(),
-                save_filter,
-                ctx.execute_cmd,
-                Some(&ctx.preview_overrides),
-                path_format,
-                quiet,
-            );
-        }
-        Commands::Tags { .. } | Commands::Note { .. } | Commands::Bulk { .. } => {
+    // Commands that benefit from full dispatch_command (warnings, formatting, interactivity)
+    // are routed through DaemonStore which implements TagStore via IPC.
+    match command {
+        Commands::Search { .. } | Commands::List { .. } | Commands::Cleanup { .. }
+        | Commands::Tags { .. } | Commands::Note { .. } | Commands::Bulk { .. }
+        | Commands::Tag { .. } | Commands::Untag { .. } => {
             let store = tagr::store::DaemonStore::connect()
                 .map_err(|e| TagrError::InvalidInput(format!("Failed to connect to daemon: {e}")))?;
             let config = tagr::config::TagrConfig::load()
@@ -656,88 +579,37 @@ fn dispatch_via_ipc(
                 &mut stdout,
             );
         }
-        _ => {
-            return Err(TagrError::InvalidInput(
-                "This command is not supported while the daemon is running".into(),
-            ));
-        }
-    };
-
-    let resp = rt
-        .block_on(send_request(req))
-        .map_err(|e| TagrError::IoError(std::io::Error::other(e.to_string())))?;
-
-    match resp {
-        Response::Pong => {
-            if !quiet { println!("pong"); }
-        }
-        Response::Ok => {
-            // Mutation succeeded, nothing to print
-        }
-        Response::Tags(tags) => {
-            for tag in &tags {
-                if quiet {
-                    println!("{}", tag.name);
-                } else {
-                    println!("{} ({})", tag.name, tag.file_count);
-                }
-            }
-        }
-        Response::Files(pairs) => {
-            for pair in &pairs {
-                let path = PathBuf::from(&pair.file);
-                let formatted = output::format_path(&path, path_format);
-                if quiet {
-                    println!("{formatted}");
-                } else {
-                    println!("{formatted}\t[{}]", pair.tags.join(", "));
-                }
-            }
-        }
-        Response::FileTags(tags) => {
-            for tag in &tags {
-                println!("{tag}");
-            }
-        }
-        Response::FilePaths(paths) => {
-            for path_str in &paths {
-                let path = PathBuf::from(path_str);
-                let formatted = output::format_path(&path, path_format);
-                println!("{formatted}");
-            }
-        }
-        Response::Notes(entries) => {
-            for entry in &entries {
-                let path = PathBuf::from(&entry.path);
-                let formatted = output::format_path(&path, path_format);
-                if quiet {
-                    println!("{formatted}");
-                } else {
-                    println!("{formatted}\t{}", entry.content.lines().next().unwrap_or(""));
-                }
-            }
-        }
-        Response::Note(note) => {
-            if let Some(entry) = note {
-                let path = PathBuf::from(&entry.path);
-                let formatted = output::format_path(&path, path_format);
-                if quiet {
-                    println!("{}", entry.content);
-                } else {
-                    println!("{formatted}\t{}", entry.content);
-                }
-            }
-        }
-        Response::CleanupResult { removed } => {
-            if !quiet {
-                println!("Removed {removed} stale entries");
-            }
-        }
-        Response::Error(err) => {
-            return Err(TagrError::InvalidInput(err));
-        }
+        _ => {}
     }
 
-    Ok(())
+    // Only Browse reaches here — it has its own DaemonStore setup
+    if let Commands::Browse { filter_args, .. } = command {
+        let ctx = command.get_browse_context().ok_or_else(|| {
+            TagrError::InvalidInput("Failed to extract browse context from command".into())
+        })?;
+
+        let store = tagr::store::DaemonStore::connect()
+            .map_err(|e| TagrError::InvalidInput(format!("Failed to connect to daemon: {e}")))?;
+
+        let save_filter = filter_args
+            .save_filter
+            .as_ref()
+            .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
+
+        return commands::browse::execute(
+            std::sync::Arc::new(store),
+            ctx.search_criteria,
+            filter_args.filter.as_deref(),
+            save_filter,
+            ctx.execute_cmd,
+            Some(&ctx.preview_overrides),
+            path_format,
+            quiet,
+        );
+    }
+
+    Err(TagrError::InvalidInput(
+        "This command is not supported while the daemon is running".into(),
+    ))
 }
 
