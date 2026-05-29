@@ -323,6 +323,42 @@ fn handle_config_command(
                 )));
             }
         },
+        ConfigCommands::Reset { key } => {
+            let defaults = config::TagrConfig::default();
+            match key.as_str() {
+                "quiet" => {
+                    config.quiet = defaults.quiet;
+                    config.save()?;
+                    if !quiet {
+                        println!("Reset quiet = {}", defaults.quiet);
+                    }
+                }
+                "path_format" | "path-format" => {
+                    config.path_format = defaults.path_format;
+                    config.save()?;
+                    if !quiet {
+                        println!("Reset path_format = {:?}", defaults.path_format);
+                    }
+                }
+                _ => {
+                    return Err(TagrError::InvalidInput(format!(
+                        "Unknown configuration key: '{key}'. Available keys: quiet, path_format"
+                    )));
+                }
+            }
+        }
+        ConfigCommands::List => {
+            let path_format = match config.path_format {
+                config::PathFormat::Absolute => "absolute",
+                config::PathFormat::Relative => "relative",
+                config::PathFormat::Basename => "basename",
+            };
+            println!("quiet = {}", config.quiet);
+            println!("path_format = {path_format}");
+            if let Some(ref db) = config.default_database {
+                println!("default_database = {db}");
+            }
+        }
     }
     Ok(())
 }

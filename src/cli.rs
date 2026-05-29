@@ -202,6 +202,16 @@ pub enum ConfigCommands {
         #[arg(value_name = "KEY")]
         key: String,
     },
+
+    /// Reset a configuration value to its default
+    Reset {
+        /// Configuration key to reset (e.g., quiet)
+        #[arg(value_name = "KEY")]
+        key: String,
+    },
+
+    /// List all configuration settings and their current values
+    List,
 }
 
 /// Tag management subcommands
