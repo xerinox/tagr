@@ -9,6 +9,8 @@ use ratatui::{
 };
 use std::collections::{HashMap, HashSet};
 
+use crate::types::TagName;
+
 /// A node in the tag tree (can be tag or inferred parent)
 #[derive(Debug, Clone)]
 pub struct TagTreeNode {
@@ -40,9 +42,9 @@ pub struct TagTreeState {
     /// Cache of flattened visible nodes for navigation
     visible_nodes: Vec<TagTreeNodeRef>,
     /// Set of selected tag paths (for multi-select / inclusion)
-    pub selected_tags: HashSet<String>,
+    pub selected_tags: HashSet<TagName>,
     /// Set of excluded tag paths (synced from `QueryCriteria`)
-    pub excluded_tags: HashSet<String>,
+    pub excluded_tags: HashSet<TagName>,
 }
 
 /// Reference to a node in the tree (for flattened view)
@@ -419,11 +421,12 @@ impl TagTreeState {
         if let Some(node_ref) = self.visible_nodes.get(self.selected) {
             if node_ref.is_actual_tag {
                 // Regular tag - toggle single selection
-                let path = node_ref.full_path.clone();
-                if self.selected_tags.contains(&path) {
-                    self.selected_tags.remove(&path);
-                } else {
-                    self.selected_tags.insert(path);
+                if let Ok(tag) = TagName::new(&node_ref.full_path) {
+                    if self.selected_tags.contains(&tag) {
+                        self.selected_tags.remove(&tag);
+                    } else {
+                        self.selected_tags.insert(tag);
+                    }
                 }
             } else {
                 // Parent node - toggle all children
@@ -456,7 +459,7 @@ impl TagTreeState {
 
     /// Get all descendant tags (actual tags only, not inferred parents) under a parent path
     #[must_use]
-    pub fn get_all_descendant_tags(&self, parent_path: &str) -> Vec<String> {
+    pub fn get_all_descendant_tags(&self, parent_path: &str) -> Vec<TagName> {
         let prefix = format!("{parent_path}:");
 
         self.roots
@@ -466,11 +469,14 @@ impl TagTreeState {
     }
 
     /// Recursively collect descendant tags
-    fn collect_descendant_tags(node: &TagTreeNode, prefix: &str) -> Vec<String> {
+    fn collect_descendant_tags(node: &TagTreeNode, prefix: &str) -> Vec<TagName> {
         let mut tags = Vec::new();
 
-        if node.full_path.starts_with(prefix) && node.is_actual_tag {
-            tags.push(node.full_path.clone());
+        if node.full_path.starts_with(prefix)
+            && node.is_actual_tag
+            && let Ok(tag) = TagName::new(&node.full_path)
+        {
+            tags.push(tag);
         }
 
         for child in &node.children {
@@ -498,7 +504,7 @@ impl TagTreeState {
 
     /// Get all selected tag paths
     #[must_use]
-    pub fn selected_tag_paths(&self) -> Vec<String> {
+    pub fn selected_tag_paths(&self) -> Vec<TagName> {
         self.selected_tags.iter().cloned().collect()
     }
 
@@ -685,12 +691,12 @@ impl StatefulWidget for TagTree<'_> {
             let is_selected = start + i == state.selected;
             // For parent nodes, derive selection state from children
             let is_tag_selected = if node_ref.is_actual_tag {
-                state.selected_tags.contains(&node_ref.full_path)
+                state.selected_tags.contains(node_ref.full_path.as_str())
             } else {
                 let children = state.get_all_descendant_tags(&node_ref.full_path);
                 !children.is_empty() && children.iter().any(|c| state.selected_tags.contains(c))
             };
-            let is_tag_excluded = state.excluded_tags.contains(&node_ref.full_path);
+            let is_tag_excluded = state.excluded_tags.contains(node_ref.full_path.as_str());
 
             // Build the line with tree characters
             let mut spans = Vec::new();

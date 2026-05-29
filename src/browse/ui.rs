@@ -123,10 +123,6 @@ impl<F: FuzzyFinder> BrowseController<F> {
                         .into_iter()
                         .filter_map(|p| TagrPath::new(&p).ok())
                         .collect();
-                    let selected_tags: Vec<TagName> = selected_tags
-                        .into_iter()
-                        .filter_map(|t| TagName::new(&t).ok())
-                        .collect();
 
                     return Ok(Some(BrowseResult {
                         selected_tags,
@@ -692,7 +688,7 @@ enum BrowserResult {
         /// Selected file paths
         file_paths: Vec<String>,
         /// Selected tags that filtered these files
-        selected_tags: Vec<String>,
+        selected_tags: Vec<TagName>,
     },
 
     /// User triggered action (ctrl+t, etc.) with current selection

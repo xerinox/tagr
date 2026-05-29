@@ -13,6 +13,7 @@ use super::widgets::{
 };
 use crate::commands::note::create_temp_note_file;
 use crate::keybinds::actions::BrowseAction;
+use crate::types::TagName;
 use crate::ui::error::Result;
 use crate::ui::traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
 use crate::ui::types::FinderResult;
@@ -591,10 +592,12 @@ impl RatatuiFinder {
             // Only insert the tag itself if it's a leaf (no descendants), so parent-only
             // nodes don't get stuck in selected_tags (they can't be deselected via toggle).
             if let Some(criteria) = &config.search_criteria {
-                for tag in &criteria.include_tags {
-                    let descendants = tag_tree_state.get_all_descendant_tags(tag);
+                for tag_str in &criteria.include_tags {
+                    let descendants = tag_tree_state.get_all_descendant_tags(tag_str);
                     if descendants.is_empty() {
-                        tag_tree_state.selected_tags.insert(tag.clone());
+                        if let Ok(tag) = TagName::new(tag_str.as_str()) {
+                            tag_tree_state.selected_tags.insert(tag);
+                        }
                     } else {
                         for child in descendants {
                             tag_tree_state.selected_tags.insert(child);
@@ -827,7 +830,11 @@ impl RatatuiFinder {
                     context: _,
                 } => {
                     // Open the refine search overlay populated with CURRENT live state
-                    let include_tags = state.tag_tree_selected_tags();
+                    let include_tags: Vec<String> = state
+                        .tag_tree_selected_tags()
+                        .into_iter()
+                        .map(TagName::into_inner)
+                        .collect();
                     let exclude_tags = state
                         .active_filter
                         .flat_exclude_tags()

@@ -400,4 +400,4 @@ boundaries. Delete bridge conversions. Implement DaemonStore cache.
 
 ### Deferred
 
-- **Sync function deletion** — `sync_tag_tree_from_filter()`, `sync_filter_from_tag_tree()`, `sync_tag_tree_exclusions()` bridge `String`-based tag tree UI state and `TagName`-based `QueryCriteria`. Full elimination requires migrating the tag tree to use `TagName` directly (separate task).
+- ~~**Sync function deletion**~~ — Completed. Tag tree widget now uses `TagName` natively in `selected_tags`/`excluded_tags`. The sync functions (`sync_tag_tree_from_filter`, `sync_filter_from_tag_tree`, `sync_tag_tree_exclusions`) no longer perform String↔TagName conversions — they operate directly on `TagName` values.

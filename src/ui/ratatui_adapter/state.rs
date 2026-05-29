@@ -5,7 +5,7 @@
 use crate::keybinds::actions::BrowseAction;
 use crate::ui::ratatui_adapter::events::EventResult;
 
-use crate::types::QueryCriteria;
+use crate::types::{QueryCriteria, TagName};
 use crate::ui::output::MessageLevel;
 use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
@@ -361,7 +361,11 @@ impl AppState {
                 }
                 FocusPane::TagTree => {
                     // Return selected tags (for other operations)
-                    let tree_selections = self.tag_tree_selected_tags();
+                    let tree_selections: Vec<String> = self
+                        .tag_tree_selected_tags()
+                        .into_iter()
+                        .map(TagName::into_inner)
+                        .collect();
                     if !tree_selections.is_empty() {
                         return tree_selections;
                     }
@@ -720,7 +724,7 @@ impl AppState {
     /// In direct file selection mode, these are the tags selected in the tag tree
     /// that were used to filter the files shown in the file preview pane.
     #[must_use]
-    pub fn get_filtering_tags(&self) -> Vec<String> {
+    pub fn get_filtering_tags(&self) -> Vec<TagName> {
         self.tag_tree_selected_tags()
     }
 
@@ -780,7 +784,7 @@ impl AppState {
             .map(|tag| {
                 self.tag_schema
                     .as_ref()
-                    .map_or_else(|| tag.clone(), |schema| schema.canonicalize(tag))
+                    .map_or_else(|| tag.as_str().to_owned(), |schema| schema.canonicalize(tag.as_str()))
             })
             .collect();
         let expanded_tags: Vec<String> = if let Some(ref schema) = self.tag_schema {
@@ -798,7 +802,7 @@ impl AppState {
         // Check if notes-only virtual tag is selected
         let has_notes_only = selected_tags
             .iter()
-            .any(|tag| tag == crate::browse::models::NOTES_ONLY_TAG);
+            .any(|tag| tag.as_str() == crate::browse::models::NOTES_ONLY_TAG);
 
         if has_notes_only {
             // Add files with notes but no tags
@@ -952,16 +956,13 @@ impl AppState {
 
     /// Get selected tags from tag tree
     #[must_use]
-    pub fn tag_tree_selected_tags(&self) -> Vec<String> {
+    pub fn tag_tree_selected_tags(&self) -> Vec<TagName> {
         self.tag_tree_state
             .as_ref()
             .map_or_else(Vec::new, TagTreeState::selected_tag_paths)
     }
 
-    /// Sync tag tree `excluded_tags` from `QueryCriteria`
-    ///
-    /// Bridges between `QueryCriteria` (TagName-based) and tag tree UI state
-    /// (String-based). Will be eliminated when tag tree adopts `TagName` directly.
+    /// Sync tag tree `excluded_tags` directly from `QueryCriteria`
     pub fn sync_tag_tree_exclusions(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.excluded_tags = self
@@ -969,15 +970,12 @@ impl AppState {
                 .flat_exclude_tags()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|t| t.as_str().to_owned())
+                .cloned()
                 .collect();
         }
     }
 
     /// Sync tag tree state from `active_filter` (both selected and excluded tags)
-    ///
-    /// Bridges between `QueryCriteria` (TagName-based) and tag tree UI state
-    /// (String-based). Will be eliminated when tag tree adopts `TagName` directly.
     pub fn sync_tag_tree_from_filter(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.selected_tags = self
@@ -985,22 +983,19 @@ impl AppState {
                 .flat_include_tags()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|t| t.as_str().to_owned())
+                .cloned()
                 .collect();
             tree.excluded_tags = self
                 .active_filter
                 .flat_exclude_tags()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|t| t.as_str().to_owned())
+                .cloned()
                 .collect();
         }
     }
 
     /// Sync `active_filter` from tag tree state (reverse of `sync_tag_tree_from_filter`)
-    ///
-    /// Bridges between tag tree UI state (String-based) and `QueryCriteria`
-    /// (TagName-based). Will be eliminated when tag tree adopts `TagName` directly.
     pub fn sync_filter_from_tag_tree(&mut self) {
         if let Some(ref tree) = self.tag_tree_state {
             use crate::types::TagExpr;
@@ -1008,14 +1003,14 @@ impl AppState {
             let mut include_exprs: Vec<TagExpr> = tree
                 .selected_tags
                 .iter()
-                .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                .cloned()
                 .map(TagExpr::Tag)
                 .collect();
 
             let exclude_exprs: Vec<TagExpr> = tree
                 .excluded_tags
                 .iter()
-                .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                .cloned()
                 .map(|t| TagExpr::Not(Box::new(TagExpr::Tag(t))))
                 .collect();
 
@@ -1025,20 +1020,19 @@ impl AppState {
                 0 => None,
                 1 => include_exprs.into_iter().next(),
                 _ => {
-                    // Use Or when multiple includes and current expression uses Or
                     let use_any =
                         matches!(&self.active_filter.tag_expr, Some(TagExpr::Or(_)));
                     if use_any && tree.selected_tags.len() > 1 {
                         let includes: Vec<_> = tree
                             .selected_tags
                             .iter()
-                            .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                            .cloned()
                             .map(TagExpr::Tag)
                             .collect();
                         let excludes: Vec<_> = tree
                             .excluded_tags
                             .iter()
-                            .filter_map(|s| crate::types::TagName::new(s.as_str()).ok())
+                            .cloned()
                             .map(|t| TagExpr::Not(Box::new(TagExpr::Tag(t))))
                             .collect();
                         let mut combined = vec![TagExpr::Or(includes)];
@@ -1532,8 +1526,8 @@ impl AppState {
             if is_actual {
                 apply_toggle(&mut self.active_filter, &current_tag);
             }
-            for child in children {
-                apply_toggle(&mut self.active_filter, &child);
+            for child in &children {
+                apply_toggle(&mut self.active_filter, child.as_str());
             }
         }
     }

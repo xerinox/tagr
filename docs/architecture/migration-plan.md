@@ -409,12 +409,11 @@ It can be deleted with the `DataSource` enum in Phase 4 with no migration needed
 - `search/` already deleted in Phase 3
 
 ### Sync elimination
-`sync_tag_tree_from_filter()` and `sync_filter_from_tag_tree()` disappear.
-`QueryCriteria` (tag expression, file patterns, vtags) **is** the single
-source of truth for display filtering. The tag tree derives its visual state
-(selected, excluded, partially selected) by reading `criteria.tag_expr`
-via `flat_include_tags()` and `flat_exclude_tags()`. Tag toggles mutate
-criteria directly — no bidirectional sync, no copying between representations.
+`sync_tag_tree_from_filter()` and `sync_filter_from_tag_tree()` now operate
+directly on `TagName` values — no String↔TagName conversion bridges needed.
+The tag tree's `selected_tags` and `excluded_tags` use `HashSet<TagName>`,
+and `QueryCriteria`'s `flat_include_tags()`/`flat_exclude_tags()` return
+`HashSet<&TagName>`, so syncing is a direct clone without fallible parsing.
 
 ---
 
