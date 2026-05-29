@@ -1,5 +1,6 @@
 use crate::vtags::cache::MetadataCache;
 use crate::vtags::config::VirtualTagConfig;
+use crate::vtags::git::GitStatusChecker;
 use crate::vtags::types::{
     ExtTypeCategory, PermissionCondition, RangeCondition, SizeCategory, SizeCondition,
     TimeCondition, VirtualTag,
@@ -14,6 +15,8 @@ use std::time::{Duration, SystemTime};
 pub struct VirtualTagEvaluator {
     cache: MetadataCache,
     config: VirtualTagConfig,
+    git_checker: Option<GitStatusChecker>,
+    git_init_attempted: bool,
 }
 
 impl VirtualTagEvaluator {
@@ -22,6 +25,8 @@ impl VirtualTagEvaluator {
         Self {
             cache: MetadataCache::new(cache_ttl),
             config,
+            git_checker: None,
+            git_init_attempted: false,
         }
     }
 
@@ -40,7 +45,7 @@ impl VirtualTagEvaluator {
             VirtualTag::Depth(range) => Ok(Self::check_depth(path, range)),
             VirtualTag::Permission(perm) => self.check_permission(path, perm),
             VirtualTag::Lines(range) => self.check_lines(path, range),
-            VirtualTag::Git(_cond) => Ok(false),
+            VirtualTag::Git(cond) => Ok(self.check_git(path, cond)),
         }
     }
 
@@ -163,6 +168,27 @@ impl VirtualTagEvaluator {
         let line_count = reader.lines().count() as u64;
 
         Ok(evaluate_range_condition(line_count, range))
+    }
+
+    fn check_git(&mut self, path: &Path, cond: &crate::vtags::types::GitCondition) -> bool {
+        if !self.config.git.enabled {
+            return false;
+        }
+
+        // Lazily initialize the git checker on first use
+        if !self.git_init_attempted {
+            self.git_init_attempted = true;
+            if self.config.git.detect_repo {
+                self.git_checker = GitStatusChecker::discover(path);
+            }
+        }
+
+        let Some(checker) = self.git_checker.as_mut() else {
+            return false;
+        };
+
+        let stale_days = self.config.git.stale_days;
+        checker.matches(path, cond, stale_days)
     }
 
     fn evaluate_size_condition(&self, size: u64, cond: &SizeCondition) -> bool {
