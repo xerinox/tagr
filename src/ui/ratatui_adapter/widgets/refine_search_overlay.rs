@@ -277,6 +277,24 @@ impl RefineSearchState {
         self.update_selection_items();
     }
 
+    /// Add the current query text as a custom entry to the active field
+    pub fn add_custom_entry(&mut self) {
+        if self.selection_query.is_empty() {
+            return;
+        }
+        let entry = self.selection_query.clone();
+        let target = match self.selected_field {
+            RefineField::IncludeTags => &mut self.include_tags,
+            RefineField::ExcludeTags => &mut self.exclude_tags,
+            RefineField::FilePatterns => &mut self.file_patterns,
+            RefineField::VirtualTags => &mut self.virtual_tags,
+        };
+        if !target.contains(&entry) {
+            target.push(entry);
+        }
+        self.selection_query.clear();
+    }
+
     /// Get values for current field
     #[must_use]
     pub fn current_field_values(&self) -> &[String] {
@@ -452,7 +470,7 @@ impl Widget for RefineSearchOverlay<'_> {
             list.render(chunks[1], buf);
 
             // Help text
-            let help = Paragraph::new("TAB: toggle | Enter: done | Esc: cancel | Type to filter")
+            let help = Paragraph::new("TAB: toggle | Enter: add/confirm | Esc: cancel | Type to filter/add")
                 .style(Style::default().fg(Color::DarkGray))
                 .alignment(Alignment::Center);
             help.render(chunks[2], buf);

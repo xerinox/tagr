@@ -237,8 +237,20 @@ fn handle_refine_search_mode(state: &mut AppState, key: KeyEvent) -> EventResult
     if refine_state.in_selection {
         // In sub-selection mode (selecting items from list)
         match (key.code, key.modifiers) {
-            // Exit sub-selection and apply changes
-            (KeyCode::Enter | KeyCode::Esc, _) => {
+            // Esc exits without adding
+            (KeyCode::Esc, _) => {
+                refine_state.exit_selection();
+                EventResult::Continue
+            }
+            // Enter: if query text doesn't match a listed item, add it as custom entry
+            // If it matches an item at cursor, toggle that item
+            (KeyCode::Enter, _) => {
+                if !refine_state.selection_query.is_empty() {
+                    // Add the typed text as a custom entry
+                    refine_state.add_custom_entry();
+                } else if !refine_state.selection_items.is_empty() {
+                    refine_state.toggle_current_selection();
+                }
                 refine_state.exit_selection();
                 EventResult::Continue
             }

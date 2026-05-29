@@ -794,13 +794,22 @@ impl RatatuiFinder {
                     action: BrowseAction::RefineSearch,
                     context: _,
                 } => {
-                    // Open the refine search overlay
-                    let criteria = config.search_criteria.as_ref();
+                    // Open the refine search overlay populated with CURRENT live state
+                    let include_tags = state.tag_tree_selected_tags();
+                    let exclude_tags = state
+                        .active_filter
+                        .flat_exclude_tags()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|t| t.as_str().to_owned())
+                        .collect();
+                    let file_patterns = state.active_filter.file_patterns.clone();
+                    let virtual_tags = state.active_filter.virtual_tags.clone();
                     state.enter_refine_search(
-                        criteria.map_or_else(Vec::new, |c| c.include_tags.clone()),
-                        criteria.map_or_else(Vec::new, |c| c.exclude_tags.clone()),
-                        criteria.map_or_else(Vec::new, |c| c.file_patterns.clone()),
-                        criteria.map_or_else(Vec::new, |c| c.virtual_tags.clone()),
+                        include_tags,
+                        exclude_tags,
+                        file_patterns,
+                        virtual_tags,
                         config.available_tags.clone(),
                     );
                 }

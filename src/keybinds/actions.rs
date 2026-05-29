@@ -229,6 +229,7 @@ impl BrowseAction {
                 | Self::EditNote
                 | Self::ToggleNotePreview
                 | Self::ShowDetails
+                | Self::RefineSearch
         )
     }
 

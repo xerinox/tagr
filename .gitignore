@@ -26,3 +26,7 @@ test_db
 src/my_db/
 my_db/
 lcov.info
+checks.md
+file.txt
+ignore.txt
+my file.txt
