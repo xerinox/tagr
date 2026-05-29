@@ -94,6 +94,8 @@ pub fn execute(
     let keybind_config = KeybindConfig::load_or_default()
         .map_err(|e| TagrError::InvalidInput(format!("Failed to load keybinds: {e}")))?;
 
+    let preview_lines = preview_config.as_ref().map_or(100, |c| c.max_lines);
+
     let tag_phase_settings = PhaseSettings {
         preview_enabled: preview_config.is_some(),
         preview_config: preview_config.clone(),
@@ -131,7 +133,7 @@ pub fn execute(
     let session =
         BrowseSession::new(store, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
 
-    let finder = RatatuiFinder::with_styled_preview(100);
+    let finder = RatatuiFinder::with_styled_preview(preview_lines);
 
     let controller = BrowseController::new(session, finder);
 
