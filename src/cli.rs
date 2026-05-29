@@ -62,8 +62,6 @@ pub enum ListVariant {
 pub struct PreviewOverrides {
     /// Disable preview
     pub no_preview: bool,
-    /// Maximum preview lines
-    pub preview_lines: Option<usize>,
     /// Preview position
     pub preview_position: Option<String>,
     /// Preview width percentage
@@ -915,10 +913,6 @@ pub enum Commands {
         #[arg(long = "no-preview")]
         no_preview: bool,
 
-        /// Maximum number of preview lines
-        #[arg(long = "preview-lines", value_name = "LINES")]
-        preview_lines: Option<usize>,
-
         /// Preview position (right, bottom, top)
         #[arg(long = "preview-position", value_name = "POSITION")]
         preview_position: Option<String>,
@@ -1285,7 +1279,6 @@ impl Commands {
                 no_hierarchy,
                 execute,
                 no_preview,
-                preview_lines,
                 preview_position,
                 preview_width,
                 ..
@@ -1309,7 +1302,6 @@ impl Commands {
                     execute_cmd: execute.clone(),
                     preview_overrides: PreviewOverrides {
                         no_preview: *no_preview,
-                        preview_lines: *preview_lines,
                         preview_position: preview_position.clone(),
                         preview_width: *preview_width,
                     },
@@ -1417,7 +1409,6 @@ impl Cli {
             no_hierarchy: false,
             execute: None,
             no_preview: false,
-            preview_lines: None,
             preview_position: None,
             preview_width: None,
             absolute: false,

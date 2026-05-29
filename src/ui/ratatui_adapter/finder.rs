@@ -62,10 +62,10 @@ impl RatatuiFinder {
 
     /// Create a ratatui finder with native styled preview generator
     #[must_use]
-    pub fn with_styled_preview(max_lines: usize) -> Self {
+    pub fn with_styled_preview() -> Self {
         Self {
             preview_provider: None,
-            styled_generator: Some(StyledPreviewGenerator::new(max_lines)),
+            styled_generator: Some(StyledPreviewGenerator::new()),
             theme: Theme::default(),
             event_rx: std::cell::RefCell::new(None),
         }

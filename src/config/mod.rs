@@ -66,10 +66,6 @@ pub struct PreviewConfig {
     #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
 
-    /// Maximum lines to display
-    #[serde(default = "default_max_lines")]
-    pub max_lines: usize,
-
     /// Enable syntax highlighting
     #[serde(default = "default_syntax_highlighting")]
     pub syntax_highlighting: bool,
@@ -92,7 +88,6 @@ impl Default for PreviewConfig {
         Self {
             enabled: default_preview_enabled(),
             max_file_size: default_max_file_size(),
-            max_lines: default_max_lines(),
             syntax_highlighting: default_syntax_highlighting(),
             show_line_numbers: default_show_line_numbers(),
             position: PreviewPosition::default(),
@@ -107,10 +102,6 @@ const fn default_preview_enabled() -> bool {
 
 const fn default_max_file_size() -> u64 {
     5_242_880 // 5MB
-}
-
-const fn default_max_lines() -> usize {
-    50
 }
 
 const fn default_syntax_highlighting() -> bool {

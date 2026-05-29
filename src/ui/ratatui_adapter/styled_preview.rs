@@ -217,18 +217,16 @@ impl StyledPreview {
 pub struct StyledPreviewGenerator {
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
-    max_lines: usize,
 }
 
 #[cfg(feature = "syntax-highlighting")]
 impl StyledPreviewGenerator {
     /// Create a new styled preview generator
     #[must_use]
-    pub fn new(max_lines: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: ThemeSet::load_defaults(),
-            max_lines,
         }
     }
 
@@ -265,11 +263,9 @@ impl StyledPreviewGenerator {
 
         let all_lines: Vec<&str> = content.lines().collect();
         let total_lines = all_lines.len();
-        let truncated = total_lines > self.max_lines;
-        let lines_to_render: Vec<&str> = all_lines.into_iter().take(self.max_lines).collect();
 
         // Apply syntax highlighting
-        let styled_lines = self.highlight_lines(path, &lines_to_render);
+        let styled_lines = self.highlight_lines(path, &all_lines);
 
         let title = path
             .file_name()
@@ -278,7 +274,7 @@ impl StyledPreviewGenerator {
 
         Ok(StyledPreview {
             lines: styled_lines,
-            truncated,
+            truncated: false,
             total_lines,
             title,
         })
@@ -347,15 +343,13 @@ fn syntect_to_ratatui(style: &syntect::highlighting::Style) -> Style {
 
 /// Fallback generator when syntax-highlighting feature is disabled
 #[cfg(not(feature = "syntax-highlighting"))]
-pub struct StyledPreviewGenerator {
-    max_lines: usize,
-}
+pub struct StyledPreviewGenerator;
 
 #[cfg(not(feature = "syntax-highlighting"))]
 impl StyledPreviewGenerator {
     #[must_use]
-    pub fn new(max_lines: usize) -> Self {
-        Self { max_lines }
+    pub fn new() -> Self {
+        Self
     }
 
     pub fn generate(&self, path: &Path) -> Result<StyledPreview, std::io::Error> {
@@ -384,11 +378,9 @@ impl StyledPreviewGenerator {
 
         let all_lines: Vec<&str> = content.lines().collect();
         let total_lines = all_lines.len();
-        let truncated = total_lines > self.max_lines;
 
         let lines: Vec<Line<'static>> = all_lines
             .into_iter()
-            .take(self.max_lines)
             .map(|line| Line::raw(line.to_string()))
             .collect();
 
@@ -399,7 +391,7 @@ impl StyledPreviewGenerator {
 
         Ok(StyledPreview {
             lines,
-            truncated,
+            truncated: false,
             total_lines,
             title,
         })
@@ -429,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_generator_nonexistent_file() {
-        let generator = StyledPreviewGenerator::new(100);
+        let generator = StyledPreviewGenerator::new();
         let result = generator.generate(Path::new("/nonexistent/file.txt"));
         assert!(result.is_ok());
         let preview = result.unwrap();
@@ -441,7 +433,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         fs::write(temp.path(), "Line 1\nLine 2\nLine 3").unwrap();
 
-        let generator = StyledPreviewGenerator::new(100);
+        let generator = StyledPreviewGenerator::new();
         let result = generator.generate(temp.path());
         assert!(result.is_ok());
 
@@ -460,13 +452,13 @@ mod tests {
         });
         fs::write(temp.path(), content).unwrap();
 
-        let generator = StyledPreviewGenerator::new(10);
+        let generator = StyledPreviewGenerator::new();
         let result = generator.generate(temp.path());
         assert!(result.is_ok());
 
         let preview = result.unwrap();
-        assert_eq!(preview.lines.len(), 10);
-        assert!(preview.truncated);
+        assert_eq!(preview.lines.len(), 100);
+        assert!(!preview.truncated);
         assert_eq!(preview.total_lines, 100);
     }
 }

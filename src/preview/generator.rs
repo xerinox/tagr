@@ -103,13 +103,7 @@ impl PreviewGenerator {
 
         let all_lines: Vec<String> = content.lines().map(String::from).collect();
         let total_lines = all_lines.len();
-        let max_lines = self.config.max_lines;
-
-        let lines = if total_lines > max_lines {
-            all_lines.into_iter().take(max_lines).collect()
-        } else {
-            all_lines
-        };
+        let lines = all_lines;
 
         // Apply syntax highlighting with syntect if enabled
         #[cfg(feature = "syntax-highlighting")]
@@ -122,11 +116,9 @@ impl PreviewGenerator {
         #[cfg(not(feature = "syntax-highlighting"))]
         let has_ansi = false;
 
-        let truncated = total_lines > max_lines;
-
         Ok(PreviewContent::Text {
             lines,
-            truncated,
+            truncated: false,
             total_lines,
             has_ansi,
         })
@@ -138,7 +130,6 @@ impl PreviewGenerator {
             .arg("--color=always")
             .arg("--style=numbers")
             .arg("--paging=never")
-            .arg(format!("--line-range=:{}", self.config.max_lines))
             .arg(path)
             .output()
             .map_err(PreviewError::IoError)?;
@@ -152,11 +143,10 @@ impl PreviewGenerator {
         let content = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<String> = content.lines().map(String::from).collect();
         let total_lines = lines.len();
-        let truncated = total_lines >= self.config.max_lines;
 
         Ok(PreviewContent::Text {
             lines,
-            truncated,
+            truncated: false,
             total_lines,
             has_ansi: true,
         })
@@ -314,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_truncated_preview() {
+    fn test_generate_large_file_preview() {
         let temp = TempFile::create("test.txt").unwrap();
         let content = (0..100)
             .map(|i| format!("Line {i}"))
@@ -323,7 +313,6 @@ mod tests {
         fs::write(temp.path(), content).unwrap();
 
         let config = PreviewConfig {
-            max_lines: 10,
             syntax_highlighting: false,
             ..Default::default()
         };
@@ -337,8 +326,8 @@ mod tests {
                 total_lines,
                 has_ansi,
             } => {
-                assert_eq!(lines.len(), 10);
-                assert!(truncated);
+                assert_eq!(lines.len(), 100);
+                assert!(!truncated);
                 assert_eq!(total_lines, 100);
                 assert!(!has_ansi);
             }
