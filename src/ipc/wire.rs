@@ -290,15 +290,45 @@ impl From<&crate::types::QueryCriteria> for WireQueryCriteria {
     }
 }
 
+/// Convert a `WireTagExpr` to `TagExpr` using `from_raw` (no validation).
+/// Used when `regex_tags` is true — patterns contain regex metacharacters.
+fn wire_tag_expr_to_raw(w: &WireTagExpr) -> crate::types::TagExpr {
+    match w {
+        WireTagExpr::Tag(s) => {
+            crate::types::TagExpr::Tag(crate::types::TagName::from_raw(s.clone()))
+        }
+        WireTagExpr::Not(inner) => {
+            let first = inner.first().map_or_else(
+                || crate::types::TagExpr::Tag(crate::types::TagName::from_raw(String::new())),
+                wire_tag_expr_to_raw,
+            );
+            crate::types::TagExpr::Not(Box::new(first))
+        }
+        WireTagExpr::And(exprs) => {
+            crate::types::TagExpr::And(exprs.iter().map(wire_tag_expr_to_raw).collect())
+        }
+        WireTagExpr::Or(exprs) => {
+            crate::types::TagExpr::Or(exprs.iter().map(wire_tag_expr_to_raw).collect())
+        }
+    }
+}
+
 impl TryFrom<&WireQueryCriteria> for crate::types::QueryCriteria {
     type Error = crate::types::ValidationError;
     fn try_from(w: &WireQueryCriteria) -> Result<Self, Self::Error> {
+        let tag_expr = w
+            .tag_expr
+            .as_ref()
+            .map(|expr| {
+                if w.regex_tags {
+                    Ok(wire_tag_expr_to_raw(expr))
+                } else {
+                    crate::types::TagExpr::try_from(expr)
+                }
+            })
+            .transpose()?;
         Ok(Self {
-            tag_expr: w
-                .tag_expr
-                .as_ref()
-                .map(crate::types::TagExpr::try_from)
-                .transpose()?,
+            tag_expr,
             regex_tags: w.regex_tags,
             expand_hierarchy: w.expand_hierarchy,
             file_patterns: w.file_patterns.clone(),

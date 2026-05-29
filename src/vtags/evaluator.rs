@@ -109,7 +109,30 @@ impl VirtualTagEvaluator {
     }
 
     fn check_path_pattern(path: &Path, pattern: &glob::Pattern) -> bool {
-        pattern.matches_path(path)
+        // Try matching the full path first (for absolute patterns)
+        if pattern.matches_path(path) {
+            return true;
+        }
+        // Also try matching the path as a string (handles relative glob patterns
+        // against absolute DB paths by matching against the path's string repr)
+        if let Some(s) = path.to_str() {
+            if pattern.matches(s) {
+                return true;
+            }
+            // Try matching against just the relative portion from common prefixes
+            // e.g., pattern "src/**/*.rs" should match "/projects/tagr/src/lib.rs"
+            let pattern_str = pattern.as_str();
+            if let Some(first_segment) = pattern_str.split('/').next() {
+                // Find where the first segment appears in the path
+                if let Some(idx) = s.find(&format!("/{first_segment}/")) {
+                    let relative = &s[idx + 1..];
+                    if pattern.matches(relative) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn check_depth(path: &Path, range: &RangeCondition) -> bool {

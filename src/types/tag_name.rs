@@ -56,6 +56,15 @@ impl TagName {
         Ok(Self(s))
     }
 
+    /// Create a `TagName` without validation.
+    ///
+    /// Used for regex patterns that need to pass through as raw strings
+    /// without tag name validation (e.g., `"lang:.*"` contains invalid chars).
+    #[must_use]
+    pub fn from_raw(s: String) -> Self {
+        Self(s)
+    }
+
     /// Returns the inner string slice.
     #[must_use]
     pub fn as_str(&self) -> &str {

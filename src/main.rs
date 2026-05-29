@@ -358,6 +358,22 @@ fn main() -> Result<()> {
         handle_db_command(config, command, quiet)?;
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
+    } else if let Commands::Filter { command: filter_cmd } = &command {
+        commands::filter::execute(filter_cmd, quiet)?;
+        // Best-effort notify daemon to reload config (filters changed)
+        notify_daemon_reload();
+    } else if let Commands::Alias { command: alias_cmd } = &command {
+        use tagr::cli::AliasCommands;
+        // SetCanonical needs DB access — route through normal store path
+        if matches!(alias_cmd, AliasCommands::SetCanonical { .. }) {
+            dispatch_alias_set_canonical(&command, &config, quiet)?;
+        } else {
+            let mut stdout = std::io::stdout();
+            commands::alias(alias_cmd, None, &mut stdout)
+                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            // Best-effort notify daemon to reload schema
+            notify_daemon_reload();
+        }
     } else if let Commands::Watch { command: watch_cmd } = &command {
         use commands::watch::{WatchCommands, WatchStartArgs};
 
@@ -458,6 +474,63 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Best-effort notification to daemon to reload config/schema/filters.
+/// Silently ignores connection errors (daemon may not be running).
+fn notify_daemon_reload() {
+    // Try to connect and send a Ping (lightweight check that daemon is alive).
+    // A full ReloadConfig message would be better, but for now we rely on the
+    // daemon re-reading config on next relevant operation.
+    // TODO: Add Request::ReloadConfig to wire protocol for explicit reload.
+    let Ok(rt) = tokio::runtime::Runtime::new() else { return };
+    let _ = rt.block_on(async {
+        use tagr::daemon::DaemonManager;
+        // If daemon is running, it will pick up config changes on next request.
+        // For now this is a no-op placeholder until ReloadConfig is added.
+        let _ = tagr::daemon::PlatformDaemonManager.is_running().await;
+    });
+}
+
+/// Handle `alias set-canonical` which needs DB access.
+/// Uses the same DirectStore/IPC fallback as other DB commands.
+fn dispatch_alias_set_canonical(
+    command: &tagr::cli::Commands,
+    config: &config::TagrConfig,
+    _quiet: bool,
+) -> Result<()> {
+
+    let Commands::Alias { command: alias_cmd } = command else {
+        return Ok(());
+    };
+
+    let db_name = command.get_db().or_else(|| {
+        config.get_default_database().cloned()
+    }).ok_or_else(|| TagrError::InvalidInput(
+        "No default database set. Use 'tagr db add <name> <path>' to create one.".into()
+    ))?;
+
+    let db_path = config.get_database(&db_name).ok_or_else(|| {
+        TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
+    })?;
+
+    match DirectStore::open(db_path) {
+        Ok(store) => {
+            let mut stdout = std::io::stdout();
+            commands::alias(alias_cmd, Some(&store), &mut stdout)
+                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            notify_daemon_reload();
+            Ok(())
+        }
+        Err(StoreError::DatabaseLocked) => {
+            // For set-canonical in daemon mode, we need store access via IPC.
+            // For now, inform the user to stop the daemon first.
+            Err(TagrError::InvalidInput(
+                "alias set-canonical requires direct DB access. Stop the daemon first: `tagr watch stop`".into(),
+            ))
+        }
+        Err(other) => Err(store_error_to_tagr(other)),
+    }
+}
+
 /// Map a [`StoreError`] to [`TagrError`] for the main entry point.
 ///
 /// Temporary bridge — will be removed when commands accept `&dyn TagStore`
@@ -508,8 +581,16 @@ fn dispatch_via_ipc(
             let file = ctx.file.ok_or_else(|| {
                 TagrError::InvalidInput("No file specified".into())
             })?;
+            // Resolve relative path on client side (daemon may have different cwd)
+            let resolved = file.canonicalize().map_err(|e| {
+                TagrError::InvalidInput(format!(
+                    "Cannot access path '{}': {}",
+                    file.display(),
+                    e
+                ))
+            })?;
             Request::AddTags {
-                file: file.to_string_lossy().into_owned(),
+                file: resolved.to_string_lossy().into_owned(),
                 tags: ctx.tags,
             }
         }
@@ -520,9 +601,17 @@ fn dispatch_via_ipc(
             let file = ctx.file.ok_or_else(|| {
                 TagrError::InvalidInput("No file specified".into())
             })?;
+            // Resolve relative path on client side (daemon may have different cwd)
+            let resolved = file.canonicalize().map_err(|e| {
+                TagrError::InvalidInput(format!(
+                    "Cannot access path '{}': {}",
+                    file.display(),
+                    e
+                ))
+            })?;
             let tags: Vec<String> = ctx.tags.clone();
             Request::RemoveTags {
-                file: file.to_string_lossy().into_owned(),
+                file: resolved.to_string_lossy().into_owned(),
                 tags,
                 all: ctx.all,
             }
@@ -550,6 +639,21 @@ fn dispatch_via_ipc(
                 Some(&ctx.preview_overrides),
                 path_format,
                 quiet,
+            );
+        }
+        Commands::Tags { .. } | Commands::Note { .. } | Commands::Bulk { .. } => {
+            let store = tagr::store::DaemonStore::connect()
+                .map_err(|e| TagrError::InvalidInput(format!("Failed to connect to daemon: {e}")))?;
+            let config = tagr::config::TagrConfig::load()
+                .unwrap_or_default();
+            let mut stdout = std::io::stdout();
+            return commands::dispatch_command(
+                command,
+                std::sync::Arc::new(store),
+                &config,
+                path_format,
+                quiet,
+                &mut stdout,
             );
         }
         _ => {

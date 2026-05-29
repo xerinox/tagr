@@ -53,6 +53,17 @@ impl TryFrom<&str> for TimeCondition {
                     .map_err(|_| ParseError::InvalidValue(value.to_string()))?;
                 Ok(Self::LastNDays(days))
             }
+            _ if value.starts_with("last-") && value.ends_with('d') => {
+                // Shorthand: last-7d
+                let days_str = value
+                    .strip_prefix("last-")
+                    .and_then(|s| s.strip_suffix('d'))
+                    .ok_or_else(|| ParseError::InvalidValue(value.to_string()))?;
+                let days = days_str
+                    .parse::<u32>()
+                    .map_err(|_| ParseError::InvalidValue(value.to_string()))?;
+                Ok(Self::LastNDays(days))
+            }
             _ if value.starts_with("last-") && value.ends_with("-hours") => {
                 let hours_str = value
                     .strip_prefix("last-")
@@ -63,17 +74,24 @@ impl TryFrom<&str> for TimeCondition {
                     .map_err(|_| ParseError::InvalidValue(value.to_string()))?;
                 Ok(Self::LastNHours(hours))
             }
-            _ if value.starts_with("after-") => {
-                let date_str = value
-                    .strip_prefix("after-")
+            _ if value.starts_with("last-") && value.ends_with('h') => {
+                // Shorthand: last-24h
+                let hours_str = value
+                    .strip_prefix("last-")
+                    .and_then(|s| s.strip_suffix('h'))
                     .ok_or_else(|| ParseError::InvalidValue(value.to_string()))?;
+                let hours = hours_str
+                    .parse::<u32>()
+                    .map_err(|_| ParseError::InvalidValue(value.to_string()))?;
+                Ok(Self::LastNHours(hours))
+            }
+            _ if value.starts_with("after:") || value.starts_with("after-") => {
+                let date_str = &value[6..]; // skip "after:" or "after-"
                 let date = parse_date(date_str)?;
                 Ok(Self::After(date))
             }
-            _ if value.starts_with("before-") => {
-                let date_str = value
-                    .strip_prefix("before-")
-                    .ok_or_else(|| ParseError::InvalidValue(value.to_string()))?;
+            _ if value.starts_with("before:") || value.starts_with("before-") => {
+                let date_str = &value[7..]; // skip "before:" or "before-"
                 let date = parse_date(date_str)?;
                 Ok(Self::Before(date))
             }
@@ -144,7 +162,7 @@ impl TryFrom<&str> for ExtTypeCategory {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "source" => Ok(Self::Source),
+            "source" | "code" => Ok(Self::Source),
             "document" => Ok(Self::Document),
             "image" => Ok(Self::Image),
             "archive" => Ok(Self::Archive),

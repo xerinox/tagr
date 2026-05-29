@@ -1177,21 +1177,38 @@ impl Commands {
                     MatchMode::All
                 };
 
-                let include_exprs: Vec<TagExpr> = criteria
-                    .tags
-                    .iter()
-                    .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
-                    .collect();
+                let include_exprs: Vec<TagExpr> = if criteria.regex_tag {
+                    // In regex mode, tags are raw patterns — skip TagName validation
+                    criteria
+                        .tags
+                        .iter()
+                        .map(|t| TagExpr::Tag(TagName::from_raw(t.clone())))
+                        .collect()
+                } else {
+                    criteria
+                        .tags
+                        .iter()
+                        .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+                        .collect()
+                };
 
-                let exclude_exprs: Vec<TagExpr> = criteria
-                    .excludes
-                    .iter()
-                    .filter_map(|t| {
-                        TagName::new(t)
-                            .ok()
-                            .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
-                    })
-                    .collect();
+                let exclude_exprs: Vec<TagExpr> = if criteria.regex_tag {
+                    criteria
+                        .excludes
+                        .iter()
+                        .map(|t| TagExpr::Not(Box::new(TagExpr::Tag(TagName::from_raw(t.clone())))))
+                        .collect()
+                } else {
+                    criteria
+                        .excludes
+                        .iter()
+                        .filter_map(|t| {
+                            TagName::new(t)
+                                .ok()
+                                .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+                        })
+                        .collect()
+                };
 
                 let mut all_exprs = include_exprs;
                 all_exprs.extend(exclude_exprs);
