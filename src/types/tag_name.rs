@@ -61,7 +61,7 @@ impl TagName {
     /// Used for regex patterns that need to pass through as raw strings
     /// without tag name validation (e.g., `"lang:.*"` contains invalid chars).
     #[must_use]
-    pub fn from_raw(s: String) -> Self {
+    pub const fn from_raw(s: String) -> Self {
         Self(s)
     }
 

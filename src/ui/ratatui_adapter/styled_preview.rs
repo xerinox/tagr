@@ -220,6 +220,13 @@ pub struct StyledPreviewGenerator {
 }
 
 #[cfg(feature = "syntax-highlighting")]
+impl Default for StyledPreviewGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "syntax-highlighting")]
 impl StyledPreviewGenerator {
     /// Create a new styled preview generator
     #[must_use]

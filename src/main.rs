@@ -251,6 +251,7 @@ fn handle_db_set_default(
 ///
 /// Returns `TagrError` if the configuration key is invalid, value parsing fails,
 /// or configuration save fails.
+#[allow(clippy::too_many_lines)]
 fn handle_config_command(
     mut config: config::TagrConfig,
     command: &ConfigCommands,
@@ -521,7 +522,7 @@ fn notify_daemon_reload() {
     // daemon re-reading config on next relevant operation.
     // TODO: Add Request::ReloadConfig to wire protocol for explicit reload.
     let Ok(rt) = tokio::runtime::Runtime::new() else { return };
-    let _ = rt.block_on(async {
+    rt.block_on(async {
         use tagr::daemon::DaemonManager;
         // If daemon is running, it will pick up config changes on next request.
         // For now this is a no-op placeholder until ReloadConfig is added.
@@ -586,7 +587,7 @@ fn store_error_to_tagr(err: StoreError) -> TagrError {
     }
 }
 
-/// Forward a command to the daemon via DaemonStore (IPC-backed TagStore).
+/// Forward a command to the daemon via `DaemonStore` (IPC-backed `TagStore`).
 fn dispatch_via_ipc(
     _rt: &tokio::runtime::Runtime,
     command: &tagr::cli::Commands,

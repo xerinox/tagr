@@ -125,6 +125,7 @@ impl PreviewGenerator {
     }
 
     /// Generate preview using bat command
+    #[allow(clippy::unused_self)]
     fn generate_bat_preview(&self, path: &Path) -> Result<PreviewContent> {
         let output = std::process::Command::new("bat")
             .arg("--color=always")

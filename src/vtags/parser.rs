@@ -51,9 +51,8 @@ impl VirtualTag {
     /// Returns an error if the input string cannot be parsed into a valid virtual tag.
     pub fn parse_with_config(input: &str, config: &VirtualTagConfig) -> Result<Self, ParseError> {
         // Handle standalone keywords (no colon required)
-        match input {
-            "empty" => return Ok(Self::Size(SizeCondition::Empty)),
-            _ => {}
+        if input == "empty" {
+            return Ok(Self::Size(SizeCondition::Empty));
         }
 
         let (prefix, value) = input

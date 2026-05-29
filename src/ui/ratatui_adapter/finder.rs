@@ -408,7 +408,7 @@ impl RatatuiFinder {
         }
     }
 
-    fn render_file_list_pane(frame: &mut Frame, state: &mut AppState, theme: &Theme, area: Rect) {
+    fn render_file_list_pane(frame: &mut Frame, state: &AppState, theme: &Theme, area: Rect) {
         let is_file_focused = state.focused_pane == super::state::FocusPane::FilePreview;
         let (file_border_style, file_title_style) = if is_file_focused {
             (theme.focused_border_style(), theme.focused_title_style())
