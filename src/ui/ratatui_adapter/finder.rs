@@ -350,18 +350,46 @@ impl RatatuiFinder {
         area: Rect,
         preview_content: Option<&StyledPreview>,
     ) {
-        // Always render 3-pane layout: tag tree | files | preview
-        // Split horizontally: tag tree (left 30%) | files (middle 35%) | preview (right 35%)
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(30), // Tag tree
-                Constraint::Percentage(35), // File list
-                Constraint::Percentage(35), // Preview
-            ])
-            .split(area);
+        let preview_enabled = state.preview_config.as_ref().is_some_and(|c| c.enabled);
 
-        // Render tag tree on the left with focus indicator
+        if preview_enabled {
+            // Determine preview width from config (default 35%)
+            let preview_width = state
+                .preview_config
+                .as_ref()
+                .map_or(35_u16, |cfg| u16::from(cfg.width_percent));
+            let remaining = 100_u16.saturating_sub(preview_width);
+            let tag_width = remaining * 45 / 100;
+            let file_width = remaining.saturating_sub(tag_width);
+
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(tag_width),
+                    Constraint::Percentage(file_width),
+                    Constraint::Percentage(preview_width),
+                ])
+                .split(area);
+
+            Self::render_tag_tree(frame, state, theme, chunks[0]);
+            Self::render_file_list_pane(frame, state, theme, chunks[1]);
+            Self::render_preview_pane(frame, state, theme, chunks[2], preview_content);
+        } else {
+            // No preview: 2-pane layout (tag tree | files)
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(35),
+                    Constraint::Percentage(65),
+                ])
+                .split(area);
+
+            Self::render_tag_tree(frame, state, theme, chunks[0]);
+            Self::render_file_list_pane(frame, state, theme, chunks[1]);
+        }
+    }
+
+    fn render_tag_tree(frame: &mut Frame, state: &mut AppState, theme: &Theme, area: Rect) {
         if let Some(tag_tree_state) = &mut state.tag_tree_state {
             let is_focused = state.focused_pane == super::state::FocusPane::TagTree;
             let (border_style, title_style) = if is_focused {
@@ -376,10 +404,11 @@ impl RatatuiFinder {
                     .border_style(border_style)
                     .title(ratatui::text::Span::styled(" Tags ", title_style)),
             );
-            frame.render_stateful_widget(tag_tree, chunks[0], tag_tree_state);
+            frame.render_stateful_widget(tag_tree, area, tag_tree_state);
         }
+    }
 
-        // Render file list in the middle with focus indicator
+    fn render_file_list_pane(frame: &mut Frame, state: &mut AppState, theme: &Theme, area: Rect) {
         let is_file_focused = state.focused_pane == super::state::FocusPane::FilePreview;
         let (file_border_style, file_title_style) = if is_file_focused {
             (theme.focused_border_style(), theme.focused_title_style())
@@ -387,28 +416,31 @@ impl RatatuiFinder {
             (theme.border_style(), theme.unfocused_title_style())
         };
 
-        // Create a block for the file list
         let file_block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
             .border_style(file_border_style)
             .title(ratatui::text::Span::styled(" Files ", file_title_style));
 
-        let inner = file_block.inner(chunks[1]);
-        frame.render_widget(file_block, chunks[1]);
-
-        // Render file list directly using file_preview data from state
+        let inner = file_block.inner(area);
+        frame.render_widget(file_block, area);
         Self::render_file_preview_list(frame, state, theme, inner);
+    }
 
-        // Render preview pane on the right
+    fn render_preview_pane(
+        frame: &mut Frame,
+        state: &AppState,
+        theme: &Theme,
+        area: Rect,
+        preview_content: Option<&StyledPreview>,
+    ) {
         let preview_block = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)
             .border_style(theme.border_style())
             .title(" Preview ");
 
-        let preview_inner = preview_block.inner(chunks[2]);
-        frame.render_widget(preview_block, chunks[2]);
+        let preview_inner = preview_block.inner(area);
+        frame.render_widget(preview_block, area);
 
-        // Show preview if we have content and files to preview
         if !state.file_preview_items.is_empty() && preview_content.is_some() {
             let preview_pane =
                 PreviewPane::new(preview_content, theme).scroll(state.preview_scroll);

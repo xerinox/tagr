@@ -13,7 +13,7 @@ use crate::{
     output,
     store::TagStore,
     types::QueryCriteria,
-    ui::ratatui_adapter::RatatuiFinder,
+    ui::{PreviewPosition, ratatui_adapter::RatatuiFinder},
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -72,10 +72,21 @@ pub fn execute(
         None
     } else {
         let mut config = PreviewConfig::default();
-        if let Some(overrides) = &preview_overrides
-            && let Some(lines) = overrides.preview_lines
-        {
-            config.max_lines = lines;
+        if let Some(overrides) = &preview_overrides {
+            if let Some(lines) = overrides.preview_lines {
+                config.max_lines = lines;
+            }
+            if let Some(ref pos) = overrides.preview_position {
+                match pos.to_lowercase().as_str() {
+                    "right" => config.position = PreviewPosition::Right,
+                    "bottom" | "down" => config.position = PreviewPosition::Bottom,
+                    "top" | "up" => config.position = PreviewPosition::Top,
+                    _ => {}
+                }
+            }
+            if let Some(width) = overrides.preview_width {
+                config.width_percent = width;
+            }
         }
         Some(config)
     };
