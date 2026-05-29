@@ -124,6 +124,9 @@ const fn resolve_default_keybind(key: KeyEvent, state: &AppState) -> Option<Brow
                 Some(BrowseAction::Abort)
             }
         }
+        (KeyCode::Char('q'), KeyModifiers::NONE) if !state.search_active => {
+            Some(BrowseAction::Abort)
+        }
 
         // Confirm / exit search
         (KeyCode::Enter, _) => {

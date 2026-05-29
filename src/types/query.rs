@@ -459,8 +459,8 @@ fn collect_cli_tags(expr: &TagExpr, parts: &mut Vec<String>) {
     match expr {
         TagExpr::Tag(t) => parts.push(format!("-t {t}")),
         TagExpr::Not(inner) => match inner.as_ref() {
-            TagExpr::Tag(t) => parts.push(format!("-x {t}")),
-            _ => parts.push(format!("-x \"({inner:?})\"")),
+            TagExpr::Tag(t) => parts.push(format!("-e {t}")),
+            _ => parts.push(format!("-e \"({inner:?})\"")),
         },
         TagExpr::And(exprs) | TagExpr::Or(exprs) => {
             for e in exprs {

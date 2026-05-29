@@ -443,13 +443,6 @@ impl BrowseSession {
     ///
     /// Returns error if database queries fail
     pub fn update_search_params(&mut self, new_criteria: &QueryCriteria) -> Result<()> {
-        // Only applicable in file selection phase
-        let PhaseType::FileSelection { selected_tags: _ } = &self.current_phase.phase_type else {
-            return Err(BrowseError::InvalidState(
-                "Can only update search params in file selection phase".to_string(),
-            ));
-        };
-
         let old_criteria = self.config.initial_search.as_ref();
 
         let filters_relaxed = old_criteria.is_some_and(|old| is_filter_relaxation(old, new_criteria));
