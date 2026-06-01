@@ -40,6 +40,8 @@ pub enum BrowseAction {
     RefineSearch,
     /// Show help screen
     ShowHelp,
+    /// Show watch rules modal
+    ShowWatchRules,
     /// Cancel current operation
     Cancel,
 
@@ -134,6 +136,7 @@ impl FromStr for BrowseAction {
             "toggle_note_preview" => Ok(Self::ToggleNotePreview),
             "refine_search" => Ok(Self::RefineSearch),
             "show_help" => Ok(Self::ShowHelp),
+            "show_watch_rules" => Ok(Self::ShowWatchRules),
             "cancel" => Ok(Self::Cancel),
             "move_up" => Ok(Self::MoveUp),
             "move_down" => Ok(Self::MoveDown),
@@ -197,6 +200,7 @@ impl BrowseAction {
                 | Self::ToggleNotePreview
                 | Self::RefineSearch
                 | Self::ShowHelp
+                | Self::ShowWatchRules
                 | Self::Cancel
         )
     }
@@ -225,6 +229,7 @@ impl BrowseAction {
         matches!(
             self,
             Self::ShowHelp
+                | Self::ShowWatchRules
                 | Self::Cancel
                 | Self::EditNote
                 | Self::ToggleNotePreview
@@ -259,6 +264,7 @@ impl BrowseAction {
             Self::ToggleNotePreview => "Toggle file/note preview",
             Self::RefineSearch => "Refine search criteria",
             Self::ShowHelp => "Show help",
+            Self::ShowWatchRules => "Show watch rules",
             Self::Cancel => "Cancel",
             Self::MoveUp => "Move up",
             Self::MoveDown => "Move down",
@@ -363,6 +369,7 @@ impl BrowseAction {
             Self::ToggleNotePreview => "toggle_note_preview",
             Self::RefineSearch => "refine_search",
             Self::ShowHelp => "show_help",
+            Self::ShowWatchRules => "show_watch_rules",
             Self::Cancel => "cancel",
             Self::MoveUp => "move_up",
             Self::MoveDown => "move_down",

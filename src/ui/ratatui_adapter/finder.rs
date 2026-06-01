@@ -9,7 +9,7 @@ use super::theme::Theme;
 use super::widgets::TagTreeState;
 use super::widgets::{
     ConfirmDialog, DetailsModal, HelpBar, HelpOverlay, KeyHint, PreviewPane, RefineSearchOverlay,
-    SearchBar, StatusBar, TextInputModal,
+    SearchBar, StatusBar, TextInputModal, WatchRulesModal,
 };
 use crate::commands::note::create_temp_note_file;
 use crate::keybinds::actions::BrowseAction;
@@ -335,6 +335,12 @@ impl RatatuiFinder {
                 if let Some(file_details) = state.file_details() {
                     let details_modal = DetailsModal::new(file_details, theme);
                     frame.render_widget(details_modal, frame.area());
+                }
+            }
+            Mode::WatchRules => {
+                if let Some(wrs) = state.watch_rules_state() {
+                    let modal = WatchRulesModal::new(wrs, theme);
+                    frame.render_widget(modal, frame.area());
                 }
             }
             Mode::Normal => {}

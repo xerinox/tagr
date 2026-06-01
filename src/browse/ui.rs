@@ -144,6 +144,10 @@ impl<F: FuzzyFinder> BrowseController<F> {
                             // This branch shouldn't be reached with ratatui
                             continue;
                         }
+                        BrowseAction::ShowWatchRules => {
+                            // Watch rules modal is handled internally by the TUI (F3)
+                            continue;
+                        }
                         BrowseAction::RefineSearch => {
                             // Refine search is handled via BrowserResult::RefineSearch
                             // The TUI overlay handles the user interaction

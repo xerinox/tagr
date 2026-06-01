@@ -471,6 +471,32 @@ fn handle_details_mode(state: &mut AppState, _key: KeyEvent) -> EventResult {
     EventResult::Continue
 }
 
+/// Handle events in watch rules modal mode
+fn handle_watch_rules_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
+    match key.code {
+        // Scroll support
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(ref mut wrs) = state.watch_rules_state {
+                wrs.scroll_up();
+            }
+            EventResult::Continue
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(ref mut wrs) = state.watch_rules_state {
+                // Estimate visible height from the last render pass
+                let visible = state.visible_height;
+                wrs.scroll_down(visible);
+            }
+            EventResult::Continue
+        }
+        // Any other key closes
+        _ => {
+            state.exit_watch_rules();
+            EventResult::Continue
+        }
+    }
+}
+
 /// Poll for events and handle them
 ///
 /// # Errors
@@ -493,6 +519,7 @@ pub fn poll_and_handle(
             Mode::Input => handle_input_mode(state, key),
             Mode::Confirm => handle_confirm_mode(state, key),
             Mode::Details => handle_details_mode(state, key),
+            Mode::WatchRules => handle_watch_rules_mode(state, key),
         },
         Event::Mouse(mouse) => handle_mouse(state, mouse),
         Event::Resize(_, _) => EventResult::Continue,

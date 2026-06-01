@@ -9,6 +9,7 @@ use crate::types::{QueryCriteria, TagName};
 use crate::ui::output::MessageLevel;
 use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
+    WatchRulesState,
 };
 use crate::config::PreviewConfig;
 use crate::ui::types::DisplayItem;
@@ -46,6 +47,8 @@ pub enum Mode {
     RefineSearch,
     /// File details modal is visible
     Details,
+    /// Watch rules modal is visible
+    WatchRules,
 }
 
 /// Which pane has focus during `TagSelection` phase
@@ -188,6 +191,8 @@ pub struct AppState {
     pub note_cache: HashMap<PathBuf, crate::types::NoteRecord>,
     /// Whether the session is backed by the daemon or a direct store
     pub store_mode: StoreMode,
+    /// State for the watch rules modal (populated on demand)
+    pub watch_rules_state: Option<WatchRulesState>,
 }
 
 impl AppState {
@@ -247,6 +252,7 @@ impl AppState {
             file_details: None,
             note_cache: HashMap::new(),
             store_mode: StoreMode::default(),
+            watch_rules_state: None,
         }
     }
 
@@ -709,6 +715,27 @@ impl AppState {
     #[must_use]
     pub const fn file_details(&self) -> Option<&FileDetails> {
         self.file_details.as_ref()
+    }
+
+    /// Enter watch rules modal — loads rules from config on demand
+    pub fn enter_watch_rules(&mut self) {
+        let rules = crate::watch::WatchConfig::load()
+            .map(|c| c.rules)
+            .unwrap_or_default();
+        self.watch_rules_state = Some(WatchRulesState::new(rules));
+        self.mode = Mode::WatchRules;
+    }
+
+    /// Exit watch rules modal
+    pub fn exit_watch_rules(&mut self) {
+        self.mode = Mode::Normal;
+        self.watch_rules_state = None;
+    }
+
+    /// Get immutable reference to watch rules state
+    #[must_use]
+    pub const fn watch_rules_state(&self) -> Option<&WatchRulesState> {
+        self.watch_rules_state.as_ref()
     }
 
     // ============================================================================
@@ -1221,6 +1248,10 @@ impl AppState {
             BrowseAction::ShowDetails => self.execute_show_details(),
             BrowseAction::ShowHelp => {
                 self.mode = Mode::Help;
+                EventResult::Continue
+            }
+            BrowseAction::ShowWatchRules => {
+                self.enter_watch_rules();
                 EventResult::Continue
             }
             ref a if a.requires_special_handling() => {
