@@ -19,7 +19,6 @@ use crate::watch::{WatchConfig, WatchRule};
 use clap::{Args, Subcommand};
 use std::collections::HashSet;
 use std::io::Write;
-use std::path::PathBuf;
 
 /// Watch mode subcommands
 #[derive(Subcommand, Debug, Clone)]
@@ -58,8 +57,11 @@ use clap_complete::engine::ArgValueCompleter;
 /// Arguments for `tagr watch add`
 #[derive(Args, Debug, Clone)]
 pub struct WatchAddArgs {
-    /// File patterns to watch (supports glob, expands ~)
-    pub patterns: Vec<PathBuf>,
+    /// File patterns to watch (supports glob, expands ~).
+    ///
+    /// Quote patterns containing wildcards to prevent shell expansion:
+    ///   tagr watch add '~/notes/*.md' -t notes
+    pub patterns: Vec<String>,
 
     /// Tags to apply when files match
     #[arg(short = 't', long = "tag")]
@@ -93,11 +95,7 @@ impl WatchAddArgs {
         }
 
         Some(WatchRule {
-            patterns: self
-                .patterns
-                .iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect(),
+            patterns: self.patterns.clone(),
             tags: self.tags.clone(),
             filter: self.filter.clone(),
             vtags: self.vtags.clone(),
@@ -145,19 +143,24 @@ pub fn watch_add(
     // Detect likely shell glob expansion: many literal paths with a common
     // parent and extension suggest the user forgot to quote the pattern.
     if !quiet && looks_like_shell_expansion(&rule.patterns) {
+        let suggested = suggest_glob(&rule.patterns);
         writeln!(
             writer,
-            "Warning: It looks like your shell expanded the glob pattern into {} individual files.",
+            "Warning: It looks like your shell expanded a glob into {} individual files.",
             rule.patterns.len(),
         )?;
         writeln!(
             writer,
             "  This works, but a quoted glob is more flexible (catches future files too)."
         )?;
-        writeln!(
-            writer,
-            "  Example: tagr watch add '~/notes/*.org' -t notes:org"
-        )?;
+        if let Some(ref glob) = suggested {
+            writeln!(writer, "  Try: tagr watch add '{glob}' -t {}", rule.tags.join(" -t "))?;
+        } else {
+            writeln!(
+                writer,
+                "  Example: tagr watch add '~/notes/*.org' -t notes:org"
+            )?;
+        }
         writeln!(writer)?;
     }
 
@@ -198,6 +201,50 @@ fn looks_like_shell_expansion(patterns: &[String]) -> bool {
         .collect();
 
     parents.len() == 1
+}
+
+/// Reconstruct a probable glob from shell-expanded paths.
+///
+/// If all paths share one parent directory, uses the dominant extension to
+/// produce e.g. `~/notes/*.md`. Falls back to `parent/*` when extensions vary.
+fn suggest_glob(patterns: &[String]) -> Option<String> {
+    use std::path::Path;
+
+    let parent = Path::new(patterns.first()?).parent()?;
+
+    // Count extensions
+    let mut ext_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for p in patterns {
+        let ext = Path::new(p)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        *ext_counts.entry(ext).or_insert(0) += 1;
+    }
+
+    let parent_str = parent.to_str()?;
+
+    // Collapse home dir back to ~ for readability
+    let parent_display = dirs::home_dir().map_or_else(
+        || parent_str.to_owned(),
+        |home| {
+            let home_str = home.to_string_lossy();
+            if parent_str.starts_with(home_str.as_ref()) {
+                format!("~{}", &parent_str[home_str.len()..])
+            } else {
+                parent_str.to_owned()
+            }
+        },
+    );
+
+    // If one extension dominates (≥80%), use it; otherwise use *
+    let total = patterns.len();
+    let (dominant_ext, count) = ext_counts.iter().max_by_key(|(_, c)| **c)?;
+    if *count * 100 / total >= 80 && !dominant_ext.is_empty() {
+        Some(format!("{parent_display}/*.{dominant_ext}"))
+    } else {
+        Some(format!("{parent_display}/*"))
+    }
 }
 
 /// Handle `tagr watch remove`
@@ -486,7 +533,7 @@ mod tests {
 
     fn make_add_args(patterns: Vec<&str>, tags: Vec<&str>) -> WatchAddArgs {
         WatchAddArgs {
-            patterns: patterns.into_iter().map(PathBuf::from).collect(),
+            patterns: patterns.into_iter().map(String::from).collect(),
             tags: tags.into_iter().map(String::from).collect(),
             filter: None,
             vtags: vec![],
@@ -735,5 +782,71 @@ mod tests {
         let result = watch_remove(0, true, &mut buf);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("1-based"));
+    }
+
+    // ---- looks_like_shell_expansion ----
+
+    #[test]
+    fn test_shell_expansion_detected() {
+        let patterns: Vec<String> = (0..6)
+            .map(|i| format!("/home/user/notes/file{i}.md"))
+            .collect();
+        assert!(looks_like_shell_expansion(&patterns));
+    }
+
+    #[test]
+    fn test_shell_expansion_not_detected_with_glob() {
+        let patterns = vec!["/home/user/notes/*.md".to_string()];
+        assert!(!looks_like_shell_expansion(&patterns));
+    }
+
+    #[test]
+    fn test_shell_expansion_not_detected_few_files() {
+        let patterns: Vec<String> = (0..3)
+            .map(|i| format!("/tmp/file{i}.txt"))
+            .collect();
+        assert!(!looks_like_shell_expansion(&patterns));
+    }
+
+    #[test]
+    fn test_shell_expansion_not_detected_different_dirs() {
+        let patterns = vec![
+            "/a/file1.txt".to_string(),
+            "/b/file2.txt".to_string(),
+            "/c/file3.txt".to_string(),
+            "/d/file4.txt".to_string(),
+            "/e/file5.txt".to_string(),
+        ];
+        assert!(!looks_like_shell_expansion(&patterns));
+    }
+
+    // ---- suggest_glob ----
+
+    #[test]
+    fn test_suggest_glob_same_extension() {
+        let patterns: Vec<String> = (0..5)
+            .map(|i| format!("/tmp/notes/file{i}.md"))
+            .collect();
+        let suggestion = suggest_glob(&patterns).unwrap();
+        assert_eq!(suggestion, "/tmp/notes/*.md");
+    }
+
+    #[test]
+    fn test_suggest_glob_mixed_extensions() {
+        let patterns = vec![
+            "/tmp/dir/a.md".to_string(),
+            "/tmp/dir/b.txt".to_string(),
+            "/tmp/dir/c.rs".to_string(),
+            "/tmp/dir/d.py".to_string(),
+            "/tmp/dir/e.go".to_string(),
+        ];
+        let suggestion = suggest_glob(&patterns).unwrap();
+        assert_eq!(suggestion, "/tmp/dir/*");
+    }
+
+    #[test]
+    fn test_suggest_glob_empty() {
+        let patterns: Vec<String> = vec![];
+        assert!(suggest_glob(&patterns).is_none());
     }
 }
