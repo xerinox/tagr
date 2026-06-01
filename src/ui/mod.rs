@@ -60,6 +60,7 @@
 //!     search_criteria: None,
 //!     tag_schema: None,
 //!     database: None,
+//!     store_mode: tagr::ui::ratatui_adapter::StoreMode::Local,
 //! };
 //!
 //! let finder = RatatuiFinder::new();

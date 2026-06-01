@@ -126,10 +126,40 @@ impl Widget for StatusBar<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Split status bar into left (messages) and right (preview mode indicator)
+        // Right side content: store mode indicator + preview mode indicator
+        // Use short labels when space is tight
+        let (store_label, store_style) = match self.store_mode {
+            StoreMode::Daemon => (
+                "⚡daemon",
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            ),
+            StoreMode::Local => (
+                "●local",
+                Style::default().fg(Color::DarkGray),
+            ),
+        };
+
+        let preview_indicator = match self.preview_mode {
+            PreviewMode::File => "[File]",
+            PreviewMode::Note => "[Note]",
+        };
+
+        let indicator_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM);
+
+        // Compute exact width needed for right side so it never overflows
+        let right_width = store_label.chars().count() + 1 + preview_indicator.len();
+
+        // Split status bar: left fills remaining space, right gets exactly what it needs
+        #[allow(clippy::cast_possible_truncation)]
+        let right_constraint = Constraint::Length(right_width.min(u16::MAX as usize) as u16);
+
+        // Split status bar: left fills remaining space, right gets exactly what it needs
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
+            .constraints([
+                Constraint::Min(1),
+                right_constraint,
+            ])
             .split(inner);
 
         // Left side: CLI preview or messages
@@ -151,27 +181,9 @@ impl Widget for StatusBar<'_> {
             }
         }
 
-        // Right side: store mode indicator + preview mode indicator
-        let (store_label, store_style) = match self.store_mode {
-            StoreMode::Daemon => (
-                "⚡daemon ",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            ),
-            StoreMode::Local => (
-                "●local ",
-                Style::default().fg(Color::DarkGray),
-            ),
-        };
-
-        let preview_indicator = match self.preview_mode {
-            PreviewMode::File => "[File Preview]",
-            PreviewMode::Note => "[Note Preview]",
-        };
-
-        let indicator_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM);
-
         let right_line = Line::from(vec![
             Span::styled(store_label, store_style),
+            Span::styled(" ", Style::default()),
             Span::styled(preview_indicator, indicator_style),
         ]);
         Paragraph::new(right_line).render(chunks[1], buf);
