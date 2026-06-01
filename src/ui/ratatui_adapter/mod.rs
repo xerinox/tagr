@@ -39,7 +39,7 @@ pub mod widgets;
 
 pub use finder::RatatuiFinder;
 pub use finder::RatatuiPreviewProvider;
-pub use state::{AppState, Mode};
+pub use state::{AppState, Mode, StoreMode};
 pub use styled_preview::{StyledPreview, StyledPreviewGenerator};
 pub use theme::Theme;
 

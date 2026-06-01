@@ -92,6 +92,9 @@ pub struct BrowseConfig {
 
     /// File selection phase settings
     pub file_phase_settings: PhaseSettings,
+
+    /// Whether backed by daemon or direct store
+    pub store_mode: crate::ui::ratatui_adapter::StoreMode,
 }
 
 /// Configuration for a specific browser phase
@@ -590,6 +593,7 @@ impl Default for BrowseConfig {
             path_format: crate::config::PathFormat::Absolute,
             tag_phase_settings: PhaseSettings::default_for_tags(),
             file_phase_settings: PhaseSettings::default_for_files(),
+            store_mode: crate::ui::ratatui_adapter::StoreMode::default(),
         }
     }
 }

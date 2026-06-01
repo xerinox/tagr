@@ -92,6 +92,7 @@ pub fn dispatch_command(
                 Some(&ctx.preview_overrides),
                 path_format,
                 quiet,
+                crate::ui::ratatui_adapter::StoreMode::Local,
             )?;
             Ok(())
         }

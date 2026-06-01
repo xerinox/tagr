@@ -346,7 +346,8 @@ impl<F: FuzzyFinder> BrowseController<F> {
                 virtual_tags: search_criteria.virtual_tags,
             })
             .with_schema(tag_schema)
-            .with_database(database);
+            .with_database(database)
+            .with_store_mode(self.session.config().store_mode);
 
         let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
             config.with_preview(preview_cfg)

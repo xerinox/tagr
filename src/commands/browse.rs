@@ -14,6 +14,7 @@ use crate::{
     store::TagStore,
     types::QueryCriteria,
     ui::{PreviewPosition, ratatui_adapter::RatatuiFinder},
+    ui::ratatui_adapter::StoreMode,
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -32,6 +33,7 @@ pub fn execute(
     preview_overrides: Option<&PreviewOverrides>,
     path_format: config::PathFormat,
     quiet: bool,
+    store_mode: StoreMode,
 ) -> Result<()> {
     if let Some(name) = filter_name {
         let filter_path = crate::filters::get_filter_path()?;
@@ -123,6 +125,7 @@ pub fn execute(
         path_format,
         tag_phase_settings,
         file_phase_settings,
+        store_mode,
     };
 
     let session =

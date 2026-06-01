@@ -638,6 +638,7 @@ fn dispatch_via_ipc(
             Some(&ctx.preview_overrides),
             path_format,
             quiet,
+            tagr::ui::ratatui_adapter::StoreMode::Daemon,
         );
     }
 

@@ -27,6 +27,8 @@ pub struct FinderConfig {
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries (used in tag selection phase)
     pub database: Option<std::sync::Arc<dyn crate::store::TagStore>>,
+    /// Whether the session is backed by the daemon or a direct store
+    pub store_mode: crate::ui::ratatui_adapter::StoreMode,
 }
 
 impl std::fmt::Debug for FinderConfig {
@@ -42,6 +44,7 @@ impl std::fmt::Debug for FinderConfig {
             .field("search_criteria", &self.search_criteria)
             .field("tag_schema", &self.tag_schema)
             .field("database", &self.database.as_ref().map(|_| "..."))
+            .field("store_mode", &self.store_mode)
             .finish()
     }
 }
@@ -61,6 +64,7 @@ impl FinderConfig {
             search_criteria: None,
             tag_schema: None,
             database: None,
+            store_mode: crate::ui::ratatui_adapter::StoreMode::Local,
         }
     }
 
@@ -117,6 +121,13 @@ impl FinderConfig {
     #[must_use]
     pub fn with_database(mut self, db: Option<std::sync::Arc<dyn crate::store::TagStore>>) -> Self {
         self.database = db;
+        self
+    }
+
+    /// Set the store mode (local vs daemon)
+    #[must_use]
+    pub const fn with_store_mode(mut self, mode: crate::ui::ratatui_adapter::StoreMode) -> Self {
+        self.store_mode = mode;
         self
     }
 }

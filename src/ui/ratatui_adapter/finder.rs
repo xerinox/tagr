@@ -291,7 +291,7 @@ impl RatatuiFinder {
         // Render status bar with optional CLI preview
         let messages: Vec<_> = state.active_messages();
         let cli_preview = state.build_cli_preview();
-        let status_bar = StatusBar::new(&messages, theme, state.preview_mode)
+        let status_bar = StatusBar::new(&messages, theme, state.preview_mode, state.store_mode)
             .with_cli_preview(cli_preview.as_deref());
         frame.render_widget(status_bar, main_layout[2]);
 
@@ -540,6 +540,7 @@ impl RatatuiFinder {
             config.preview_config.clone(),
         );
         state.load_note_cache();
+        state.store_mode = config.store_mode;
         // Set available tags for autocomplete in text input modals
         state.available_tags.clone_from(&config.available_tags);
 

@@ -68,6 +68,16 @@ pub enum PreviewMode {
     Note,
 }
 
+/// Whether the TUI is backed by a direct sled store or the IPC daemon
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StoreMode {
+    /// Direct sled database access (single-process)
+    #[default]
+    Local,
+    /// IPC-backed access through the running daemon
+    Daemon,
+}
+
 /// A status message with timestamp for TTL-based expiry
 #[derive(Debug, Clone)]
 pub struct StatusMessage {
@@ -176,6 +186,8 @@ pub struct AppState {
     pub file_details: Option<FileDetails>,
     /// Pre-loaded note cache to avoid per-file IPC round-trips
     pub note_cache: HashMap<PathBuf, crate::types::NoteRecord>,
+    /// Whether the session is backed by the daemon or a direct store
+    pub store_mode: StoreMode,
 }
 
 impl AppState {
@@ -234,6 +246,7 @@ impl AppState {
             preview_mode: PreviewMode::File,
             file_details: None,
             note_cache: HashMap::new(),
+            store_mode: StoreMode::default(),
         }
     }
 
