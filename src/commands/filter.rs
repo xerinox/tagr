@@ -266,10 +266,6 @@ fn create_filter(
 
     manager.create(name, desc, criteria)?;
 
-    // Invalidate completion cache since filter list changed
-    #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_filter_cache();
-
     if !quiet {
         println!("Filter '{name}' created successfully");
     }
@@ -299,10 +295,6 @@ fn delete_filter(name: &str, force: bool, quiet: bool) -> Result<()> {
     }
 
     manager.delete(name)?;
-
-    // Invalidate completion cache since filter list changed
-    #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_filter_cache();
 
     if !quiet {
         println!("Filter '{name}' deleted");

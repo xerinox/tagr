@@ -160,7 +160,7 @@ pub fn bulk_tag(
 
     // Invalidate completion cache (bulk ops may introduce new tags)
     #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_database_cache();
+    crate::completions::invalidate_cache(store);
 
     if !quiet {
         summary.print("Bulk Tag", writer)?;
@@ -265,7 +265,7 @@ pub fn bulk_untag(
 
     // Invalidate completion cache (bulk ops may orphan tags)
     #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_database_cache();
+    crate::completions::invalidate_cache(store);
 
     if !quiet {
         summary.print("Bulk Untag", writer)?;
@@ -363,6 +363,10 @@ pub fn rename_tag(
             }
         }
     }
+
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
+
     if !quiet {
         writeln!(
             writer,
@@ -503,6 +507,10 @@ pub fn copy_tags(
             }
         }
     }
+
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
+
     if !config.quiet {
         summary.print("Copy Tags", writer)?;
     }
@@ -618,6 +626,10 @@ pub fn merge_tags(
             }
         }
     }
+
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
+
     if !quiet {
         writeln!(
             writer,

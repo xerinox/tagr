@@ -110,8 +110,6 @@ fn handle_db_add(
         }
     }
 
-    #[cfg(feature = "dynamic-completions")]
-    tagr::completions::invalidate_database_cache();
     Ok(())
 }
 
@@ -211,8 +209,6 @@ fn handle_db_remove(
         config.save()?;
     }
 
-    #[cfg(feature = "dynamic-completions")]
-    tagr::completions::invalidate_database_cache();
     Ok(())
 }
 

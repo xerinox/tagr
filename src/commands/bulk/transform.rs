@@ -229,5 +229,8 @@ pub fn transform_tags(
         summary.print("Transform Tags", writer)?;
     }
 
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
+
     Ok(())
 }

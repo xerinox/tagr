@@ -17,7 +17,7 @@ fn invalidate_cache_if_new_tags(store: &dyn TagStore, tags: &[TagName]) {
         .any(|tag| store.tag_exists(tag).unwrap_or(false) == false);
 
     if has_new_tag {
-        crate::completions::invalidate_cache_store(store);
+        crate::completions::invalidate_cache(store);
     }
 }
 
@@ -29,7 +29,7 @@ fn invalidate_cache_if_orphaned_tags(store: &dyn TagStore, tags: &[TagName]) {
         .any(|tag| store.tag_exists(tag).unwrap_or(true) == false);
 
     if has_orphaned_tag {
-        crate::completions::invalidate_cache_store(store);
+        crate::completions::invalidate_cache(store);
     }
 }
 

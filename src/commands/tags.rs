@@ -165,6 +165,9 @@ fn remove_tag_globally(store: &dyn TagStore, tag: &str, quiet: bool, writer: &mu
 
     let files_removed = store.remove_tag_globally(&tag_name)?;
 
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
+
     if !quiet {
         writeln!(writer, "Removed tag '{tag}' from {} file(s).", files_before.len())?;
         if files_removed > 0 {

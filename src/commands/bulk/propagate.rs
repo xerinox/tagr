@@ -242,6 +242,9 @@ pub fn propagate_by_directory(
         summary.print("Propagate by Directory", writer)?;
     }
 
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
+
     Ok(())
 }
 
@@ -386,6 +389,9 @@ pub fn propagate_by_extension(
     if !quiet {
         summary.print("Propagate by Extension", writer)?;
     }
+
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
 
     Ok(())
 }

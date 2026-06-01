@@ -500,8 +500,11 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
 
     let pager = Pager::new();
 
-    // CRITICAL: Set exit strategy to PagerQuit so pressing 'q' only quits the pager,
-    // not the entire application. This ensures we return to browse mode after help.
+    // Override the default exit behavior so pressing 'q' returns to browse mode
+    // instead of killing the process. Using set_exit_strategy because the
+    // replacement hooks API (add_hook) can't safely replace the built-in ID 1
+    // callback without a race against PagerState init.
+    #[allow(deprecated)]
     pager
         .set_exit_strategy(ExitStrategy::PagerQuit)
         .map_err(|e| std::io::Error::other(format!("Failed to set exit strategy: {e}")))?;

@@ -142,94 +142,20 @@ pub fn invalidate_cache(store: &dyn crate::store::TagStore) {
     }
 }
 
-/// Invalidate cache for filter changes only
-///
-/// No-op now as filters are not cached. Kept for API compatibility.
-pub fn invalidate_filter_cache() {
-    // No-op: filters are loaded dynamically in completers
-}
-
-/// Invalidate cache for database configuration changes
-///
-/// No-op now as databases are not cached. Kept for API compatibility.
-pub fn invalidate_database_cache() {
-    // No-op: databases are loaded dynamically in completers
-}
-
 /// Safely load tags for completion
 ///
-/// Returns empty vec on any error (missing config, no DB, first run, etc.)
-/// This function is designed to be fast and never fail.
+/// Returns tags from the cache file, or empty vec if cache is missing/empty.
+/// This function is designed to be fast and never fail — it never opens
+/// the database or makes IPC calls. The cache is kept fresh by
+/// `invalidate_cache()` calls after tag-mutating operations.
 #[must_use]
 pub fn load_cached_tags() -> Vec<String> {
-    // Try cache first (fast path)
     let cache = CompletionCache::load();
     if !cache.tags.is_empty() {
         return cache.tags;
     }
 
-    // Cache miss - try loading from database
-    // This is slower but handles first-run after tagging
-    if let Ok(tags) = try_load_from_database() {
-        if !tags.is_empty() {
-            return tags;
-        }
-    }
-
-    // No data available - return empty (first run, no tags yet)
     Vec::new()
-}
-
-/// Attempt to load tags directly from database
-///
-/// Used as fallback when cache is empty/missing.
-/// If the DB is locked (daemon running), falls back to IPC.
-fn try_load_from_database() -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::config::TagrConfig;
-    use crate::db::Database;
-
-    let config = TagrConfig::load()?;
-
-    let db_path = config
-        .get_default_database()
-        .and_then(|name| config.get_database(name).cloned())
-        .or_else(|| dirs::data_local_dir().map(|d| d.join("tagr").join("default")));
-
-    let Some(db_path) = db_path else {
-        return Ok(Vec::new());
-    };
-
-    if !db_path.exists() {
-        return Ok(Vec::new());
-    }
-
-    // Try direct DB access first; if locked, fall back to IPC
-    match Database::open(&db_path) {
-        Ok(db) => {
-            let tags = db.list_all_tags()?;
-            let store = crate::store::DirectStore::new(db);
-            let _ = CompletionCache::refresh(&store);
-            Ok(tags)
-        }
-        Err(_) => try_load_via_ipc(),
-    }
-}
-
-/// Load tags via IPC when the daemon holds the DB lock.
-fn try_load_via_ipc() -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::daemon::client::send_request;
-    use crate::ipc::wire::{Request, Response};
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-
-    let response = rt.block_on(send_request(Request::ListTags))?;
-    match response {
-        Response::Tags(tags) => Ok(tags.into_iter().map(|t| t.name).collect()),
-        Response::Error(e) => Err(e.into()),
-        _ => Ok(Vec::new()),
-    }
 }
 
 #[cfg(test)]

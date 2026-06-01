@@ -298,7 +298,8 @@ async fn handle_client_message(
             }
             #[cfg(feature = "dynamic-completions")]
             if tag_mutation_ok {
-                crate::completions::invalidate_cache(db);
+                let store = crate::store::DirectStore::new(db.clone());
+                crate::completions::invalidate_cache(&store);
             }
             should_shutdown
         }
@@ -367,7 +368,10 @@ fn spawn_tag_work_with_events(
                 Err(e) => eprintln!("Spawn error: {e}"),
                 Ok(Ok(())) => {
                     #[cfg(feature = "dynamic-completions")]
-                    crate::completions::invalidate_cache(&db_for_cache);
+                    {
+                        let store = crate::store::DirectStore::new(db_for_cache);
+                        crate::completions::invalidate_cache(&store);
+                    }
                 }
             }
         });
