@@ -13,7 +13,7 @@ mod search_bar;
 mod status_bar;
 mod tag_tree;
 mod text_input;
-mod watch_rules_modal;
+pub(crate) mod watch_rules_modal;
 
 pub use confirm_dialog::{ConfirmDialog, ConfirmDialogState};
 pub use details_modal::{DetailsModal, FileDetails};

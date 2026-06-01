@@ -11,6 +11,7 @@ use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
     WatchRulesState,
 };
+use crate::ui::ratatui_adapter::widgets::watch_rules_modal::DaemonInfo;
 use crate::config::PreviewConfig;
 use crate::ui::types::DisplayItem;
 use std::collections::{HashMap, HashSet};
@@ -717,12 +718,13 @@ impl AppState {
         self.file_details.as_ref()
     }
 
-    /// Enter watch rules modal — loads rules from config on demand
+    /// Enter watch rules modal — loads rules and probes daemon status
     pub fn enter_watch_rules(&mut self) {
         let rules = crate::watch::WatchConfig::load()
             .map(|c| c.rules)
             .unwrap_or_default();
-        self.watch_rules_state = Some(WatchRulesState::new(rules));
+        let daemon_info = DaemonInfo::probe(self.store_mode);
+        self.watch_rules_state = Some(WatchRulesState::new(rules, daemon_info));
         self.mode = Mode::WatchRules;
     }
 

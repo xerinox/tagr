@@ -181,6 +181,9 @@ const fn resolve_default_keybind(key: KeyEvent, state: &AppState) -> Option<Brow
         // Help
         (KeyCode::F(1) | KeyCode::Char('?'), _) => Some(BrowseAction::ShowHelp),
 
+        // Watch rules
+        (KeyCode::F(3), _) => Some(BrowseAction::ShowWatchRules),
+
         // Toggle preview mode
         (KeyCode::Char('n'), KeyModifiers::ALT) => Some(BrowseAction::ToggleNotePreview),
 
