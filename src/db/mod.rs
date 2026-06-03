@@ -7,7 +7,7 @@
 //! - `files`: Main tree mapping file paths to tags
 //! - `tags`: Reverse index mapping tags to file paths
 
-use crate::Pair;
+use crate::types::{Pair, TagName, TagrPath};
 
 use regex::Regex;
 use sled::{Db, Tree};
@@ -68,15 +68,18 @@ impl Database {
     /// Insert or update a file-tags pairing
     ///
     /// # Arguments
-    /// * `pair` - The Pair struct containing file path and tags
+    /// * `pair` - A [`Pair`] containing file path and tags
     ///
     /// # Examples
     /// ```no_run
-    /// use tagr::{db::Database, Pair};
-    /// use std::path::PathBuf;
+    /// use tagr::db::Database;
+    /// use tagr::types::{Pair, TagrPath, TagName};
     ///
     /// let db = Database::open("my_db").unwrap();
-    /// let pair = Pair::new(PathBuf::from("file.txt"), vec!["tag1".into()]);
+    /// let pair = Pair::new(
+    ///     TagrPath::new("file.txt").unwrap(),
+    ///     vec![TagName::new("tag1").unwrap()],
+    /// );
     /// db.insert_pair(&pair).unwrap();
     /// ```
     ///
@@ -85,22 +88,23 @@ impl Database {
     /// Returns `DbError` if the file does not exist, the path contains invalid UTF-8,
     /// database operations fail, or serialization errors occur.
     pub fn insert_pair(&self, pair: &Pair) -> Result<(), DbError> {
-        if !pair.file.exists() {
-            return Err(DbError::FileNotFound(pair.file.display().to_string()));
+        let path = Path::new(pair.file.as_str());
+        if !path.exists() {
+            return Err(DbError::FileNotFound(pair.file.to_string()));
         }
 
-        let file_path = pair.file.to_str()
-            .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))?;
+        let file_str = pair.file.as_str();
+        let raw_tags: Vec<String> = pair.tags.iter().map(ToString::to_string).collect();
 
-        if let Some(old_tags) = self.get_tags(&pair.file)? {
-            self.remove_from_tag_index(file_path, &old_tags)?;
+        if let Some(old_tags) = self.get_tags(file_str)? {
+            self.remove_from_tag_index(file_str, &old_tags)?;
         }
 
         let key = postcard::to_allocvec(&pair.file)?;
-        let value = postcard::to_allocvec(&pair.tags)?;
+        let value = postcard::to_allocvec(&raw_tags)?;
         self.files.insert(key, value)?;
 
-        self.add_to_tag_index(file_path, &pair.tags)?;
+        self.add_to_tag_index(file_str, &raw_tags)?;
 
         Ok(())
     }
@@ -116,11 +120,18 @@ impl Database {
     /// Returns `DbError` if the file does not exist, the path contains invalid UTF-8,
     /// database operations fail, or serialization errors occur.
     pub fn insert<P: AsRef<Path>>(&self, file: P, tags: Vec<String>) -> Result<(), DbError> {
-        if !file.as_ref().exists() {
-            return Err(DbError::FileNotFound(file.as_ref().display().to_string()));
+        let path = file.as_ref();
+        if !path.exists() {
+            return Err(DbError::FileNotFound(path.display().to_string()));
         }
 
-        let pair = Pair::new(file.as_ref().to_path_buf(), tags);
+        let tagr_path = TagrPath::new(path)
+            .map_err(|e| DbError::PathError(e.to_string()))?;
+        let tag_names: Vec<TagName> = tags.into_iter()
+            .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
+            .collect::<Result<_, _>>()?;
+
+        let pair = Pair::new(tagr_path, tag_names);
         self.insert_pair(&pair)
     }
 
@@ -148,7 +159,7 @@ impl Database {
         }
     }
 
-    /// Get the complete Pair (file and tags) for a specific file
+    /// Get the complete [`Pair`] (file and tags) for a specific file
     ///
     /// # Arguments
     /// * `file` - Path to the file
@@ -161,9 +172,15 @@ impl Database {
 
         match self.files.get(key.as_slice())? {
             Some(value) => {
-                let file_path: PathBuf = postcard::from_bytes(&key)?;
-                let tags: Vec<String> = postcard::from_bytes(&value)?;
-                Ok(Some(Pair::new(file_path, tags)))
+                let file_str: String = postcard::from_bytes(&key)?;
+                let raw_tags: Vec<String> = postcard::from_bytes(&value)?;
+
+                let tagr_path = TagrPath::from_string(file_str);
+                let tag_names = raw_tags.into_iter()
+                    .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(Some(Pair::new(tagr_path, tag_names)))
             }
             None => Ok(None),
         }
@@ -250,7 +267,7 @@ impl Database {
     /// List all file-tag pairings in the database
     ///
     /// # Returns
-    /// Vector of all Pair structs in the database
+    /// Vector of all [`Pair`] structs in the database
     ///
     /// # Errors
     ///
@@ -259,9 +276,15 @@ impl Database {
         let mut pairs = Vec::new();
         for result in &self.files {
             let (key, value) = result?;
-            let file: PathBuf = postcard::from_bytes(&key)?;
-            let tags: Vec<String> = postcard::from_bytes(&value)?;
-            pairs.push(Pair::new(file, tags));
+            let file_str: String = postcard::from_bytes(&key)?;
+            let raw_tags: Vec<String> = postcard::from_bytes(&value)?;
+
+            let tagr_path = TagrPath::from_string(file_str);
+            let tag_names = raw_tags.into_iter()
+                .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            pairs.push(Pair::new(tagr_path, tag_names));
         }
         Ok(pairs)
     }
@@ -1010,8 +1033,8 @@ mod tests {
 
         let file = TempFile::create("test.txt").unwrap();
         let pair = Pair::new(
-            file.path().to_path_buf(),
-            vec!["tag1".into(), "tag2".into()],
+            TagrPath::new(file.path()).unwrap(),
+            vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()],
         );
         db.insert_pair(&pair).unwrap();
 

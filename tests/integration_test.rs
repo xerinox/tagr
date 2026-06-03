@@ -6,11 +6,11 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tagr::types::{MatchMode, QueryCriteria, TagExpr, TagName};
+use tagr::types::{MatchMode, Pair, QueryCriteria, TagExpr, TagName, TagrPath};
 use tagr::commands::bulk::{bulk_tag, bulk_untag};
 use tagr::commands::search as search_cmd;
 use tagr::config;
-use tagr::{Pair, cli::execute_command_on_files, db::Database};
+use tagr::{cli::execute_command_on_files, db::Database};
 use tagr::store::DirectStore;
 
 /// Test database wrapper that cleans up on drop
@@ -18,6 +18,16 @@ struct TestDb {
     db: Database,
     store: DirectStore,
     path: PathBuf,
+}
+
+/// Convenience: build a `Pair` from a path and raw tag strings (test only).
+fn pair(path: &Path, tags: &[&str]) -> Pair {
+    Pair::new(
+        TagrPath::new(path).expect("valid UTF-8 path"),
+        tags.iter()
+            .map(|s| TagName::new(*s).expect("valid tag name"))
+            .collect(),
+    )
 }
 
 impl TestDb {
@@ -592,8 +602,8 @@ fn test_find_by_any_tag() {
 
 #[test]
 fn test_pair_struct_operations() {
-    let file_path = PathBuf::from("test_pair.txt");
-    let tags = vec!["tag1".into(), "tag2".into()];
+    let file_path = TagrPath::from_string("test_pair.txt".to_owned());
+    let tags = vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()];
 
     let pair = Pair::new(file_path.clone(), tags.clone());
 
@@ -704,8 +714,8 @@ fn test_get_pair() {
     assert!(pair.is_some());
 
     let pair = pair.unwrap();
-    assert_eq!(pair.file, PathBuf::from("pair.txt"));
-    assert_eq!(pair.tags, vec!["tag1".to_string(), "tag2".to_string()]);
+    assert_eq!(pair.file, TagrPath::from_string("pair.txt".to_owned()));
+    assert_eq!(pair.tags, vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()]);
 
     let _ = fs::remove_file("pair.txt");
     // Cleanup happens automatically via Drop
@@ -1137,21 +1147,12 @@ fn test_hierarchy_prefix_matching() {
     let file2 = TestFile::create("file2.rs", "").unwrap();
     let file3 = TestFile::create("file3.py", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:javascript".into(), "production".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:rust".into(), "tests".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file3.path().to_path_buf(),
-        vec!["lang:python".into(), "tests".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:javascript", "production"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust", "tests"]))
+        .unwrap();
+    db.insert_pair(&pair(file3.path(), &["lang:python", "tests"]))
+        .unwrap();
 
     // Search for "-t lang" should match all files with lang:* tags
     let criteria = QueryCriteria {
@@ -1173,16 +1174,10 @@ fn test_hierarchy_specificity_exclude_wins() {
     let file1 = TestFile::create("spec1.js", "").unwrap();
     let file2 = TestFile::create("spec2.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:javascript".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:rust".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:javascript"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust"]))
+        .unwrap();
 
     // Search: -t lang -x lang:rust
     // Should include lang:javascript but exclude lang:rust
@@ -1209,16 +1204,10 @@ fn test_hierarchy_cross_hierarchy_exclude() {
     let file1 = TestFile::create("cross1.js", "").unwrap();
     let file2 = TestFile::create("cross2.js", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:javascript".into(), "production".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:javascript".into(), "tests".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:javascript", "production"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:javascript", "tests"]))
+        .unwrap();
 
     // Search: -t lang -x tests
     // Different hierarchies - exclude wins
@@ -1244,11 +1233,8 @@ fn test_hierarchy_deeper_include_overrides_exclude() {
 
     let file = TestFile::create("deep.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file.path().to_path_buf(),
-        vec!["lang:rust:async".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file.path(), &["lang:rust:async"]))
+        .unwrap();
 
     // Search: -t lang -t lang:rust:async -x lang:rust
     // Depth 3 include should override depth 2 exclude
@@ -1278,21 +1264,12 @@ fn test_hierarchy_all_mode_requires_all_patterns() {
     let file2 = TestFile::create("all2.rs", "").unwrap();
     let file3 = TestFile::create("all3.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:rust".into(), "project:backend".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:rust".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file3.path().to_path_buf(),
-        vec!["project:backend".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:rust", "project:backend"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust"]))
+        .unwrap();
+    db.insert_pair(&pair(file3.path(), &["project:backend"]))
+        .unwrap();
 
     // Search: -t lang -t project --all-tags
     // Only file1 has tags matching both patterns
@@ -1319,12 +1296,9 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
     let file1 = TestFile::create("nohier1.rs", "").unwrap();
     let file2 = TestFile::create("nohier2.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:rust".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(file2.path().to_path_buf(), vec!["lang".into()]))
+    db.insert_pair(&pair(file1.path(), &["lang:rust"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang"]))
         .unwrap();
 
     // Search: -t lang --no-hierarchy

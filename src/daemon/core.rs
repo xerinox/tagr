@@ -916,7 +916,8 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             match db.list_all() {
                 Ok(pairs) => {
                     for pair in &pairs {
-                        if !pair.file.exists() && db.remove(&pair.file).is_ok() {
+                        let path = std::path::Path::new(pair.file.as_str());
+                        if !path.exists() && db.remove(path).is_ok() {
                             removed += 1;
                         }
                     }

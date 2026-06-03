@@ -21,6 +21,7 @@
 use wincode::{SchemaRead, SchemaWrite};
 
 use super::IpcError;
+use crate::types::{TagName, TagrPath};
 
 // ---------------------------------------------------------------------------
 // Wire types — all paths are String (wincode doesn't support PathBuf)
@@ -174,8 +175,8 @@ pub struct WireQueryCriteria {
 impl From<&crate::Pair> for WireFilePair {
     fn from(p: &crate::Pair) -> Self {
         Self {
-            file: p.file.to_string_lossy().into_owned(),
-            tags: p.tags.clone(),
+            file: p.file.as_str().to_owned(),
+            tags: p.tags.iter().map(|t| t.as_str().to_owned()).collect(),
         }
     }
 }
@@ -183,21 +184,31 @@ impl From<&crate::Pair> for WireFilePair {
 impl From<crate::Pair> for WireFilePair {
     fn from(p: crate::Pair) -> Self {
         Self {
-            file: p.file.to_string_lossy().into_owned(),
-            tags: p.tags,
+            file: p.file.into_inner(),
+            tags: p.tags.into_iter().map(TagName::into_inner).collect(),
         }
     }
 }
 
 impl From<&WireFilePair> for crate::Pair {
     fn from(w: &WireFilePair) -> Self {
-        Self::new(w.file.clone().into(), w.tags.clone())
+        Self::new(
+            TagrPath::from_string(w.file.clone()),
+            w.tags.iter()
+                .filter_map(|s| TagName::new(s).ok())
+                .collect(),
+        )
     }
 }
 
 impl From<WireFilePair> for crate::Pair {
     fn from(w: WireFilePair) -> Self {
-        Self::new(w.file.into(), w.tags)
+        Self::new(
+            TagrPath::from_string(w.file),
+            w.tags.into_iter()
+                .filter_map(|s| TagName::new(&s).ok())
+                .collect(),
+        )
     }
 }
 
@@ -522,7 +533,10 @@ mod tests {
 
     #[test]
     fn test_wire_file_pair_conversion() {
-        let pair = crate::Pair::new("/tmp/test.txt".into(), vec!["a".into(), "b".into()]);
+        let pair = crate::Pair::new(
+            TagrPath::from_string("/tmp/test.txt".to_owned()),
+            vec![TagName::new("a").unwrap(), TagName::new("b").unwrap()],
+        );
         let wire: WireFilePair = (&pair).into();
         let back: crate::Pair = (&wire).into();
 

@@ -36,4 +36,19 @@ impl Pair {
     pub const fn new(file: TagrPath, tags: Vec<TagName>) -> Self {
         Self { file, tags }
     }
+
+    /// Create a `Pair` from a path and raw tag strings (test convenience).
+    ///
+    /// # Panics
+    ///
+    /// Panics if any tag string is invalid.
+    #[cfg(test)]
+    pub(crate) fn from_raw(file: &std::path::Path, tags: Vec<&str>) -> Self {
+        Self {
+            file: TagrPath::new(file).expect("valid UTF-8 path"),
+            tags: tags.into_iter()
+                .map(|s| TagName::new(s).expect("valid tag name"))
+                .collect(),
+        }
+    }
 }

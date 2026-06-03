@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn test_update_search_params() {
-        use crate::Pair;
+        use crate::types::Pair;
         use crate::testing::TempFile;
 
         let db = TestDb::new("test_update_search_params");
@@ -731,21 +731,21 @@ mod tests {
         let file3 = TempFile::create("file3.txt").unwrap();
 
         db.db()
-            .insert_pair(&Pair::new(
-                file1.path().to_path_buf(),
-                vec!["rust".into(), "code".into()],
+            .insert_pair(&Pair::from_raw(
+                file1.path(),
+                vec!["rust", "code"],
             ))
             .unwrap();
         db.db()
-            .insert_pair(&Pair::new(
-                file2.path().to_path_buf(),
-                vec!["rust".into(), "docs".into()],
+            .insert_pair(&Pair::from_raw(
+                file2.path(),
+                vec!["rust", "docs"],
             ))
             .unwrap();
         db.db()
-            .insert_pair(&Pair::new(
-                file3.path().to_path_buf(),
-                vec!["python".into()],
+            .insert_pair(&Pair::from_raw(
+                file3.path(),
+                vec!["python"],
             ))
             .unwrap();
 
@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     fn test_refine_search_action_returns_needs_input() {
-        use crate::Pair;
+        use crate::types::Pair;
         use crate::testing::TempFile;
 
         let db = TestDb::new("test_refine_search_action");
@@ -784,7 +784,7 @@ mod tests {
 
         let file1 = TempFile::create("file1.txt").unwrap();
         db.db()
-            .insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["test".into()]))
+            .insert_pair(&Pair::from_raw(file1.path(), vec!["test"]))
             .unwrap();
 
         let config = BrowseConfig {
@@ -868,7 +868,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_filtering_small_result_set() {
-        use crate::Pair;
+        use crate::types::Pair;
         use crate::testing::TempFile;
 
         let db = TestDb::new("test_hybrid_small");
@@ -879,8 +879,8 @@ mod tests {
             let file = TempFile::create(format!("file{i}.txt")).unwrap();
             db.db()
                 .insert_pair(&Pair::new(
-                    file.path().to_path_buf(),
-                    vec!["rust".into(), format!("tag{i}")],
+                    TagrPath::new(file.path()).unwrap(),
+                    vec![TagName::new("rust").unwrap(), TagName::new(&format!("tag{i}")).unwrap()],
                 ))
                 .unwrap();
         }
@@ -917,7 +917,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_filtering_detects_relaxation() {
-        use crate::Pair;
+        use crate::types::Pair;
         use crate::testing::TempFile;
 
         let db = TestDb::new("test_hybrid_relaxation");
@@ -927,16 +927,16 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
 
         db.db()
-            .insert_pair(&Pair::new(
-                file1.path().to_path_buf(),
-                vec!["rust".into(), "web".into()],
+            .insert_pair(&Pair::from_raw(
+                file1.path(),
+                vec!["rust", "web"],
             ))
             .unwrap();
 
         db.db()
-            .insert_pair(&Pair::new(
-                file2.path().to_path_buf(),
-                vec!["rust".into(), "cli".into()],
+            .insert_pair(&Pair::from_raw(
+                file2.path(),
+                vec!["rust", "cli"],
             ))
             .unwrap();
 
@@ -968,7 +968,7 @@ mod tests {
 
     #[test]
     fn test_refresh_invalidates_cache() {
-        use crate::Pair;
+        use crate::types::Pair;
         use crate::testing::TempFile;
 
         let db = TestDb::new("test_refresh_cache");
@@ -976,7 +976,7 @@ mod tests {
 
         let file1 = TempFile::create("file1.txt").unwrap();
         db.db()
-            .insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
+            .insert_pair(&Pair::from_raw(file1.path(), vec!["rust"]))
             .unwrap();
 
         let config = BrowseConfig {

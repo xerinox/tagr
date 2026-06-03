@@ -3,9 +3,10 @@
 //! This library provides functionality for tagging files and performing
 //! efficient searches using an embedded database with reverse indices.
 
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use thiserror::Error;
+
+// Re-export the canonical Pair type at crate root for backwards compatibility.
+pub use types::Pair;
 
 pub mod types;
 pub mod browse;
@@ -82,17 +83,3 @@ pub enum TagrError {
     InvalidInput(String),
 }
 
-/// Data struct containing the pairings of file and tags
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Pair {
-    pub file: PathBuf,
-    pub tags: Vec<String>,
-}
-
-impl Pair {
-    /// Create a new Pair
-    #[must_use]
-    pub const fn new(file: PathBuf, tags: Vec<String>) -> Self {
-        Self { file, tags }
-    }
-}

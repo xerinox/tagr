@@ -11,6 +11,7 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
 use tagr::Pair;
+use tagr::types::{TagName, TagrPath};
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
 use tagr::store::DirectStore;
@@ -228,22 +229,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     db.clear()?;
 
     // Add some sample files with tags
-    db.insert_pair(&Pair {
-        file: "src/main.rs".into(),
-        tags: vec!["rust".into(), "code".into()],
-    })?;
-    db.insert_pair(&Pair {
-        file: "src/lib.rs".into(),
-        tags: vec!["rust".into(), "library".into()],
-    })?;
-    db.insert_pair(&Pair {
-        file: "README.md".into(),
-        tags: vec!["docs".into(), "markdown".into()],
-    })?;
-    db.insert_pair(&Pair {
-        file: "Cargo.toml".into(),
-        tags: vec!["config".into(), "rust".into()],
-    })?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("src/main.rs".to_owned()),
+        vec![TagName::new("rust").unwrap(), TagName::new("code").unwrap()],
+    ))?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("src/lib.rs".to_owned()),
+        vec![TagName::new("rust").unwrap(), TagName::new("library").unwrap()],
+    ))?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("README.md".to_owned()),
+        vec![TagName::new("docs").unwrap(), TagName::new("markdown").unwrap()],
+    ))?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("Cargo.toml".to_owned()),
+        vec![TagName::new("config").unwrap(), TagName::new("rust").unwrap()],
+    ))?;
 
     println!("Choose a finder implementation:");
     println!("1. SimpleFinder (basic numbered list)");

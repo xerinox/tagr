@@ -140,21 +140,9 @@ impl TagStore for DirectStore {
     }
 
     fn list_all(&self) -> Result<Vec<Pair>> {
-        let old_pairs = self
-            .db
+        self.db
             .list_all()
-            .map_err(|e| map_db_error(e, "listing all pairs"))?;
-
-        old_pairs
-            .into_iter()
-            .map(|p| {
-                let file = path_to_tagrpath(&p.file, "list_all")?;
-                let tags = p.tags.iter()
-                    .map(|s| string_to_tagname(s, "list_all"))
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(Pair::new(file, tags))
-            })
-            .collect()
+            .map_err(|e| map_db_error(e, "listing all pairs"))
     }
 
     fn get_tags(&self, file: &TagrPath) -> Result<Option<Vec<TagName>>> {

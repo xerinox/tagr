@@ -241,7 +241,7 @@ pub fn filter_items_in_memory<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Pair;
+    use crate::types::Pair;
     use crate::types::MatchMode;
     use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
@@ -260,17 +260,17 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        let pair1 = Pair::new(
-            file1.path().to_path_buf(),
-            vec!["rust".into(), "code".into()],
+        let pair1 = Pair::from_raw(
+            file1.path(),
+            vec!["rust", "code"],
         );
-        let pair2 = Pair::new(
-            file2.path().to_path_buf(),
-            vec!["rust".into(), "docs".into()],
+        let pair2 = Pair::from_raw(
+            file2.path(),
+            vec!["rust", "docs"],
         );
-        let pair3 = Pair::new(
-            file3.path().to_path_buf(),
-            vec!["python".into(), "script".into()],
+        let pair3 = Pair::from_raw(
+            file3.path(),
+            vec!["python", "script"],
         );
 
         db.insert_pair(&pair1).unwrap();
@@ -324,12 +324,12 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        let pair1 = Pair::new(file1.path().to_path_buf(), vec!["rust".into()]);
-        let pair2 = Pair::new(
-            file2.path().to_path_buf(),
-            vec!["rust".into(), "docs".into()],
+        let pair1 = Pair::from_raw(file1.path(), vec!["rust"]);
+        let pair2 = Pair::from_raw(
+            file2.path(),
+            vec!["rust", "docs"],
         );
-        let pair3 = Pair::new(file3.path().to_path_buf(), vec!["python".into()]);
+        let pair3 = Pair::from_raw(file3.path(), vec!["python"]);
 
         db.insert_pair(&pair1).unwrap();
         db.insert_pair(&pair2).unwrap();
@@ -364,14 +364,14 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        db.insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["rust"]))
             .unwrap();
-        db.insert_pair(&Pair::new(
-            file2.path().to_path_buf(),
-            vec!["python".into()],
+        db.insert_pair(&Pair::from_raw(
+            file2.path(),
+            vec!["python"],
         ))
         .unwrap();
-        db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["go".into()]))
+        db.insert_pair(&Pair::from_raw(file3.path(), vec!["go"]))
             .unwrap();
 
         let source = ds(&test_db);
@@ -390,14 +390,14 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        db.insert_pair(&Pair::new(
-            file1.path().to_path_buf(),
-            vec!["rust".into(), "web".into()],
+        db.insert_pair(&Pair::from_raw(
+            file1.path(),
+            vec!["rust", "web"],
         ))
         .unwrap();
-        db.insert_pair(&Pair::new(file2.path().to_path_buf(), vec!["rust".into()]))
+        db.insert_pair(&Pair::from_raw(file2.path(), vec!["rust"]))
             .unwrap();
-        db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["web".into()]))
+        db.insert_pair(&Pair::from_raw(file3.path(), vec!["web"]))
             .unwrap();
 
         let source = ds(&test_db);
@@ -420,9 +420,9 @@ mod tests {
         db.clear().unwrap();
 
         let file1 = TempFile::create("file1.txt").unwrap();
-        db.insert_pair(&Pair::new(
-            file1.path().to_path_buf(),
-            vec!["python".into()],
+        db.insert_pair(&Pair::from_raw(
+            file1.path(),
+            vec!["python"],
         ))
         .unwrap();
 
@@ -450,7 +450,7 @@ mod tests {
         let file3 = TempFile::create("file3.txt").unwrap();
 
         // File with tags and note - should be excluded
-        db.insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["rust"]))
             .unwrap();
         db.set_note(
             file1.path(),
@@ -478,9 +478,9 @@ mod tests {
         .unwrap();
 
         // File with tags but no note - should be excluded
-        db.insert_pair(&Pair::new(
-            file3.path().to_path_buf(),
-            vec!["python".into()],
+        db.insert_pair(&Pair::from_raw(
+            file3.path(),
+            vec!["python"],
         ))
         .unwrap();
 

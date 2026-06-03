@@ -11,6 +11,7 @@
 use std::fs;
 use std::path::PathBuf;
 use tagr::Pair;
+use tagr::types::{TagName, TagrPath};
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
 use tagr::store::DirectStore;
@@ -85,10 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (filename, tags) in tags_map {
         let file_path = temp_dir.join(filename);
-        db.insert_pair(&Pair {
-            file: file_path,
-            tags: tags.iter().map(|s| (*s).to_string()).collect(),
-        })?;
+        let tagr_path = TagrPath::new(&file_path).expect("valid UTF-8 path");
+        let tag_names: Vec<TagName> = tags.iter()
+            .map(|s| TagName::new(*s).expect("valid tag name"))
+            .collect();
+        db.insert_pair(&Pair::new(tagr_path, tag_names))?;
     }
 
     println!("Tagged {} files in database", files.len());
