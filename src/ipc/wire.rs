@@ -1,6 +1,6 @@
 //! Binary wire protocol for persistent bidirectional IPC.
 //!
-//! Uses wincode (bincode-compatible) for serialization and length-prefixed
+//! Uses postcard for serialization and length-prefixed
 //! framing over a local socket stream.
 //!
 //! ## Frame format

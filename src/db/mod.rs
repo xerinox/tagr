@@ -8,7 +8,7 @@
 //! - `tags`: Reverse index mapping tags to file paths
 
 use crate::Pair;
-use bincode;
+
 use regex::Regex;
 use sled::{Db, Tree};
 use std::collections::HashSet;
@@ -96,8 +96,8 @@ impl Database {
             self.remove_from_tag_index(file_path, &old_tags)?;
         }
 
-        let key = bincode::encode_to_vec(&pair.file, bincode::config::standard())?;
-        let value = bincode::encode_to_vec(&pair.tags, bincode::config::standard())?;
+        let key = postcard::to_allocvec(&pair.file)?;
+        let value = postcard::to_allocvec(&pair.tags)?;
         self.files.insert(key, value)?;
 
         self.add_to_tag_index(file_path, &pair.tags)?;
@@ -141,8 +141,7 @@ impl Database {
 
         match self.files.get(key.as_slice())? {
             Some(value) => {
-                let (tags, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
+                let tags: Vec<String> = postcard::from_bytes(&value)?;
                 Ok(Some(tags))
             }
             None => Ok(None),
@@ -162,10 +161,8 @@ impl Database {
 
         match self.files.get(key.as_slice())? {
             Some(value) => {
-                let (file_path, _): (PathBuf, usize) =
-                    bincode::decode_from_slice(&key, bincode::config::standard())?;
-                let (tags, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
+                let file_path: PathBuf = postcard::from_bytes(&key)?;
+                let tags: Vec<String> = postcard::from_bytes(&value)?;
                 Ok(Some(Pair::new(file_path, tags)))
             }
             None => Ok(None),
@@ -262,10 +259,8 @@ impl Database {
         let mut pairs = Vec::new();
         for result in &self.files {
             let (key, value) = result?;
-            let (file, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
-            let (tags, _): (Vec<String>, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let file: PathBuf = postcard::from_bytes(&key)?;
+            let tags: Vec<String> = postcard::from_bytes(&value)?;
             pairs.push(Pair::new(file, tags));
         }
         Ok(pairs)
@@ -290,8 +285,7 @@ impl Database {
 
         match self.tags.get(key)? {
             Some(value) => {
-                let (files, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
+                let files: Vec<String> = postcard::from_bytes(&value)?;
                 Ok(files.into_iter().map(PathBuf::from).collect())
             }
             None => Ok(Vec::new()),
@@ -422,8 +416,7 @@ impl Database {
             let (key, value) = item?;
             let tag = String::from_utf8(key.to_vec())
                 .map_err(|e| DbError::SerializeError(format!("invalid UTF-8 in tag key: {e}")))?;
-            let (files, _): (Vec<String>, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let files: Vec<String> = postcard::from_bytes(&value)?;
             results.push((tag, files.len()));
         }
         results.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -536,8 +529,7 @@ impl Database {
         let mut files = Vec::new();
         for result in &self.files {
             let (key, _) = result?;
-            let (file, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
+            let file: PathBuf = postcard::from_bytes(&key)?;
             files.push(file);
         }
         Ok(files)
@@ -631,8 +623,7 @@ impl Database {
 
             let mut files: Vec<String> = match self.tags.get(tag_key)? {
                 Some(value) => {
-                    let (files, _): (Vec<String>, usize) =
-                        bincode::decode_from_slice(&value, bincode::config::standard())?;
+                    let files: Vec<String> = postcard::from_bytes(&value)?;
                     files
                 }
                 None => Vec::new(),
@@ -642,7 +633,7 @@ impl Database {
                 files.push(file_path.to_string());
             }
 
-            let encoded = bincode::encode_to_vec(&files, bincode::config::standard())?;
+            let encoded = postcard::to_allocvec(&files)?;
             self.tags.insert(tag_key, encoded)?;
         }
         Ok(())
@@ -665,15 +656,14 @@ impl Database {
             let tag_key = tag.as_bytes();
 
             if let Some(value) = self.tags.get(tag_key)? {
-                let (mut files, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
+                let mut files: Vec<String> = postcard::from_bytes(&value)?;
 
                 files.retain(|f| f != file_path);
 
                 if files.is_empty() {
                     self.tags.remove(tag_key)?;
                 } else {
-                    let encoded = bincode::encode_to_vec(&files, bincode::config::standard())?;
+                    let encoded = postcard::to_allocvec(&files)?;
                     self.tags.insert(tag_key, encoded)?;
                 }
             }
@@ -703,8 +693,8 @@ impl Database {
     /// Returns `DbError` if path contains invalid UTF-8 or serialization fails.
     pub fn set_note<P: AsRef<Path>>(&self, file: P, note: &NoteRecord) -> Result<(), DbError> {
         let file_path = file.as_ref();
-        let key = bincode::encode_to_vec(file_path, bincode::config::standard())?;
-        let value = bincode::encode_to_vec(note, bincode::config::standard())?;
+        let key = postcard::to_allocvec(file_path)?;
+        let value = postcard::to_allocvec(note)?;
         self.notes.insert(key, value)?;
 
         // Ensure file exists in files tree (with empty tags if not already present)
@@ -729,11 +719,10 @@ impl Database {
     ///
     /// Returns `DbError` if deserialization fails.
     pub fn get_note<P: AsRef<Path>>(&self, file: P) -> Result<Option<NoteRecord>, DbError> {
-        let key = bincode::encode_to_vec(file.as_ref(), bincode::config::standard())?;
+        let key = postcard::to_allocvec(file.as_ref())?;
 
         if let Some(value) = self.notes.get(key)? {
-            let (note, _): (NoteRecord, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let note: NoteRecord = postcard::from_bytes(&value)?;
             Ok(Some(note))
         } else {
             Ok(None)
@@ -757,14 +746,13 @@ impl Database {
     /// Returns `DbError` if database operation fails.
     pub fn delete_note<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
         let file_path = file.as_ref();
-        let key = bincode::encode_to_vec(file_path, bincode::config::standard())?;
+        let key = postcard::to_allocvec(file_path)?;
         let was_deleted = self.notes.remove(key.clone())?.is_some();
 
         if was_deleted {
             // Maintaining equality model: files with no tags AND no notes shouldn't exist in db
             if let Some(tags_value) = self.files.get(key.clone())? {
-                let (tags, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&tags_value, bincode::config::standard())?;
+                let tags: Vec<String> = postcard::from_bytes(&tags_value)?;
 
                 if tags.is_empty() {
                     self.files.remove(key)?;
@@ -788,10 +776,8 @@ impl Database {
 
         for item in &self.notes {
             let (key, value) = item?;
-            let (path, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
-            let (note, _): (NoteRecord, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let path: PathBuf = postcard::from_bytes(&key)?;
+            let note: NoteRecord = postcard::from_bytes(&value)?;
             results.push((path, note));
         }
 
@@ -818,10 +804,8 @@ impl Database {
 
         for item in &self.notes {
             let (key, value) = item?;
-            let (path, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
-            let (note, _): (NoteRecord, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let path: PathBuf = postcard::from_bytes(&key)?;
+            let note: NoteRecord = postcard::from_bytes(&value)?;
 
             // Case-insensitive search in content
             if note.content.to_lowercase().contains(&query_lower) {

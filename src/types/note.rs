@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Metadata for a note (timestamps only).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NoteMeta {
     /// Unix timestamp when note was created.
     pub created_at: i64,
@@ -37,7 +37,7 @@ impl Default for NoteMeta {
 /// assert_eq!(note.content, "TODO: refactor this module");
 /// assert!(note.metadata.created_at > 0);
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NoteRecord {
     /// Markdown content of the note (free-form markdown with optional timestamped entries).
     pub content: String,

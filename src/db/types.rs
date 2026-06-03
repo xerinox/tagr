@@ -1,7 +1,7 @@
 //! Type wrappers for database keys
 //!
 //! Provides `PathKey` — a wrapper around `PathBuf` for serializing file paths
-//! as sled database keys via bincode.
+//! as sled database keys via postcard.
 //!
 //! # Examples
 //!
@@ -14,7 +14,6 @@
 //! ```
 
 use super::error::DbError;
-use bincode;
 use std::path::{Path, PathBuf};
 
 /// Wrapper for `PathBuf` that can be converted to `Vec<u8>` for database keys
@@ -25,7 +24,7 @@ impl TryFrom<PathKey> for Vec<u8> {
     type Error = DbError;
 
     fn try_from(key: PathKey) -> Result<Self, Self::Error> {
-        Ok(bincode::encode_to_vec(&key.0, bincode::config::standard())?)
+        Ok(postcard::to_allocvec(&key.0)?)
     }
 }
 
@@ -38,8 +37,7 @@ impl PathKey {
     ///
     /// Returns `DbError` if the bytes cannot be deserialized into a `PathBuf`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DbError> {
-        let (path, _): (PathBuf, usize) =
-            bincode::decode_from_slice(bytes, bincode::config::standard())?;
+        let path: PathBuf = postcard::from_bytes(bytes)?;
         Ok(Self(path))
     }
 

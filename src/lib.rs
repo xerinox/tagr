@@ -3,7 +3,6 @@
 //! This library provides functionality for tagging files and performing
 //! efficient searches using an embedded database with reverse indices.
 
-use bincode::{self, Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -81,7 +80,7 @@ pub enum TagrError {
 }
 
 /// Data struct containing the pairings of file and tags
-#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Pair {
     pub file: PathBuf,
     pub tags: Vec<String>,

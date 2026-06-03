@@ -6,8 +6,7 @@
 //! # Error Types
 //!
 //! - **`SledError`**: Errors from the underlying sled embedded database
-//! - **`DecodeError`**: Failures when deserializing data from the database
-//! - **`EncodeError`**: Failures when serializing data to the database
+//! - **`PostcardError`**: Failures when serializing/deserializing data
 //! - **`SerializeError`**: Generic serialization errors (e.g., invalid UTF-8 in paths)
 //!
 //! All errors implement `std::error::Error` via the `thiserror` crate and provide
@@ -22,13 +21,9 @@ pub enum DbError {
     #[error("Database error: {0}")]
     SledError(#[from] sled::Error),
 
-    /// Represents a bincode decoding error
-    #[error("Error while decoding data: {0}")]
-    DecodeError(#[from] bincode::error::DecodeError),
-
-    /// Represents a bincode encoding error
-    #[error("Error while encoding data: {0}")]
-    EncodeError(#[from] bincode::error::EncodeError),
+    /// Represents a postcard serialization/deserialization error
+    #[error("Error while serializing/deserializing data: {0}")]
+    PostcardError(#[from] postcard::Error),
 
     /// Generic serialization/deserialization error
     #[error("Error during serialization: {0}")]

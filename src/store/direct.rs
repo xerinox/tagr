@@ -71,7 +71,7 @@ fn map_db_open_error(err: crate::db::DbError, path: &impl AsRef<std::path::Path>
 /// Map a `DbError` from a data operation to `StoreError`.
 fn map_db_error(err: crate::db::DbError, context: &str) -> StoreError {
     match err {
-        crate::db::DbError::DecodeError(e) => StoreError::StorageCorrupted {
+        crate::db::DbError::PostcardError(e) => StoreError::StorageCorrupted {
             key: context.to_string(),
             reason: e.to_string(),
         },
