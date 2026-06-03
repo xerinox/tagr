@@ -370,7 +370,15 @@ fn handle_config_command(
 /// Returns `TagrError` if configuration loading fails, database initialization fails,
 /// or any command handler returns an error.
 #[allow(clippy::too_many_lines)]
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run() -> Result<()> {
     // Handle shell completion before anything else (when feature is enabled)
     #[cfg(feature = "dynamic-completions")]
     tagr::completions::init_dynamic_completions(Cli::command);
