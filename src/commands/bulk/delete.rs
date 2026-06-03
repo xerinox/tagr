@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use super::batch::{BatchFormat, format_mismatch_hint_parsed};
 use super::core::{BulkOpSummary, SkipReason};
+use crate::TagrError;
 use crate::store::TagStore;
 use crate::types::TagrPath;
-use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -50,7 +50,11 @@ pub fn bulk_delete_files(
         if files.len() > 15 {
             writeln!(writer, "  ... and {} more", files.len() - 15)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !yes {

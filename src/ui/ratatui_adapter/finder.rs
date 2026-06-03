@@ -46,7 +46,8 @@ pub struct RatatuiFinder {
     theme: Theme,
     /// Daemon event receiver for live updates (only in Remote mode).
     /// Wrapped in `RefCell` to allow taking from `&self` (`FuzzyFinder` trait requires `&self`).
-    event_rx: std::cell::RefCell<Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>>,
+    event_rx:
+        std::cell::RefCell<Option<tokio::sync::mpsc::Receiver<crate::ipc::wire::ServerEvent>>>,
 }
 
 impl RatatuiFinder {
@@ -385,10 +386,7 @@ impl RatatuiFinder {
             // No preview: 2-pane layout (tag tree | files)
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(35),
-                    Constraint::Percentage(65),
-                ])
+                .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
                 .split(area);
 
             Self::render_tag_tree(frame, state, theme, chunks[0]);
@@ -653,7 +651,12 @@ impl RatatuiFinder {
 
         loop {
             // Drain daemon events (non-blocking)
-            Self::drain_daemon_events(&mut daemon_event_rx, &mut state, &mut cached_preview_key, &mut cached_preview_mode);
+            Self::drain_daemon_events(
+                &mut daemon_event_rx,
+                &mut state,
+                &mut cached_preview_key,
+                &mut cached_preview_mode,
+            );
 
             // Update preview if needed - prefer styled_generator (native ratatui) over preview_provider (ANSI)
             if let Some(preview_config) = &config.preview_config
@@ -723,9 +726,7 @@ impl RatatuiFinder {
                                 std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
                             // Get existing note or create new one
-                            let existing_note = state
-                                .cached_note(&canonical_path)
-                                .cloned();
+                            let existing_note = state.cached_note(&canonical_path).cloned();
 
                             let initial_content = existing_note
                                 .as_ref()
@@ -747,7 +748,8 @@ impl RatatuiFinder {
                                         // Save or delete note based on content
                                         if let Some(ds) = state.database.as_ref() {
                                             let is_empty = updated_content.trim().is_empty();
-                                            let tagr_path = crate::types::TagrPath::new(&canonical_path);
+                                            let tagr_path =
+                                                crate::types::TagrPath::new(&canonical_path);
 
                                             if is_empty && existing_note.is_some() {
                                                 // Delete note if content cleared
@@ -788,8 +790,12 @@ impl RatatuiFinder {
                                                     crate::types::NoteRecord::new(updated_content)
                                                 };
 
-                                                let _ = tagr_path.as_ref().map(|tp| ds.set_note(tp, &note));
-                                                state.note_cache.insert(canonical_path.clone(), note);
+                                                let _ = tagr_path
+                                                    .as_ref()
+                                                    .map(|tp| ds.set_note(tp, &note));
+                                                state
+                                                    .note_cache
+                                                    .insert(canonical_path.clone(), note);
 
                                                 // Update has_note metadata for the current item
                                                 if state.is_tag_selection_phase() {
@@ -1062,7 +1068,9 @@ impl RatatuiFinder {
             let tags_with_counts: Vec<(String, usize)> = all_tags
                 .into_iter()
                 .filter_map(|tag| {
-                    ds.find_by_tag(&tag).ok().map(|files| (tag.to_string(), files.len()))
+                    ds.find_by_tag(&tag)
+                        .ok()
+                        .map(|files| (tag.to_string(), files.len()))
                 })
                 .collect();
 

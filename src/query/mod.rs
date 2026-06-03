@@ -33,8 +33,8 @@ pub use error::SearchError;
 #[cfg(test)]
 mod tests;
 
-use crate::schema::types::TagSchema;
 use crate::schema::HIERARCHY_DELIMITER;
+use crate::schema::types::TagSchema;
 use crate::store::{StoreError, TagStore};
 use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName, TagrPath};
 use std::collections::HashSet;
@@ -176,10 +176,7 @@ fn collect_freetext_matches(
         .collect();
     file_set.extend(files_by_name);
 
-    let mut result: Vec<TagrPath> = file_set
-        .into_iter()
-        .map(TagrPath::from_string)
-        .collect();
+    let mut result: Vec<TagrPath> = file_set.into_iter().map(TagrPath::from_string).collect();
     result.sort();
     Ok(result)
 }
@@ -290,10 +287,7 @@ fn evaluate_regex_tags(
             let matching = store.find_by_tag_regex(pattern)?;
             file_set.extend(matching.into_iter().map(|p| p.as_str().to_string()));
         }
-        let mut result: Vec<TagrPath> = file_set
-            .into_iter()
-            .map(TagrPath::from_string)
-            .collect();
+        let mut result: Vec<TagrPath> = file_set.into_iter().map(TagrPath::from_string).collect();
         result.sort();
 
         // Post-filter for Not expressions
@@ -353,9 +347,12 @@ fn evaluate_with_hierarchy(
                 if exclude_patterns.is_empty() {
                     true
                 } else {
-                    let tag_strings: Vec<String> =
-                        tags.iter().map(|t| (*t).to_string()).collect();
-                    hierarchy::should_include_file(&tag_strings, &expanded_includes, &exclude_patterns)
+                    let tag_strings: Vec<String> = tags.iter().map(|t| (*t).to_string()).collect();
+                    hierarchy::should_include_file(
+                        &tag_strings,
+                        &expanded_includes,
+                        &exclude_patterns,
+                    )
                 }
             })
             .map(|p| p.file)
@@ -366,8 +363,7 @@ fn evaluate_with_hierarchy(
             .into_iter()
             .map(|pair| {
                 let file = pair.file.as_str().to_string();
-                let tags: Vec<String> =
-                    pair.tags.iter().map(|t| t.as_ref().to_string()).collect();
+                let tags: Vec<String> = pair.tags.iter().map(|t| t.as_ref().to_string()).collect();
                 (file, tags)
             })
             .collect();
@@ -456,10 +452,7 @@ fn needs_post_filter(expr: &TagExpr) -> bool {
 
 /// Check if criteria has Not in its tag expression.
 fn needs_post_filter_in_criteria(criteria: &QueryCriteria) -> bool {
-    criteria
-        .tag_expr
-        .as_ref()
-        .is_some_and(needs_post_filter)
+    criteria.tag_expr.as_ref().is_some_and(needs_post_filter)
 }
 
 /// Extract flat tag pattern strings from a `TagExpr` (for regex evaluation).

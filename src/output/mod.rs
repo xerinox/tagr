@@ -32,7 +32,12 @@ pub fn format_path(path: impl AsRef<Path>, format: PathFormat) -> String {
 
 /// Format a file with its tags for display
 #[must_use]
-pub fn file_with_tags(path: impl AsRef<Path>, tags: &[impl AsRef<str>], format: PathFormat, quiet: bool) -> String {
+pub fn file_with_tags(
+    path: impl AsRef<Path>,
+    tags: &[impl AsRef<str>],
+    format: PathFormat,
+    quiet: bool,
+) -> String {
     let path_str = format_path(path, format);
 
     if quiet {

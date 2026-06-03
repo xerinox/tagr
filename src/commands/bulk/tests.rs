@@ -147,7 +147,16 @@ fn test_rename_tag_basic() {
     db.add_tags(f1.path(), vec!["oldname".into(), "other".into()])
         .unwrap();
     db.add_tags(f2.path(), vec!["oldname".into()]).unwrap();
-    rename_tag(test_db.store(), "oldname", "newname", false, true, true, &mut std::io::sink()).unwrap();
+    rename_tag(
+        test_db.store(),
+        "oldname",
+        "newname",
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags1 = db.get_tags(f1.path()).unwrap().unwrap();
     assert!(tags1.contains(&"newname".into()));
 }
@@ -516,7 +525,16 @@ fn test_transform_tags_empty_db() {
     let db = test_db.db();
     db.clear().unwrap();
     let mut out = Vec::new();
-    transform_tags(test_db.store(), &TagTransformation::Lowercase, None, false, true, false, &mut out).unwrap();
+    transform_tags(
+        test_db.store(),
+        &TagTransformation::Lowercase,
+        None,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("No tags found"));
 }
@@ -529,7 +547,16 @@ fn test_transform_tags_identity_noop() {
     let f = TempFile::create("f.txt").unwrap();
     db.add_tags(f.path(), vec!["lowercase".into()]).unwrap();
     let mut out = Vec::new();
-    transform_tags(test_db.store(), &TagTransformation::Lowercase, None, false, true, false, &mut out).unwrap();
+    transform_tags(
+        test_db.store(),
+        &TagTransformation::Lowercase,
+        None,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("No transformations to apply"));
 }
@@ -540,8 +567,18 @@ fn test_transform_tags_lowercase_applied() {
     let db = test_db.db();
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
-    db.add_tags(f.path(), vec!["MyTag".into(), "keep".into()]).unwrap();
-    transform_tags(test_db.store(), &TagTransformation::Lowercase, None, false, true, true, &mut std::io::sink()).unwrap();
+    db.add_tags(f.path(), vec!["MyTag".into(), "keep".into()])
+        .unwrap();
+    transform_tags(
+        test_db.store(),
+        &TagTransformation::Lowercase,
+        None,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     assert!(tags.contains(&"mytag".into()));
     assert!(tags.contains(&"keep".into()));
@@ -554,15 +591,19 @@ fn test_transform_tags_filter_specific() {
     let db = test_db.db();
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
-    db.add_tags(f.path(), vec!["UPPER".into(), "KEEP".into()]).unwrap();
+    db.add_tags(f.path(), vec!["UPPER".into(), "KEEP".into()])
+        .unwrap();
     let filter = vec!["UPPER".to_string()];
     transform_tags(
         test_db.store(),
         &TagTransformation::Lowercase,
         Some(&filter),
-        false, true, true,
+        false,
+        true,
+        true,
         &mut std::io::sink(),
-    ).unwrap();
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     assert!(tags.contains(&"upper".into()), "UPPER should be lowercased");
     assert!(tags.contains(&"KEEP".into()), "KEEP should be untouched");
@@ -576,7 +617,16 @@ fn test_transform_tags_dry_run() {
     let f = TempFile::create("f.txt").unwrap();
     db.add_tags(f.path(), vec!["UPPER".into()]).unwrap();
     let mut out = Vec::new();
-    transform_tags(test_db.store(), &TagTransformation::Lowercase, None, true, true, false, &mut out).unwrap();
+    transform_tags(
+        test_db.store(),
+        &TagTransformation::Lowercase,
+        None,
+        true,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Dry Run"));
     // Tag should NOT have changed
@@ -591,9 +641,19 @@ fn test_transform_tags_collision_dedup() {
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
     // Both FOO and Foo will lowercase to "foo"
-    db.add_tags(f.path(), vec!["FOO".into(), "Foo".into()]).unwrap();
+    db.add_tags(f.path(), vec!["FOO".into(), "Foo".into()])
+        .unwrap();
     let mut out = Vec::new();
-    transform_tags(test_db.store(), &TagTransformation::Lowercase, None, false, true, false, &mut out).unwrap();
+    transform_tags(
+        test_db.store(),
+        &TagTransformation::Lowercase,
+        None,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     assert!(tags.contains(&"foo".into()));
     let foo_count = tags.iter().filter(|t| *t == "foo").count();
@@ -641,7 +701,17 @@ fn test_propagate_dir_empty_db() {
     let db = test_db.db();
     db.clear().unwrap();
     let mut out = Vec::new();
-    propagate_by_directory(test_db.store(), None, &[], false, false, true, false, &mut out).unwrap();
+    propagate_by_directory(
+        test_db.store(),
+        None,
+        &[],
+        false,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("No files found"));
 }
@@ -653,7 +723,17 @@ fn test_propagate_dir_immediate_parent() {
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
     db.add_tags(f.path(), vec!["initial".into()]).unwrap();
-    propagate_by_directory(test_db.store(), None, &[], false, false, true, true, &mut std::io::sink()).unwrap();
+    propagate_by_directory(
+        test_db.store(),
+        None,
+        &[],
+        false,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     // Should have a tag from the parent directory name
     assert!(tags.len() >= 2, "should have at least initial + dir tag");
@@ -666,12 +746,33 @@ fn test_propagate_dir_custom_mapping() {
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
     // Get the parent dir name so we can create a mapping for it
-    let parent_name = f.path().parent().unwrap().file_name().unwrap().to_str().unwrap().to_string();
+    let parent_name = f
+        .path()
+        .parent()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     let mapping = format!("{parent_name}:custom-tag");
     db.add_tags(f.path(), vec!["initial".into()]).unwrap();
-    propagate_by_directory(test_db.store(), None, &[mapping], false, false, true, true, &mut std::io::sink()).unwrap();
+    propagate_by_directory(
+        test_db.store(),
+        None,
+        &[mapping],
+        false,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
-    assert!(tags.contains(&"custom-tag".into()), "custom mapping should override dir name");
+    assert!(
+        tags.contains(&"custom-tag".into()),
+        "custom mapping should override dir name"
+    );
 }
 
 #[test]
@@ -682,7 +783,17 @@ fn test_propagate_dir_dry_run() {
     let f = TempFile::create("f.txt").unwrap();
     db.add_tags(f.path(), vec!["initial".into()]).unwrap();
     let mut out = Vec::new();
-    propagate_by_directory(test_db.store(), None, &[], false, true, true, false, &mut out).unwrap();
+    propagate_by_directory(
+        test_db.store(),
+        None,
+        &[],
+        false,
+        true,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Dry Run"));
     // Tags should NOT have changed
@@ -695,7 +806,16 @@ fn test_propagate_dir_invalid_mapping() {
     let test_db = TestDb::new("test_prop_dir_badmap");
     let db = test_db.db();
     db.clear().unwrap();
-    let err = propagate_by_directory(test_db.store(), None, &["no-colon".into()], false, false, true, true, &mut std::io::sink());
+    let err = propagate_by_directory(
+        test_db.store(),
+        None,
+        &["no-colon".into()],
+        false,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    );
     assert!(err.is_err());
 }
 
@@ -708,9 +828,21 @@ fn test_propagate_ext_defaults() {
     db.clear().unwrap();
     let f = TempFile::create("code.rs").unwrap();
     db.add_tags(f.path(), vec!["initial".into()]).unwrap();
-    propagate_by_extension(test_db.store(), &[], false, false, true, true, &mut std::io::sink()).unwrap();
+    propagate_by_extension(
+        test_db.store(),
+        &[],
+        false,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
-    assert!(tags.contains(&"rust".into()), "default .rs mapping should add 'rust'");
+    assert!(
+        tags.contains(&"rust".into()),
+        "default .rs mapping should add 'rust'"
+    );
 }
 
 #[test]
@@ -720,9 +852,21 @@ fn test_propagate_ext_custom_override() {
     db.clear().unwrap();
     let f = TempFile::create("code.rs").unwrap();
     db.add_tags(f.path(), vec!["initial".into()]).unwrap();
-    propagate_by_extension(test_db.store(), &["rs:my-rust".into()], false, false, true, true, &mut std::io::sink()).unwrap();
+    propagate_by_extension(
+        test_db.store(),
+        &["rs:my-rust".into()],
+        false,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
-    assert!(tags.contains(&"my-rust".into()), "custom mapping should override default");
+    assert!(
+        tags.contains(&"my-rust".into()),
+        "custom mapping should override default"
+    );
     assert!(!tags.contains(&"rust".into()), "default should be replaced");
 }
 
@@ -731,7 +875,15 @@ fn test_propagate_ext_no_defaults_no_custom_error() {
     let test_db = TestDb::new("test_prop_ext_nodef");
     let db = test_db.db();
     db.clear().unwrap();
-    let err = propagate_by_extension(test_db.store(), &[], true, false, true, true, &mut std::io::sink());
+    let err = propagate_by_extension(
+        test_db.store(),
+        &[],
+        true,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    );
     assert!(err.is_err(), "no_defaults with no custom should error");
 }
 
@@ -773,7 +925,16 @@ fn test_batch_from_file_plaintext() {
     let f = TempFile::create("target.txt").unwrap();
     let content = format!("{} tag1 tag2", f.path().display());
     let input = TempFile::create_with_content("batch.txt", content.as_bytes()).unwrap();
-    batch_from_file(test_db.store(), input.path(), BatchFormat::PlainText, false, true, true, &mut std::io::sink()).unwrap();
+    batch_from_file(
+        test_db.store(),
+        input.path(),
+        BatchFormat::PlainText,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     assert!(tags.contains(&"tag1".into()));
     assert!(tags.contains(&"tag2".into()));
@@ -785,9 +946,21 @@ fn test_batch_from_file_json() {
     let db = test_db.db();
     db.clear().unwrap();
     let f = TempFile::create("target.txt").unwrap();
-    let content = format!(r#"[{{"file":"{}","tags":["j1","j2"]}}]"#, f.path().display());
+    let content = format!(
+        r#"[{{"file":"{}","tags":["j1","j2"]}}]"#,
+        f.path().display()
+    );
     let input = TempFile::create_with_content("batch.json", content.as_bytes()).unwrap();
-    batch_from_file(test_db.store(), input.path(), BatchFormat::Json, false, true, true, &mut std::io::sink()).unwrap();
+    batch_from_file(
+        test_db.store(),
+        input.path(),
+        BatchFormat::Json,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     assert!(tags.contains(&"j1".into()));
 }
@@ -797,7 +970,15 @@ fn test_batch_from_file_missing_input() {
     let test_db = TestDb::new("test_batch_orch_missing");
     let db = test_db.db();
     db.clear().unwrap();
-    let err = batch_from_file(test_db.store(), std::path::Path::new("/nonexistent/file.txt"), BatchFormat::PlainText, false, true, true, &mut std::io::sink());
+    let err = batch_from_file(
+        test_db.store(),
+        std::path::Path::new("/nonexistent/file.txt"),
+        BatchFormat::PlainText,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    );
     assert!(err.is_err());
 }
 
@@ -810,10 +991,22 @@ fn test_batch_from_file_dry_run() {
     let content = format!("{} newtag", f.path().display());
     let input = TempFile::create_with_content("batch.txt", content.as_bytes()).unwrap();
     let mut out = Vec::new();
-    batch_from_file(test_db.store(), input.path(), BatchFormat::PlainText, true, true, false, &mut out).unwrap();
+    batch_from_file(
+        test_db.store(),
+        input.path(),
+        BatchFormat::PlainText,
+        true,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Dry Run"));
-    assert!(db.get_tags(f.path()).unwrap().is_none(), "dry run should not apply");
+    assert!(
+        db.get_tags(f.path()).unwrap().is_none(),
+        "dry run should not apply"
+    );
 }
 
 #[test]
@@ -825,7 +1018,16 @@ fn test_batch_from_file_empty_tags_skipped() {
     let content = r#"[{"file":"/some/file.txt","tags":[]}]"#;
     let input = TempFile::create_with_content("batch.json", content.as_bytes()).unwrap();
     let mut out = Vec::new();
-    batch_from_file(test_db.store(), input.path(), BatchFormat::Json, false, true, false, &mut out).unwrap();
+    batch_from_file(
+        test_db.store(),
+        input.path(),
+        BatchFormat::Json,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Skipped"));
 }
@@ -900,7 +1102,16 @@ fn test_bulk_map_tags_identical_skipped() {
     db.add_tags(f.path(), vec!["same".into()]).unwrap();
     let mapping = TempFile::create_with_content("map.txt", b"same same").unwrap();
     let mut out = Vec::new();
-    bulk_map_tags(test_db.store(), mapping.path(), BatchFormat::PlainText, false, true, false, &mut out).unwrap();
+    bulk_map_tags(
+        test_db.store(),
+        mapping.path(),
+        BatchFormat::PlainText,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Skipped"));
 }
@@ -914,7 +1125,16 @@ fn test_bulk_map_tags_not_found_skipped() {
     db.add_tags(f.path(), vec!["existing".into()]).unwrap();
     let mapping = TempFile::create_with_content("map.txt", b"nonexistent replacement").unwrap();
     let mut out = Vec::new();
-    bulk_map_tags(test_db.store(), mapping.path(), BatchFormat::PlainText, false, true, false, &mut out).unwrap();
+    bulk_map_tags(
+        test_db.store(),
+        mapping.path(),
+        BatchFormat::PlainText,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Skipped"));
 }
@@ -926,9 +1146,19 @@ fn test_bulk_map_tags_target_exists_dedup() {
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
     // File has both "old" and "new" — mapping old→new should just remove "old"
-    db.add_tags(f.path(), vec!["old".into(), "new".into()]).unwrap();
+    db.add_tags(f.path(), vec!["old".into(), "new".into()])
+        .unwrap();
     let mapping = TempFile::create_with_content("map.txt", b"old new").unwrap();
-    bulk_map_tags(test_db.store(), mapping.path(), BatchFormat::PlainText, false, true, true, &mut std::io::sink()).unwrap();
+    bulk_map_tags(
+        test_db.store(),
+        mapping.path(),
+        BatchFormat::PlainText,
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    )
+    .unwrap();
     let tags = db.get_tags(f.path()).unwrap().unwrap();
     assert!(tags.contains(&"new".into()));
     assert!(!tags.contains(&"old".into()));
@@ -945,11 +1175,23 @@ fn test_bulk_map_tags_dry_run() {
     db.add_tags(f.path(), vec!["old".into()]).unwrap();
     let mapping = TempFile::create_with_content("map.txt", b"old new").unwrap();
     let mut out = Vec::new();
-    bulk_map_tags(test_db.store(), mapping.path(), BatchFormat::PlainText, true, true, false, &mut out).unwrap();
+    bulk_map_tags(
+        test_db.store(),
+        mapping.path(),
+        BatchFormat::PlainText,
+        true,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Dry Run"));
     let tags = db.get_tags(f.path()).unwrap().unwrap();
-    assert!(tags.contains(&"old".into()), "dry run should not change tags");
+    assert!(
+        tags.contains(&"old".into()),
+        "dry run should not change tags"
+    );
 }
 
 // ========== rename_tag edge cases ==========
@@ -961,7 +1203,15 @@ fn test_rename_tag_same_name() {
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
     db.add_tags(f.path(), vec!["tag".into()]).unwrap();
-    let err = rename_tag(test_db.store(), "tag", "tag", false, true, true, &mut std::io::sink());
+    let err = rename_tag(
+        test_db.store(),
+        "tag",
+        "tag",
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    );
     assert!(err.is_err(), "renaming to same name should error");
 }
 
@@ -971,7 +1221,16 @@ fn test_rename_tag_not_found() {
     let db = test_db.db();
     db.clear().unwrap();
     let mut out = Vec::new();
-    rename_tag(test_db.store(), "nonexistent", "new", false, true, false, &mut out).unwrap();
+    rename_tag(
+        test_db.store(),
+        "nonexistent",
+        "new",
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("not found") || output.contains("No files"));
 }
@@ -985,7 +1244,15 @@ fn test_merge_tags_target_in_sources() {
     db.clear().unwrap();
     let f = TempFile::create("f.txt").unwrap();
     db.add_tags(f.path(), vec!["a".into()]).unwrap();
-    let err = merge_tags(test_db.store(), &["a".into(), "b".into()], "a", false, true, true, &mut std::io::sink());
+    let err = merge_tags(
+        test_db.store(),
+        &["a".into(), "b".into()],
+        "a",
+        false,
+        true,
+        true,
+        &mut std::io::sink(),
+    );
     assert!(err.is_err(), "target in sources should error");
 }
 
@@ -999,7 +1266,16 @@ fn test_bulk_delete_not_in_db() {
     let content = "/nonexistent/path.txt";
     let input = TempFile::create_with_content("del.txt", content.as_bytes()).unwrap();
     let mut out = Vec::new();
-    bulk_delete_files(test_db.store(), input.path(), BatchFormat::PlainText, false, true, false, &mut out).unwrap();
+    bulk_delete_files(
+        test_db.store(),
+        input.path(),
+        BatchFormat::PlainText,
+        false,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Skipped"));
 }
@@ -1014,7 +1290,16 @@ fn test_bulk_delete_dry_run() {
     let content = format!("{}", f.path().display());
     let input = TempFile::create_with_content("del.txt", content.as_bytes()).unwrap();
     let mut out = Vec::new();
-    bulk_delete_files(test_db.store(), input.path(), BatchFormat::PlainText, true, true, false, &mut out).unwrap();
+    bulk_delete_files(
+        test_db.store(),
+        input.path(),
+        BatchFormat::PlainText,
+        true,
+        true,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Dry Run"));
     assert_eq!(db.count(), 1, "dry run should not delete");

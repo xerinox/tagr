@@ -46,7 +46,11 @@ impl TestDb {
         db.clear().expect("Failed to clear test database");
         let store = DirectStore::new(db.clone());
 
-        Self { temp_dir, db, store }
+        Self {
+            temp_dir,
+            db,
+            store,
+        }
     }
 
     /// Get a reference to the underlying database

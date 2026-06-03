@@ -154,7 +154,10 @@ impl From<&FilterCriteria> for crate::types::QueryCriteria {
                         Some(TagExpr::And(excludes))
                     } else {
                         let include_expr = if includes.len() == 1 {
-                            includes.into_iter().next().unwrap_or_else(|| unreachable!())
+                            includes
+                                .into_iter()
+                                .next()
+                                .unwrap_or_else(|| unreachable!())
                         } else {
                             TagExpr::Or(includes)
                         };
@@ -538,11 +541,7 @@ mod tests {
 
     #[test]
     fn test_saved_filter_validate() {
-        let empty = SavedFilter::new(
-            "empty".to_string(),
-            String::new(),
-            QueryCriteria::default(),
-        );
+        let empty = SavedFilter::new("empty".to_string(), String::new(), QueryCriteria::default());
         assert!(empty.validate().is_err());
 
         let valid = SavedFilter::new(

@@ -8,7 +8,6 @@ use thiserror::Error;
 // Re-export the canonical Pair type at crate root for backwards compatibility.
 pub use types::Pair;
 
-pub mod types;
 pub mod browse;
 pub mod cli;
 pub mod commands;
@@ -27,6 +26,7 @@ pub(crate) mod preview;
 pub mod query;
 pub mod schema;
 pub mod store;
+pub mod types;
 pub mod ui;
 #[doc(hidden)]
 pub mod vtags;
@@ -82,4 +82,3 @@ pub enum TagrError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 }
-

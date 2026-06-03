@@ -116,7 +116,6 @@ const fn default_width_percent() -> u8 {
     50
 }
 
-
 /// Notes configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NotesConfig {

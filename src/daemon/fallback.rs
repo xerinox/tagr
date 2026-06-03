@@ -1,8 +1,8 @@
-use crate::daemon::traits::{DaemonManager, Result, DaemonError};
+use crate::daemon::client::send_request;
+use crate::daemon::traits::{DaemonError, DaemonManager, Result};
 use crate::ipc::wire::{Request, Response};
 use crate::watch::WatchConfig;
 use async_trait::async_trait;
-use crate::daemon::client::send_request;
 
 pub struct FallbackDaemonManager;
 
@@ -24,7 +24,9 @@ impl DaemonManager for FallbackDaemonManager {
             }
         }
 
-        Err(DaemonError::StartFailed("Timeout waiting for daemon to start".into()))
+        Err(DaemonError::StartFailed(
+            "Timeout waiting for daemon to start".into(),
+        ))
     }
 
     async fn send_command(&self, cmd: Request) -> Result<Response> {
@@ -117,7 +119,8 @@ pub fn daemonize_self() -> Result<()> {
             std::fs::create_dir_all(parent).ok();
         }
         if let Ok(stdout) = OpenOptions::new().create(true).append(true).open(&log_path)
-        && let Ok(stderr) = OpenOptions::new().create(true).append(true).open(&log_path) {
+            && let Ok(stderr) = OpenOptions::new().create(true).append(true).open(&log_path)
+        {
             builder = builder.stdout(stdout).stderr(stderr);
         }
     }

@@ -173,10 +173,9 @@ impl QueryCriteria {
                 true
             }
             Some(TagExpr::And(exprs) | TagExpr::Or(exprs)) => {
-                if let Some(pos) =
-                    exprs
-                        .iter()
-                        .position(|e| matches!(e, TagExpr::Tag(t) if *t == tag))
+                if let Some(pos) = exprs
+                    .iter()
+                    .position(|e| matches!(e, TagExpr::Tag(t) if *t == tag))
                 {
                     exprs.remove(pos);
                     collapse_tag_expr(&mut self.tag_expr);
@@ -205,9 +204,7 @@ impl QueryCriteria {
                 self.tag_expr = Some(not_tag);
                 true
             }
-            Some(TagExpr::Not(inner))
-                if matches!(inner.as_ref(), TagExpr::Tag(t) if *t == *tag) =>
-            {
+            Some(TagExpr::Not(inner)) if matches!(inner.as_ref(), TagExpr::Tag(t) if *t == *tag) => {
                 self.tag_expr = None;
                 false
             }
@@ -319,9 +316,8 @@ impl QueryCriteria {
 
         if !self.file_patterns.is_empty() && !self.regex_files {
             let path_str = pair.file.as_str();
-            let matches_pattern = |pattern: &str| {
-                glob::Pattern::new(pattern).is_ok_and(|p| p.matches(path_str))
-            };
+            let matches_pattern =
+                |pattern: &str| glob::Pattern::new(pattern).is_ok_and(|p| p.matches(path_str));
 
             match self.file_mode {
                 MatchMode::All => {
@@ -418,7 +414,8 @@ impl QueryCriteria {
 /// Called after `exprs.remove(pos)` while the mutable borrow on `exprs` is still
 /// held indirectly through `tag_expr`. Works by re-matching to avoid double borrows.
 fn collapse_tag_expr(tag_expr: &mut Option<TagExpr>) {
-    let should_collapse = matches!(tag_expr, Some(TagExpr::And(exprs) | TagExpr::Or(exprs)) if exprs.len() <= 1);
+    let should_collapse =
+        matches!(tag_expr, Some(TagExpr::And(exprs) | TagExpr::Or(exprs)) if exprs.len() <= 1);
     if should_collapse {
         match tag_expr.take() {
             Some(TagExpr::And(mut exprs) | TagExpr::Or(mut exprs)) => {

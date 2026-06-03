@@ -1,7 +1,7 @@
 //! Tests for core types — Tier 1 priority (newtype validation, `matches_pair`).
 
-use super::*;
 use super::error::NameKind;
+use super::*;
 
 // =============================================================================
 // TagName validation
@@ -30,7 +30,9 @@ mod tag_name_validation {
     fn reject_empty() {
         assert_eq!(
             TagName::new("").unwrap_err(),
-            ValidationError::Empty { kind: NameKind::Tag }
+            ValidationError::Empty {
+                kind: NameKind::Tag
+            }
         );
     }
 
@@ -85,7 +87,9 @@ mod tag_name_validation {
 
     #[test]
     fn reject_special_chars() {
-        for ch in ['/', '\\', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '=', '+'] {
+        for ch in [
+            '/', '\\', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '=', '+',
+        ] {
             let name = format!("tag{ch}name");
             assert!(
                 TagName::new(name.clone()).is_err(),
@@ -419,20 +423,14 @@ mod tag_expr_tests {
 
     #[test]
     fn and_expr() {
-        let expr = TagExpr::And(vec![
-            TagExpr::Tag(tag("rust")),
-            TagExpr::Tag(tag("cli")),
-        ]);
+        let expr = TagExpr::And(vec![TagExpr::Tag(tag("rust")), TagExpr::Tag(tag("cli"))]);
         assert!(expr.matches(&tags(&["rust", "cli", "tool"])));
         assert!(!expr.matches(&tags(&["rust"])));
     }
 
     #[test]
     fn or_expr() {
-        let expr = TagExpr::Or(vec![
-            TagExpr::Tag(tag("rust")),
-            TagExpr::Tag(tag("python")),
-        ]);
+        let expr = TagExpr::Or(vec![TagExpr::Tag(tag("rust")), TagExpr::Tag(tag("python"))]);
         assert!(expr.matches(&tags(&["rust"])));
         assert!(expr.matches(&tags(&["python"])));
         assert!(!expr.matches(&tags(&["go"])));
@@ -443,10 +441,7 @@ mod tag_expr_tests {
         // (rust & (cli | web) & !deprecated)
         let expr = TagExpr::And(vec![
             TagExpr::Tag(tag("rust")),
-            TagExpr::Or(vec![
-                TagExpr::Tag(tag("cli")),
-                TagExpr::Tag(tag("web")),
-            ]),
+            TagExpr::Or(vec![TagExpr::Tag(tag("cli")), TagExpr::Tag(tag("web"))]),
             TagExpr::Not(Box::new(TagExpr::Tag(tag("deprecated")))),
         ]);
 
@@ -567,10 +562,7 @@ mod query_criteria_tests {
         let c = QueryCriteria {
             tag_expr: Some(TagExpr::And(vec![
                 TagExpr::Tag(tag("rust")),
-                TagExpr::Or(vec![
-                    TagExpr::Tag(tag("cli")),
-                    TagExpr::Tag(tag("web")),
-                ]),
+                TagExpr::Or(vec![TagExpr::Tag(tag("cli")), TagExpr::Tag(tag("web"))]),
             ])),
             ..Default::default()
         };
@@ -859,10 +851,8 @@ mod query_cache_apply_event {
                     let Ok(path) = TagrPath::new(&file) else {
                         return;
                     };
-                    let tag_names: Vec<TagName> = tags
-                        .iter()
-                        .filter_map(|t| TagName::new(t).ok())
-                        .collect();
+                    let tag_names: Vec<TagName> =
+                        tags.iter().filter_map(|t| TagName::new(t).ok()).collect();
                     if let Some(pair) = self.widest_data.iter_mut().find(|p| p.file == path) {
                         pair.tags = tag_names;
                     } else {
@@ -911,10 +901,7 @@ mod query_cache_apply_event {
     fn make_cache() -> QueryCache {
         let pair = Pair::new(
             TagrPath::new("src/main.rs").unwrap(),
-            vec![
-                TagName::new("rust").unwrap(),
-                TagName::new("cli").unwrap(),
-            ],
+            vec![TagName::new("rust").unwrap(), TagName::new("cli").unwrap()],
         );
         let mut notes = HashMap::new();
         notes.insert(

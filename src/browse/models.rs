@@ -408,7 +408,6 @@ impl Default for SelectionState {
     }
 }
 
-
 impl MetadataCache {
     /// Create new cache with default TTL (300s)
     #[must_use]
@@ -623,10 +622,7 @@ mod tests {
     #[test]
     fn test_tagr_item_file_creation() {
         let path = TagrPath::from_string("/test/test.txt".to_string());
-        let tags = vec![
-            TagName::new("rust").unwrap(),
-            TagName::new("test").unwrap(),
-        ];
+        let tags = vec![TagName::new("rust").unwrap(), TagName::new("test").unwrap()];
         let cached = CachedMetadata::default();
 
         let item = TagrItem::file(path.clone(), tags.clone(), cached);
@@ -784,10 +780,7 @@ mod tests {
         });
 
         assert_eq!(item.name, "test.txt");
-        assert_eq!(
-            item.file_tags(),
-            Some(&[TagName::new("rust").unwrap()][..])
-        );
+        assert_eq!(item.file_tags(), Some(&[TagName::new("rust").unwrap()][..]));
 
         let display_item = DisplayItem::from(&item);
         assert_eq!(display_item.key, item.id);

@@ -90,10 +90,7 @@ impl TagName {
     /// `"a:b:c"` → `"a"`, `"a"` → `"a"`.
     #[must_use]
     pub fn root(&self) -> &str {
-        self.0
-            .split(HIERARCHY_DELIMITER)
-            .next()
-            .unwrap_or(&self.0)
+        self.0.split(HIERARCHY_DELIMITER).next().unwrap_or(&self.0)
     }
 
     /// Returns the parent tag, or `None` if this is a root tag (depth 1).
@@ -184,13 +181,9 @@ fn glob_match(tag: &[&str], pat: &[&str]) -> bool {
             glob_match(tag_rest, pat) || glob_match(tag, pat_rest)
         }
         // `*` matches exactly one segment
-        ([_, tag_rest @ ..], [p, pat_rest @ ..]) if *p == "*" => {
-            glob_match(tag_rest, pat_rest)
-        }
+        ([_, tag_rest @ ..], [p, pat_rest @ ..]) if *p == "*" => glob_match(tag_rest, pat_rest),
         // Literal match
-        ([t, tag_rest @ ..], [p, pat_rest @ ..]) => {
-            *t == *p && glob_match(tag_rest, pat_rest)
-        }
+        ([t, tag_rest @ ..], [p, pat_rest @ ..]) => *t == *p && glob_match(tag_rest, pat_rest),
     }
 }
 

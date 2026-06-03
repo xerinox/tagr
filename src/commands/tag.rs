@@ -1,9 +1,9 @@
 //! Tag and untag commands
 
+use crate::TagrError;
 use crate::schema::load_default_schema;
 use crate::store::TagStore;
 use crate::types::{TagName, TagrPath};
-use crate::TagrError;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -69,7 +69,10 @@ pub fn execute(
             Ok(schema) => tags.iter().map(|t| schema.canonicalize(t)).collect(),
             Err(e) => {
                 if !quiet {
-                    writeln!(writer, "Warning: Could not load schema ({e}), using tags as-is")?;
+                    writeln!(
+                        writer,
+                        "Warning: Could not load schema ({e}), using tags as-is"
+                    )?;
                 }
                 tags.to_vec()
             }
@@ -130,7 +133,11 @@ pub fn untag(
 
     if all {
         #[cfg(feature = "dynamic-completions")]
-        let old_tags = store.get_tags(&canonical_path).ok().flatten().unwrap_or_default();
+        let old_tags = store
+            .get_tags(&canonical_path)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
 
         store.remove_file(&canonical_path)?;
 
@@ -159,7 +166,11 @@ pub fn untag(
     if let Ok(Some(existing_tags)) = store.get_tags(&canonical_path) {
         for tag in &tag_names {
             if !existing_tags.iter().any(|t| t == tag) {
-                eprintln!("warning: file '{}' does not have tag '{}'", file_path.display(), tag.as_str());
+                eprintln!(
+                    "warning: file '{}' does not have tag '{}'",
+                    file_path.display(),
+                    tag.as_str()
+                );
             }
         }
     }

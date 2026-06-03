@@ -140,8 +140,7 @@ impl StyledPreview {
         use syntect::highlighting::ThemeSet;
         use syntect::parsing::SyntaxSet;
 
-        static SYNTAX_SET: LazyLock<SyntaxSet> =
-            LazyLock::new(SyntaxSet::load_defaults_newlines);
+        static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
         static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
 
         let syntax = SYNTAX_SET
@@ -154,20 +153,18 @@ impl StyledPreview {
         content
             .lines()
             .map(|line| {
-                highlighter
-                    .highlight_line(line, &SYNTAX_SET)
-                    .map_or_else(
-                        |_| Line::raw(line.to_string()),
-                        |ranges| {
-                            let spans: Vec<Span<'static>> = ranges
-                                .iter()
-                                .map(|(style, text)| {
-                                    Span::styled(text.to_string(), syntect_to_ratatui(style))
-                                })
-                                .collect();
-                            Line::from(spans)
-                        },
-                    )
+                highlighter.highlight_line(line, &SYNTAX_SET).map_or_else(
+                    |_| Line::raw(line.to_string()),
+                    |ranges| {
+                        let spans: Vec<Span<'static>> = ranges
+                            .iter()
+                            .map(|(style, text)| {
+                                Span::styled(text.to_string(), syntect_to_ratatui(style))
+                            })
+                            .collect();
+                        Line::from(spans)
+                    },
+                )
             })
             .collect()
     }

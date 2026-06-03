@@ -56,15 +56,13 @@ use tagr::{
 type Result<T> = std::result::Result<T, TagrError>;
 
 /// Handle the db command - manage multiple databases
-fn handle_db_command(
-    config: config::TagrConfig,
-    command: &DbCommands,
-    quiet: bool,
-) -> Result<()> {
+fn handle_db_command(config: config::TagrConfig, command: &DbCommands, quiet: bool) -> Result<()> {
     match command {
         DbCommands::Add { name, path } => handle_db_add(config, name, path, quiet),
         DbCommands::List => handle_db_list(&config, quiet),
-        DbCommands::Remove { name, delete_files } => handle_db_remove(config, name, *delete_files, quiet),
+        DbCommands::Remove { name, delete_files } => {
+            handle_db_remove(config, name, *delete_files, quiet)
+        }
         DbCommands::SetDefault { name } => handle_db_set_default(config, name, quiet),
     }
 }
@@ -85,9 +83,8 @@ fn handle_db_add(
     }
 
     let resolved_path = if path.components().count() == 1 {
-        let data_dir = dirs::data_local_dir().ok_or_else(|| {
-            TagrError::InvalidInput("Could not determine data directory".into())
-        })?;
+        let data_dir = dirs::data_local_dir()
+            .ok_or_else(|| TagrError::InvalidInput("Could not determine data directory".into()))?;
         data_dir.join("tagr").join(path)
     } else {
         path.to_path_buf()
@@ -164,9 +161,7 @@ fn handle_db_remove(
 
     let is_default = config.get_default_database().map(String::as_str) == Some(name);
     if is_default && !quiet {
-        println!(
-            "Warning: Removing the default database. You'll need to set a new default."
-        );
+        println!("Warning: Removing the default database. You'll need to set a new default.");
     }
 
     let removed_path = config.remove_database(name)?;
@@ -212,11 +207,7 @@ fn handle_db_remove(
     Ok(())
 }
 
-fn handle_db_set_default(
-    mut config: config::TagrConfig,
-    name: &str,
-    quiet: bool,
-) -> Result<()> {
+fn handle_db_set_default(mut config: config::TagrConfig, name: &str, quiet: bool) -> Result<()> {
     if config.get_database(name).is_none() {
         if !quiet {
             eprintln!("Error: Database '{name}' does not exist");
@@ -402,7 +393,10 @@ fn run() -> Result<()> {
         handle_db_command(config, command, quiet)?;
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
-    } else if let Commands::Filter { command: filter_cmd } = &command {
+    } else if let Commands::Filter {
+        command: filter_cmd,
+    } = &command
+    {
         commands::filter::execute(filter_cmd, quiet)?;
         // Best-effort notify daemon to reload config (filters changed)
         notify_daemon_reload();
@@ -422,7 +416,11 @@ fn run() -> Result<()> {
         use commands::watch::{WatchCommands, WatchStartArgs};
 
         // Internal daemon bootstrap: `tagr watch start --daemon [--daemonize]`
-        if let WatchCommands::Start(WatchStartArgs { daemon: true, daemonize }) = watch_cmd {
+        if let WatchCommands::Start(WatchStartArgs {
+            daemon: true,
+            daemonize,
+        }) = watch_cmd
+        {
             #[cfg(unix)]
             if *daemonize {
                 tagr::daemon::fallback::daemonize_self()
@@ -438,11 +436,9 @@ fn run() -> Result<()> {
                 TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
             })?;
             let db = Database::open(db_path)?;
-            env_logger::Builder::from_env(
-                env_logger::Env::default().default_filter_or("info"),
-            ).init();
-            tagr::daemon::core::run(&db)
-                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                .init();
+            tagr::daemon::core::run(&db).map_err(|e| TagrError::InvalidInput(e.to_string()))?;
         } else {
             let mut stdout = std::io::stdout();
             match watch_cmd {
@@ -494,20 +490,30 @@ fn run() -> Result<()> {
         match DirectStore::open(db_path) {
             Ok(store) => {
                 let mut stdout = std::io::stdout();
-                commands::dispatch_command(&command, std::sync::Arc::new(store), &config, path_format, quiet, &mut stdout)?;
+                commands::dispatch_command(
+                    &command,
+                    std::sync::Arc::new(store),
+                    &config,
+                    path_format,
+                    quiet,
+                    &mut stdout,
+                )?;
             }
             Err(StoreError::DatabaseLocked) => {
                 // DB is locked — forward to daemon if it is reachable.
                 let rt = tokio::runtime::Runtime::new().map_err(TagrError::IoError)?;
-                let daemon_running = rt.block_on(async {
-                    use tagr::daemon::DaemonManager;
-                    tagr::daemon::PlatformDaemonManager.is_running().await
-                }).unwrap_or(false);
+                let daemon_running = rt
+                    .block_on(async {
+                        use tagr::daemon::DaemonManager;
+                        tagr::daemon::PlatformDaemonManager.is_running().await
+                    })
+                    .unwrap_or(false);
 
                 if !daemon_running {
                     return Err(TagrError::InvalidInput(
                         "Database is locked and the daemon is not responding. \
-                         Try `tagr watch --stop` then retry.".into(),
+                         Try `tagr watch --stop` then retry."
+                            .into(),
                     ));
                 }
 
@@ -528,7 +534,9 @@ fn notify_daemon_reload() {
     // A full ReloadConfig message would be better, but for now we rely on the
     // daemon re-reading config on next relevant operation.
     // TODO: Add Request::ReloadConfig to wire protocol for explicit reload.
-    let Ok(rt) = tokio::runtime::Runtime::new() else { return };
+    let Ok(rt) = tokio::runtime::Runtime::new() else {
+        return;
+    };
     rt.block_on(async {
         use tagr::daemon::DaemonManager;
         // If daemon is running, it will pick up config changes on next request.
@@ -544,16 +552,18 @@ fn dispatch_alias_set_canonical(
     config: &config::TagrConfig,
     _quiet: bool,
 ) -> Result<()> {
-
     let Commands::Alias { command: alias_cmd } = command else {
         return Ok(());
     };
 
-    let db_name = command.get_db().or_else(|| {
-        config.get_default_database().cloned()
-    }).ok_or_else(|| TagrError::InvalidInput(
-        "No default database set. Use 'tagr db add <name> <path>' to create one.".into()
-    ))?;
+    let db_name = command
+        .get_db()
+        .or_else(|| config.get_default_database().cloned())
+        .ok_or_else(|| {
+            TagrError::InvalidInput(
+                "No default database set. Use 'tagr db add <name> <path>' to create one.".into(),
+            )
+        })?;
 
     let db_path = config.get_database(&db_name).ok_or_else(|| {
         TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
@@ -584,9 +594,9 @@ fn dispatch_alias_set_canonical(
 /// and return `StoreError` directly (Phase 5.2+).
 fn store_error_to_tagr(err: StoreError) -> TagrError {
     match err {
-        StoreError::DatabaseLocked => TagrError::InvalidInput(
-            "Database is locked by another process.".into(),
-        ),
+        StoreError::DatabaseLocked => {
+            TagrError::InvalidInput("Database is locked by another process.".into())
+        }
         StoreError::IoFailed { context, source } => {
             TagrError::InvalidInput(format!("{context}: {source}"))
         }
@@ -606,13 +616,18 @@ fn dispatch_via_ipc(
     // Commands that benefit from full dispatch_command (warnings, formatting, interactivity)
     // are routed through DaemonStore which implements TagStore via IPC.
     match command {
-        Commands::Search { .. } | Commands::List { .. } | Commands::Cleanup { .. }
-        | Commands::Tags { .. } | Commands::Note { .. } | Commands::Bulk { .. }
-        | Commands::Tag { .. } | Commands::Untag { .. } => {
-            let store = tagr::store::DaemonStore::connect()
-                .map_err(|e| TagrError::InvalidInput(format!("Failed to connect to daemon: {e}")))?;
-            let config = tagr::config::TagrConfig::load()
-                .unwrap_or_default();
+        Commands::Search { .. }
+        | Commands::List { .. }
+        | Commands::Cleanup { .. }
+        | Commands::Tags { .. }
+        | Commands::Note { .. }
+        | Commands::Bulk { .. }
+        | Commands::Tag { .. }
+        | Commands::Untag { .. } => {
+            let store = tagr::store::DaemonStore::connect().map_err(|e| {
+                TagrError::InvalidInput(format!("Failed to connect to daemon: {e}"))
+            })?;
+            let config = tagr::config::TagrConfig::load().unwrap_or_default();
             let mut stdout = std::io::stdout();
             return commands::dispatch_command(
                 command,
@@ -657,4 +672,3 @@ fn dispatch_via_ipc(
         "This command is not supported while the daemon is running".into(),
     ))
 }
-

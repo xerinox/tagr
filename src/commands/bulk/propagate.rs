@@ -6,9 +6,9 @@ use colored::Colorize;
 use dialoguer::Confirm;
 
 use super::core::BulkOpSummary;
+use crate::TagrError;
 use crate::store::TagStore;
 use crate::types::{TagName, TagrPath};
-use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -196,7 +196,11 @@ pub fn propagate_by_directory(
         if file_tags.len() > 10 {
             writeln!(writer, "  ... and {} more", file_tags.len() - 10)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
 
@@ -215,7 +219,11 @@ pub fn propagate_by_directory(
     let mut summary = BulkOpSummary::new();
 
     for (file, tags) in &file_tags {
-        let tag_names: Vec<TagName> = match tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>() {
+        let tag_names: Vec<TagName> = match tags
+            .iter()
+            .map(TagName::new)
+            .collect::<std::result::Result<Vec<_>, _>>()
+        {
             Ok(names) => names,
             Err(e) => {
                 summary.add_error(format!("{file}: {e}"));
@@ -344,7 +352,11 @@ pub fn propagate_by_extension(
         if file_tags.len() > 10 {
             writeln!(writer, "  ... and {} more", file_tags.len() - 10)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
 
@@ -363,7 +375,11 @@ pub fn propagate_by_extension(
     let mut summary = BulkOpSummary::new();
 
     for (file, tags) in &file_tags {
-        let tag_names: Vec<TagName> = match tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>() {
+        let tag_names: Vec<TagName> = match tags
+            .iter()
+            .map(TagName::new)
+            .collect::<std::result::Result<Vec<_>, _>>()
+        {
             Ok(names) => names,
             Err(e) => {
                 summary.add_error(format!("{file}: {e}"));

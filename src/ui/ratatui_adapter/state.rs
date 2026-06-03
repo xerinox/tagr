@@ -5,14 +5,14 @@
 use crate::keybinds::actions::BrowseAction;
 use crate::ui::ratatui_adapter::events::EventResult;
 
+use crate::config::PreviewConfig;
 use crate::types::{QueryCriteria, TagName};
 use crate::ui::output::MessageLevel;
+use crate::ui::ratatui_adapter::widgets::watch_rules_modal::DaemonInfo;
 use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
     WatchRulesState,
 };
-use crate::ui::ratatui_adapter::widgets::watch_rules_modal::DaemonInfo;
-use crate::config::PreviewConfig;
 use crate::ui::types::DisplayItem;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -824,9 +824,10 @@ impl AppState {
         let canonical_tags: Vec<String> = selected_tags
             .iter()
             .map(|tag| {
-                self.tag_schema
-                    .as_ref()
-                    .map_or_else(|| tag.as_str().to_owned(), |schema| schema.canonicalize(tag.as_str()))
+                self.tag_schema.as_ref().map_or_else(
+                    || tag.as_str().to_owned(),
+                    |schema| schema.canonicalize(tag.as_str()),
+                )
             })
             .collect();
         let expanded_tags: Vec<String> = if let Some(ref schema) = self.tag_schema {
@@ -850,7 +851,8 @@ impl AppState {
             // Add files with notes but no tags
             if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(db.as_ref()) {
                 for item in notes_only_files {
-                    if let Some(path_str) = item.as_file_path().map(crate::types::TagrPath::as_str) {
+                    if let Some(path_str) = item.as_file_path().map(crate::types::TagrPath::as_str)
+                    {
                         file_set.insert(path_str.to_string());
                     }
                 }
@@ -877,16 +879,18 @@ impl AppState {
         let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
         if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
-                crate::types::TagrPath::new(file_path).ok().is_none_or(|tp| {
-                    if let Ok(Some(file_tags)) = db.get_tags(&tp) {
-                        let has_excluded = file_tags
-                            .iter()
-                            .any(|tag| excluded_set.iter().any(|ex| ex.as_str() == tag.as_str()));
-                        !has_excluded
-                    } else {
-                        true
-                    }
-                })
+                crate::types::TagrPath::new(file_path)
+                    .ok()
+                    .is_none_or(|tp| {
+                        if let Ok(Some(file_tags)) = db.get_tags(&tp) {
+                            let has_excluded = file_tags.iter().any(|tag| {
+                                excluded_set.iter().any(|ex| ex.as_str() == tag.as_str())
+                            });
+                            !has_excluded
+                        } else {
+                            true
+                        }
+                    })
             });
         }
 
@@ -1062,8 +1066,7 @@ impl AppState {
                 0 => None,
                 1 => include_exprs.into_iter().next(),
                 _ => {
-                    let use_any =
-                        matches!(&self.active_filter.tag_expr, Some(TagExpr::Or(_)));
+                    let use_any = matches!(&self.active_filter.tag_expr, Some(TagExpr::Or(_)));
                     if use_any && tree.selected_tags.len() > 1 {
                         let includes: Vec<_> = tree
                             .selected_tags
@@ -1111,9 +1114,10 @@ impl AppState {
             .unwrap_or_default()
             .into_iter()
             .map(|tag| {
-                self.tag_schema
-                    .as_ref()
-                    .map_or_else(|| tag.as_str().to_owned(), |schema| schema.canonicalize(tag.as_str()))
+                self.tag_schema.as_ref().map_or_else(
+                    || tag.as_str().to_owned(),
+                    |schema| schema.canonicalize(tag.as_str()),
+                )
             })
             .collect();
 
@@ -1164,16 +1168,18 @@ impl AppState {
         let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
         if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
-                crate::types::TagrPath::new(file_path).ok().is_none_or(|tp| {
-                    if let Ok(Some(file_tags)) = db.get_tags(&tp) {
-                        let has_excluded = file_tags
-                            .iter()
-                            .any(|tag| excluded_set.iter().any(|ex| ex.as_str() == tag.as_str()));
-                        !has_excluded
-                    } else {
-                        true
-                    }
-                })
+                crate::types::TagrPath::new(file_path)
+                    .ok()
+                    .is_none_or(|tp| {
+                        if let Ok(Some(file_tags)) = db.get_tags(&tp) {
+                            let has_excluded = file_tags.iter().any(|tag| {
+                                excluded_set.iter().any(|ex| ex.as_str() == tag.as_str())
+                            });
+                            !has_excluded
+                        } else {
+                            true
+                        }
+                    })
             });
         }
 
@@ -1234,8 +1240,7 @@ impl AppState {
     pub fn execute_action(&mut self, action: BrowseAction) -> EventResult {
         // Phase-gate configurable actions in tag selection phase
         if action.is_configurable() && self.is_tag_selection_phase() {
-            let file_pane_focused =
-                self.focused_pane == FocusPane::FilePreview;
+            let file_pane_focused = self.focused_pane == FocusPane::FilePreview;
             if !file_pane_focused && !action.available_in_tag_phase() {
                 return EventResult::Ignored;
             }
@@ -1560,8 +1565,12 @@ impl AppState {
         let apply_toggle = |filter: &mut QueryCriteria, tag_str: &str| {
             if let Ok(tag_name) = crate::types::TagName::new(tag_str) {
                 match op {
-                    TagFilterOp::Include => { filter.toggle_include_tag(tag_name); }
-                    TagFilterOp::Exclude => { filter.toggle_exclude_tag(&tag_name); }
+                    TagFilterOp::Include => {
+                        filter.toggle_include_tag(tag_name);
+                    }
+                    TagFilterOp::Exclude => {
+                        filter.toggle_exclude_tag(&tag_name);
+                    }
                 }
             }
         };

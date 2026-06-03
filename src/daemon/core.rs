@@ -2,13 +2,13 @@
 
 use crate::db::Database;
 use crate::filters::{FilterManager, get_filter_path};
-use crate::store::DirectStore;
-use crate::types::QueryCriteria;
 use crate::ipc::get_ipc_socket_path;
 use crate::ipc::wire::{
-    self, ClientMessage, Request, Response, ServerEvent, ServerMessage,
-    WireFilePair, WireNoteEntry, WireTagInfo,
+    self, ClientMessage, Request, Response, ServerEvent, ServerMessage, WireFilePair,
+    WireNoteEntry, WireTagInfo,
 };
+use crate::store::DirectStore;
+use crate::types::QueryCriteria;
 use crate::watch::matcher::{FilterEvaluator, matches_patterns};
 use crate::watch::{WatchConfig, WatchRule};
 use anyhow::{Context, Result};
@@ -87,8 +87,7 @@ async fn async_run(db: &Database) -> Result<()> {
     info!("Daemon started. PID: {}", std::process::id());
 
     // Bind IPC socket first so clients can detect us immediately.
-    let socket_path = get_ipc_socket_path()
-        .context("failed to resolve IPC socket path")?;
+    let socket_path = get_ipc_socket_path().context("failed to resolve IPC socket path")?;
     #[cfg(unix)]
     if socket_path.exists() {
         std::fs::remove_file(&socket_path).ok();
@@ -109,14 +108,12 @@ async fn async_run(db: &Database) -> Result<()> {
     let mut debouncer = new_debouncer(
         Duration::from_millis(500),
         None,
-        move |result: notify_debouncer_full::DebounceEventResult| {
-            match result {
-                Ok(events) => {
-                    let _ = fs_tx.blocking_send(DaemonEvent::FsEvents(events));
-                }
-                Err(errors) => {
-                    let _ = fs_tx.blocking_send(DaemonEvent::FsError(errors));
-                }
+        move |result: notify_debouncer_full::DebounceEventResult| match result {
+            Ok(events) => {
+                let _ = fs_tx.blocking_send(DaemonEvent::FsEvents(events));
+            }
+            Err(errors) => {
+                let _ = fs_tx.blocking_send(DaemonEvent::FsError(errors));
             }
         },
     )
@@ -128,7 +125,10 @@ async fn async_run(db: &Database) -> Result<()> {
             std::fs::create_dir_all(config_dir).ok();
         }
         if let Err(e) = debouncer.watch(config_dir, RecursiveMode::NonRecursive) {
-            warn!("Could not watch config directory {}: {e}", config_dir.display());
+            warn!(
+                "Could not watch config directory {}: {e}",
+                config_dir.display()
+            );
         }
     }
 
@@ -276,7 +276,9 @@ async fn connection_task(
         }
     }
 
-    let _ = event_tx.send(DaemonEvent::ClientDisconnect { conn_id }).await;
+    let _ = event_tx
+        .send(DaemonEvent::ClientDisconnect { conn_id })
+        .await;
     write_handle.abort();
 }
 
@@ -301,7 +303,12 @@ async fn handle_client_message(
             #[cfg(not(feature = "dynamic-completions"))]
             let _ = is_tag_mutation;
             if let Some(tx) = conn_writers.get(&conn_id) {
-                let _ = tx.send(ServerMessage::Response { id, payload: response }).await;
+                let _ = tx
+                    .send(ServerMessage::Response {
+                        id,
+                        payload: response,
+                    })
+                    .await;
             }
             if let Some(evt) = event {
                 broadcast_event(&evt, subscribers, conn_writers);
@@ -470,9 +477,7 @@ fn handle_debounced_events(
 /// its `filter_criteria` field so that the hot path only does evaluation,
 /// not I/O.
 fn resolve_all_rules(rules: &mut [WatchRule]) {
-    let filter_manager = get_filter_path()
-        .ok()
-        .map(FilterManager::new);
+    let filter_manager = get_filter_path().ok().map(FilterManager::new);
 
     for rule in rules.iter_mut() {
         let mut criteria = QueryCriteria::default();
@@ -493,13 +498,18 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
         // DB-tag gate: file must already carry all of these tags.
         if !rule.filter_by_tags.is_empty() {
             use crate::types::{TagExpr, TagName};
-            let tag_exprs: Vec<TagExpr> = rule.filter_by_tags.iter()
+            let tag_exprs: Vec<TagExpr> = rule
+                .filter_by_tags
+                .iter()
                 .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
                 .collect();
 
             if !tag_exprs.is_empty() {
                 let new_expr = if tag_exprs.len() == 1 {
-                    tag_exprs.into_iter().next().unwrap_or_else(|| unreachable!())
+                    tag_exprs
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| unreachable!())
                 } else {
                     TagExpr::And(tag_exprs)
                 };
@@ -510,7 +520,11 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
             }
         }
 
-        rule.filter_criteria = if criteria.is_empty() { None } else { Some(criteria) };
+        rule.filter_criteria = if criteria.is_empty() {
+            None
+        } else {
+            Some(criteria)
+        };
     }
 }
 
@@ -552,8 +566,10 @@ fn add_new_watch_roots(
 /// so that inotify watches the containing directory rather than a single file.
 fn glob_parent(pattern: &str) -> PathBuf {
     let expanded = if pattern.starts_with("~/") {
-        dirs::home_dir()
-            .map_or_else(|| pattern.to_string(), |h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1))
+        dirs::home_dir().map_or_else(
+            || pattern.to_string(),
+            |h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1),
+        )
     } else {
         pattern.to_string()
     };
@@ -567,7 +583,9 @@ fn glob_parent(pattern: &str) -> PathBuf {
     if !has_glob {
         // Literal path — watch the parent directory so we catch sibling
         // creates and modifications, not just a single file.
-        return p.parent().map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        return p
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
     }
 
     loop {
@@ -628,9 +646,10 @@ fn retroactive_scan(
                 // Skip if the file already carries all the rule's tags.
                 if let Ok(tagr_path) = crate::types::TagrPath::new(path)
                     && let Ok(Some(existing)) = store.get_tags(&tagr_path)
-                    && rule.tags.iter().all(|t| {
-                        existing.iter().any(|e| e.as_str() == t)
-                    })
+                    && rule
+                        .tags
+                        .iter()
+                        .all(|t| existing.iter().any(|e| e.as_str() == t))
                 {
                     continue;
                 }
@@ -674,7 +693,11 @@ fn spawn_tag_work(work: Vec<(PathBuf, Vec<String>)>, db: &Database) {
             })
             .await;
             match result {
-                Ok(Err(boxed)) => error!("Retroactive tag failed for {}: {}", boxed.0.display(), boxed.1),
+                Ok(Err(boxed)) => error!(
+                    "Retroactive tag failed for {}: {}",
+                    boxed.0.display(),
+                    boxed.1
+                ),
                 Err(e) => error!("Spawn error: {e}"),
                 Ok(Ok(())) => {}
             }
@@ -685,8 +708,10 @@ fn spawn_tag_work(work: Vec<(PathBuf, Vec<String>)>, db: &Database) {
 /// Expand a leading `~/` to the user's home directory.
 fn expand_tilde(pattern: &str) -> String {
     if pattern.starts_with("~/") {
-        dirs::home_dir()
-            .map_or_else(|| pattern.to_string(), |h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1))
+        dirs::home_dir().map_or_else(
+            || pattern.to_string(),
+            |h| pattern.replacen('~', h.to_string_lossy().as_ref(), 1),
+        )
     } else {
         pattern.to_string()
     }
@@ -704,31 +729,27 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
         Request::Ping => (Response::Pong, false, None),
         Request::Shutdown => (Response::Ok, true, None),
 
-        Request::ListTags => {
-            match db.list_all_tags() {
-                Ok(tag_names) => {
-                    let tags: Vec<_> = tag_names
-                        .into_iter()
-                        .map(|name| {
-                            let file_count = db.find_by_tag(&name).map_or(0, |f| f.len()) as u64;
-                            WireTagInfo { name, file_count }
-                        })
-                        .collect();
-                    (Response::Tags(tags), false, None)
-                }
-                Err(e) => (Response::Error(e.to_string()), false, None),
+        Request::ListTags => match db.list_all_tags() {
+            Ok(tag_names) => {
+                let tags: Vec<_> = tag_names
+                    .into_iter()
+                    .map(|name| {
+                        let file_count = db.find_by_tag(&name).map_or(0, |f| f.len()) as u64;
+                        WireTagInfo { name, file_count }
+                    })
+                    .collect();
+                (Response::Tags(tags), false, None)
             }
-        }
+            Err(e) => (Response::Error(e.to_string()), false, None),
+        },
 
-        Request::ListFiles => {
-            match db.list_all() {
-                Ok(pairs) => {
-                    let wire_pairs = pairs.into_iter().map(WireFilePair::from).collect();
-                    (Response::Files(wire_pairs), false, None)
-                }
-                Err(e) => (Response::Error(e.to_string()), false, None),
+        Request::ListFiles => match db.list_all() {
+            Ok(pairs) => {
+                let wire_pairs = pairs.into_iter().map(WireFilePair::from).collect();
+                (Response::Files(wire_pairs), false, None)
             }
-        }
+            Err(e) => (Response::Error(e.to_string()), false, None),
+        },
 
         Request::Query { criteria } => {
             use crate::store::TagStore as _;
@@ -788,15 +809,16 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             }
         }
 
-        Request::FindByTag { tag } => {
-            match db.find_by_tag(&tag) {
-                Ok(paths) => {
-                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false, None)
-                }
-                Err(e) => (Response::Error(e.to_string()), false, None),
+        Request::FindByTag { tag } => match db.find_by_tag(&tag) {
+            Ok(paths) => {
+                let string_paths = paths
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                (Response::FilePaths(string_paths), false, None)
             }
-        }
+            Err(e) => (Response::Error(e.to_string()), false, None),
+        },
 
         Request::FindByTags { tags, match_all } => {
             let result = if match_all {
@@ -806,56 +828,60 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             };
             match result {
                 Ok(paths) => {
-                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false, None)
-                }
-                Err(e) => (Response::Error(e.to_string()), false, None),
-            }
-        }
-
-        Request::FindByTagRegex { pattern } => {
-            match db.find_by_tag_regex(&pattern) {
-                Ok(paths) => {
-                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false, None)
-                }
-                Err(e) => (Response::Error(e.to_string()), false, None),
-            }
-        }
-
-        Request::ListAllPaths => {
-            match db.list_all_files() {
-                Ok(paths) => {
-                    let string_paths = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                    (Response::FilePaths(string_paths), false, None)
-                }
-                Err(e) => (Response::Error(e.to_string()), false, None),
-            }
-        }
-
-        Request::ListNotes => {
-            match db.list_all_notes() {
-                Ok(notes) => {
-                    let entries = notes
-                        .into_iter()
-                        .map(|(path, note)| WireNoteEntry {
-                            path: path.to_string_lossy().into_owned(),
-                            content: note.content,
-                            created_at: note.metadata.created_at,
-                            updated_at: note.metadata.updated_at,
-                        })
+                    let string_paths = paths
+                        .iter()
+                        .map(|p| p.to_string_lossy().into_owned())
                         .collect();
-                    (Response::Notes(entries), false, None)
+                    (Response::FilePaths(string_paths), false, None)
                 }
                 Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
+
+        Request::FindByTagRegex { pattern } => match db.find_by_tag_regex(&pattern) {
+            Ok(paths) => {
+                let string_paths = paths
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                (Response::FilePaths(string_paths), false, None)
+            }
+            Err(e) => (Response::Error(e.to_string()), false, None),
+        },
+
+        Request::ListAllPaths => match db.list_all_files() {
+            Ok(paths) => {
+                let string_paths = paths
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                (Response::FilePaths(string_paths), false, None)
+            }
+            Err(e) => (Response::Error(e.to_string()), false, None),
+        },
+
+        Request::ListNotes => match db.list_all_notes() {
+            Ok(notes) => {
+                let entries = notes
+                    .into_iter()
+                    .map(|(path, note)| WireNoteEntry {
+                        path: path.to_string_lossy().into_owned(),
+                        content: note.content,
+                        created_at: note.metadata.created_at,
+                        updated_at: note.metadata.updated_at,
+                    })
+                    .collect();
+                (Response::Notes(entries), false, None)
+            }
+            Err(e) => (Response::Error(e.to_string()), false, None),
+        },
 
         Request::AddTags { file, tags } => {
             let path = PathBuf::from(&file);
             let store = crate::store::DirectStore::new(db.clone());
             let mut stdout = std::io::stdout();
-            match crate::commands::tag::execute(&store, Some(path), &tags, false, true, &mut stdout) {
+            match crate::commands::tag::execute(&store, Some(path), &tags, false, true, &mut stdout)
+            {
                 Ok(()) => (Response::Ok, false, None),
                 Err(e) => (Response::Error(e.to_string()), false, None),
             }
@@ -884,7 +910,10 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             let note = crate::types::NoteRecord::new(content.clone());
             match db.set_note(&path, &note) {
                 Ok(()) => {
-                    let event = ServerEvent::NoteChanged { file, content: Some(content) };
+                    let event = ServerEvent::NoteChanged {
+                        file,
+                        content: Some(content),
+                    };
                     (Response::Ok, false, Some(event))
                 }
                 Err(e) => (Response::Error(e.to_string()), false, None),
@@ -895,7 +924,10 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             let path = PathBuf::from(&file);
             match db.delete_note(&path) {
                 Ok(_) => {
-                    let event = ServerEvent::NoteChanged { file, content: None };
+                    let event = ServerEvent::NoteChanged {
+                        file,
+                        content: None,
+                    };
                     (Response::Ok, false, Some(event))
                 }
                 Err(e) => (Response::Error(e.to_string()), false, None),
@@ -906,7 +938,11 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
             let path = PathBuf::from(&file);
             match db.remove(&path) {
                 Ok(true) => (Response::Ok, false, None),
-                Ok(false) => (Response::Error(format!("File not found in database: {file}")), false, None),
+                Ok(false) => (
+                    Response::Error(format!("File not found in database: {file}")),
+                    false,
+                    None,
+                ),
                 Err(e) => (Response::Error(e.to_string()), false, None),
             }
         }
@@ -921,7 +957,13 @@ fn execute_wire_request(req: Request, db: &Database) -> (Response, bool, Option<
                             removed += 1;
                         }
                     }
-                    (Response::CleanupResult { removed: removed as u64 }, false, None)
+                    (
+                        Response::CleanupResult {
+                            removed: removed as u64,
+                        },
+                        false,
+                        None,
+                    )
                 }
                 Err(e) => (Response::Error(e.to_string()), false, None),
             }
@@ -1017,7 +1059,8 @@ mod tests {
         let db = test_db.db();
 
         let temp = crate::testing::TempFile::create("wire_tags.txt").unwrap();
-        db.insert(temp.path(), vec!["alpha".into(), "beta".into()]).unwrap();
+        db.insert(temp.path(), vec!["alpha".into(), "beta".into()])
+            .unwrap();
 
         let (resp, _, _) = execute_wire_request(Request::ListTags, db);
         match resp {
@@ -1054,10 +1097,13 @@ mod tests {
         let db = test_db.db();
 
         let temp = crate::testing::TempFile::create("wire_gettags.txt").unwrap();
-        db.insert(temp.path(), vec!["x".into(), "y".into()]).unwrap();
+        db.insert(temp.path(), vec!["x".into(), "y".into()])
+            .unwrap();
 
         let (resp, _, _) = execute_wire_request(
-            Request::GetTags { file: temp.path().to_string_lossy().into_owned() },
+            Request::GetTags {
+                file: temp.path().to_string_lossy().into_owned(),
+            },
             db,
         );
         match resp {
@@ -1073,7 +1119,9 @@ mod tests {
     fn test_execute_wire_get_tags_missing_file() {
         let test_db = TestDb::new("wire_get_tags_missing");
         let (resp, _, _) = execute_wire_request(
-            Request::GetTags { file: "/nonexistent/file.txt".into() },
+            Request::GetTags {
+                file: "/nonexistent/file.txt".into(),
+            },
             test_db.db(),
         );
         match resp {

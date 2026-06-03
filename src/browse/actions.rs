@@ -76,10 +76,12 @@ pub fn execute_add_tag(
 }
 
 /// Helper: Add tags to a single file
-fn add_tags_to_file(ds: &dyn TagStore, file: &TagrPath, new_tags: &[TagName]) -> Result<bool, StoreError> {
-    let mut tags: Vec<TagName> = ds
-        .get_tags(file)?
-        .unwrap_or_default();
+fn add_tags_to_file(
+    ds: &dyn TagStore,
+    file: &TagrPath,
+    new_tags: &[TagName],
+) -> Result<bool, StoreError> {
+    let mut tags: Vec<TagName> = ds.get_tags(file)?.unwrap_or_default();
     let original_len = tags.len();
 
     for tag in new_tags {
@@ -203,7 +205,10 @@ fn remove_tags_from_file(
 ///
 /// # Errors
 /// Returns `DbError` if database operations fail
-pub fn execute_delete_from_db(ds: &dyn TagStore, files: &[TagrPath]) -> Result<ActionOutcome, StoreError> {
+pub fn execute_delete_from_db(
+    ds: &dyn TagStore,
+    files: &[TagrPath],
+) -> Result<ActionOutcome, StoreError> {
     if files.is_empty() {
         return Ok(ActionOutcome::Failed("No files specified".to_string()));
     }
@@ -443,7 +448,8 @@ mod tests {
         let test_db = TestDb::new("test_add_tag_success");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        test_db.db()
+        test_db
+            .db()
             .insert(temp_file.path(), vec!["old".into()])
             .unwrap();
 
@@ -472,18 +478,15 @@ mod tests {
         let test_db = TestDb::new("test_add_tag_no_dup");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        test_db.db()
+        test_db
+            .db()
             .insert(temp_file.path(), vec!["existing".into()])
             .unwrap();
 
         let source = ds(&test_db);
         let file = TagrPath::new(temp_file.path()).unwrap();
-        let outcome = execute_add_tag(
-            &source,
-            &[file],
-            &[TagName::new("existing").unwrap()],
-        )
-        .unwrap();
+        let outcome =
+            execute_add_tag(&source, &[file], &[TagName::new("existing").unwrap()]).unwrap();
 
         assert!(matches!(
             outcome,
@@ -509,7 +512,8 @@ mod tests {
         let test_db = TestDb::new("test_remove_tag_success");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        test_db.db()
+        test_db
+            .db()
             .insert(
                 temp_file.path(),
                 vec!["keep".into(), "remove".into(), "also_remove".into()],
@@ -521,7 +525,10 @@ mod tests {
         let outcome = execute_remove_tag(
             &source,
             &[file],
-            &[TagName::new("remove").unwrap(), TagName::new("also_remove").unwrap()],
+            &[
+                TagName::new("remove").unwrap(),
+                TagName::new("also_remove").unwrap(),
+            ],
         )
         .unwrap();
 
@@ -540,18 +547,15 @@ mod tests {
         let test_db = TestDb::new("test_remove_tag_nonexistent");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        test_db.db()
+        test_db
+            .db()
             .insert(temp_file.path(), vec!["tag1".into()])
             .unwrap();
 
         let source = ds(&test_db);
         let file = TagrPath::new(temp_file.path()).unwrap();
-        let outcome = execute_remove_tag(
-            &source,
-            &[file],
-            &[TagName::new("nonexistent").unwrap()],
-        )
-        .unwrap();
+        let outcome =
+            execute_remove_tag(&source, &[file], &[TagName::new("nonexistent").unwrap()]).unwrap();
 
         assert!(matches!(outcome, ActionOutcome::Failed(_)));
     }
@@ -561,7 +565,8 @@ mod tests {
         let test_db = TestDb::new("test_delete_success");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        test_db.db()
+        test_db
+            .db()
             .insert(temp_file.path(), vec!["tag".into()])
             .unwrap();
         assert!(test_db.db().contains(temp_file.path()).unwrap());
@@ -626,7 +631,8 @@ mod tests {
         let test_db = TestDb::new("test_add_no_change");
         let temp_file = TempFile::create("test.txt").unwrap();
 
-        test_db.db()
+        test_db
+            .db()
             .insert(temp_file.path(), vec!["tag1".into()])
             .unwrap();
 
@@ -659,8 +665,14 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let fake_file = TagrPath::from_string("/nonexistent/file.txt".to_string());
 
-        test_db.db().insert(file1.path(), vec!["tag1".into()]).unwrap();
-        test_db.db().insert(file2.path(), vec!["tag2".into()]).unwrap();
+        test_db
+            .db()
+            .insert(file1.path(), vec!["tag1".into()])
+            .unwrap();
+        test_db
+            .db()
+            .insert(file2.path(), vec!["tag2".into()])
+            .unwrap();
 
         let files = vec![
             TagrPath::new(file1.path()).unwrap(),

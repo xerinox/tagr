@@ -49,12 +49,13 @@ impl CompletionCache {
             return Self::default();
         }
 
-        std::fs::read(&path).ok().and_then(|data| {
-            match serde_json::from_slice::<Self>(&data) {
+        std::fs::read(&path)
+            .ok()
+            .and_then(|data| match serde_json::from_slice::<Self>(&data) {
                 Ok(cache) if cache.version == CACHE_VERSION => Some(cache),
                 _ => None,
-            }
-        }).unwrap_or_default()
+            })
+            .unwrap_or_default()
     }
 
     /// Load cache using the default database from config
@@ -81,8 +82,7 @@ impl CompletionCache {
             std::fs::create_dir_all(parent)?;
         }
 
-        let data = serde_json::to_vec_pretty(self)
-            .map_err(std::io::Error::other)?;
+        let data = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
 
         std::fs::write(path, data)
     }

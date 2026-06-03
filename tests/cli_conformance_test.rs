@@ -51,8 +51,20 @@ fn test_top_level_help_lists_all_commands() {
     let help = String::from_utf8(output.stdout).unwrap();
 
     let expected_commands = [
-        "browse", "tag", "search", "list", "bulk", "note", "cleanup",
-        "tags", "alias", "filter", "watch", "db", "config", "completions",
+        "browse",
+        "tag",
+        "search",
+        "list",
+        "bulk",
+        "note",
+        "cleanup",
+        "tags",
+        "alias",
+        "filter",
+        "watch",
+        "db",
+        "config",
+        "completions",
     ];
     for cmd in expected_commands {
         assert!(
@@ -117,9 +129,17 @@ fn test_bulk_help_lists_subcommands() {
     let help = String::from_utf8(output.stdout).unwrap();
 
     let expected = [
-        "tag", "untag", "rename-tag", "merge-tags", "copy-tags",
-        "from-file", "map-tags", "delete-files", "transform",
-        "propagate-by-dir", "propagate-by-ext",
+        "tag",
+        "untag",
+        "rename-tag",
+        "merge-tags",
+        "copy-tags",
+        "from-file",
+        "map-tags",
+        "delete-files",
+        "transform",
+        "propagate-by-dir",
+        "propagate-by-ext",
     ];
     for sub in expected {
         assert!(
@@ -158,7 +178,10 @@ fn test_search_no_results_exits_zero() {
         .output()
         .unwrap();
     // Currently search exits 0 even with no results (empty output)
-    assert!(output.status.success(), "Search with no results currently exits 0");
+    assert!(
+        output.status.success(),
+        "Search with no results currently exits 0"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +347,10 @@ fn test_watch_remove_invalid_index() {
         .args(["watch", "remove", "999"])
         .output()
         .unwrap();
-    assert!(!output.status.success(), "remove 999 on empty config should fail");
+    assert!(
+        !output.status.success(),
+        "remove 999 on empty config should fail"
+    );
 }
 
 // Note: --format json is not yet implemented on search.

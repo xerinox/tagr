@@ -24,13 +24,13 @@
 //! - [`Pair`] — file + tags association (DTO)
 //! - [`NoteRecord`] — note content + metadata
 
+mod error;
+mod filter_name;
+mod note;
+mod pair;
+mod query;
 mod tag_name;
 mod tagr_path;
-mod filter_name;
-mod query;
-mod pair;
-mod note;
-mod error;
 
 pub use error::{NameKind, ValidationError};
 pub use filter_name::FilterName;

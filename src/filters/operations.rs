@@ -4,7 +4,7 @@
 //! idiomatic Rust APIs.
 
 use super::error::FilterError;
-use super::types::{SavedFilter, raw_from_saved, saved_from_raw, RawFilterStorage};
+use super::types::{RawFilterStorage, SavedFilter, raw_from_saved, saved_from_raw};
 use crate::types::QueryCriteria;
 use std::fs;
 use std::path::PathBuf;

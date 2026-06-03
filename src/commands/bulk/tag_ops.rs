@@ -4,11 +4,11 @@ use std::path::Path;
 
 use colored::Colorize;
 
+use crate::TagrError;
 use crate::cli::ConditionalArgs;
 use crate::patterns::{PatternBuilder, PatternContext};
 use crate::store::TagStore;
 use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName, TagrPath};
-use crate::TagrError;
 
 use super::core::{
     BulkAction, BulkOpSummary, SkipReason, confirm_bulk_operation, print_dry_run_preview,
@@ -46,7 +46,11 @@ fn validate_bulk_criteria(criteria: &QueryCriteria) -> Result<()> {
 
     let to_search_mode = |m: MatchMode| m;
 
-    let tag_mode = if criteria.tag_expr.as_ref().is_some_and(|e| matches!(e, TagExpr::And(_))) {
+    let tag_mode = if criteria
+        .tag_expr
+        .as_ref()
+        .is_some_and(|e| matches!(e, TagExpr::And(_)))
+    {
         MatchMode::All
     } else {
         MatchMode::Any
@@ -109,7 +113,8 @@ pub fn bulk_tag(
     }
     validate_bulk_criteria(criteria)?;
     let files = query_files(store, criteria)?;
-    let path_bufs: Vec<std::path::PathBuf> = files.iter().map(|f| f.as_path().to_path_buf()).collect();
+    let path_bufs: Vec<std::path::PathBuf> =
+        files.iter().map(|f| f.as_path().to_path_buf()).collect();
     if files.is_empty() {
         if !quiet {
             writeln!(writer, "No files match the specified criteria.")?;
@@ -124,7 +129,10 @@ pub fn bulk_tag(
         writeln!(writer, "Operation cancelled.")?;
         return Ok(());
     }
-    let tag_names: Vec<TagName> = tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>()?;
+    let tag_names: Vec<TagName> = tags
+        .iter()
+        .map(TagName::new)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut summary = BulkOpSummary::new();
     for file in &files {
         match check_conditions(file, store, conditions, tags) {
@@ -193,7 +201,8 @@ pub fn bulk_untag(
     }
     validate_bulk_criteria(criteria)?;
     let files = query_files(store, criteria)?;
-    let path_bufs: Vec<std::path::PathBuf> = files.iter().map(|f| f.as_path().to_path_buf()).collect();
+    let path_bufs: Vec<std::path::PathBuf> =
+        files.iter().map(|f| f.as_path().to_path_buf()).collect();
     if files.is_empty() {
         if !quiet {
             writeln!(writer, "No files match the specified criteria.")?;
@@ -222,7 +231,10 @@ pub fn bulk_untag(
         writeln!(writer, "Operation cancelled.")?;
         return Ok(());
     }
-    let tag_names: Vec<TagName> = tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>()?;
+    let tag_names: Vec<TagName> = tags
+        .iter()
+        .map(TagName::new)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut summary = BulkOpSummary::new();
     for file in &files {
         match check_conditions(file, store, conditions, tags) {
@@ -317,7 +329,11 @@ pub fn rename_tag(
         if files.len() > 10 {
             writeln!(writer, "  ... and {} more", files.len() - 10)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !yes {
@@ -344,7 +360,13 @@ pub fn rename_tag(
         };
         let new_tags: Vec<TagName> = current_tags
             .into_iter()
-            .map(|t| if t == old_tag_name { new_tag_name.clone() } else { t })
+            .map(|t| {
+                if t == old_tag_name {
+                    new_tag_name.clone()
+                } else {
+                    t
+                }
+            })
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
@@ -450,11 +472,17 @@ pub fn copy_tags(
         .collect();
     if target_files.is_empty() {
         if !config.quiet {
-            writeln!(writer, "No target files to copy tags to (excluding source file).")?;
+            writeln!(
+                writer,
+                "No target files to copy tags to (excluding source file)."
+            )?;
         }
         return Ok(());
     }
-    let tag_strs: Vec<String> = tags_to_copy.iter().map(|t| t.as_str().to_string()).collect();
+    let tag_strs: Vec<String> = tags_to_copy
+        .iter()
+        .map(|t| t.as_str().to_string())
+        .collect();
     if config.dry_run {
         writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
         writeln!(
@@ -471,7 +499,11 @@ pub fn copy_tags(
         if target_files.len() > 10 {
             writeln!(writer, "  ... and {} more", target_files.len() - 10)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !config.yes {
@@ -540,7 +572,10 @@ pub fn merge_tags(
             "Target tag cannot be one of the source tags".into(),
         ));
     }
-    let source_tag_names: Vec<TagName> = source_tags.iter().map(TagName::new).collect::<std::result::Result<Vec<_>, _>>()?;
+    let source_tag_names: Vec<TagName> = source_tags
+        .iter()
+        .map(TagName::new)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     let target_tag_name = TagName::new(target_tag)?;
     let mut files_set = HashSet::new();
     for tag_name in &source_tag_names {
@@ -574,7 +609,11 @@ pub fn merge_tags(
         if files.len() > 10 {
             writeln!(writer, "  ... and {} more", files.len() - 10)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !yes {

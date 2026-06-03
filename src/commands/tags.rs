@@ -1,8 +1,8 @@
 //! Tags command - global tag management
 
-use crate::{TagrError, cli::TagsCommands, output};
 use crate::store::TagStore;
 use crate::types::TagName;
+use crate::{TagrError, cli::TagsCommands, output};
 use dialoguer::Confirm;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -13,14 +13,24 @@ type Result<T> = std::result::Result<T, TagrError>;
 ///
 /// # Errors
 /// Returns an error if database operations fail or user interaction fails
-pub fn execute(store: &dyn TagStore, command: &TagsCommands, quiet: bool, writer: &mut impl Write) -> Result<()> {
+pub fn execute(
+    store: &dyn TagStore,
+    command: &TagsCommands,
+    quiet: bool,
+    writer: &mut impl Write,
+) -> Result<()> {
     match command {
         TagsCommands::List { tree } => list_all_tags(store, *tree, quiet, writer),
         TagsCommands::Remove { tag } => remove_tag_globally(store, tag, quiet, writer),
     }
 }
 
-fn list_all_tags(store: &dyn TagStore, tree: bool, quiet: bool, writer: &mut impl Write) -> Result<()> {
+fn list_all_tags(
+    store: &dyn TagStore,
+    tree: bool,
+    quiet: bool,
+    writer: &mut impl Write,
+) -> Result<()> {
     let tags = store.list_all_tags()?;
 
     if tags.is_empty() {
@@ -37,18 +47,32 @@ fn list_all_tags(store: &dyn TagStore, tree: bool, quiet: bool, writer: &mut imp
     }
 }
 
-fn display_flat_list(store: &dyn TagStore, tags: &[TagName], quiet: bool, writer: &mut impl Write) -> Result<()> {
+fn display_flat_list(
+    store: &dyn TagStore,
+    tags: &[TagName],
+    quiet: bool,
+    writer: &mut impl Write,
+) -> Result<()> {
     if !quiet {
         writeln!(writer, "Tags in database:")?;
     }
     for tag in tags {
         let count = store.find_by_tag(tag)?.len();
-        writeln!(writer, "{}", output::tag_with_count(tag.as_str(), count, quiet))?;
+        writeln!(
+            writer,
+            "{}",
+            output::tag_with_count(tag.as_str(), count, quiet)
+        )?;
     }
     Ok(())
 }
 
-fn display_tree_view(store: &dyn TagStore, tags: &[TagName], quiet: bool, writer: &mut impl Write) -> Result<()> {
+fn display_tree_view(
+    store: &dyn TagStore,
+    tags: &[TagName],
+    quiet: bool,
+    writer: &mut impl Write,
+) -> Result<()> {
     use crate::schema::HIERARCHY_DELIMITER;
 
     let mut hierarchy: HashMap<String, Vec<TagName>> = HashMap::new();
@@ -119,7 +143,10 @@ fn print_children(
             if quiet {
                 writeln!(writer, "{indent}{prefix_str}{child_str}")?;
             } else {
-                writeln!(writer, "  {indent}{prefix_str}{child_str}  ({count} file(s))")?;
+                writeln!(
+                    writer,
+                    "  {indent}{prefix_str}{child_str}  ({count} file(s))"
+                )?;
             }
 
             print_children(store, child_str, hierarchy, quiet, writer)?;
@@ -137,7 +164,12 @@ fn extract_root(tag: &str) -> String {
         .to_string()
 }
 
-fn remove_tag_globally(store: &dyn TagStore, tag: &str, quiet: bool, writer: &mut impl Write) -> Result<()> {
+fn remove_tag_globally(
+    store: &dyn TagStore,
+    tag: &str,
+    quiet: bool,
+    writer: &mut impl Write,
+) -> Result<()> {
     let tag_name = TagName::new(tag).map_err(|e| TagrError::InvalidInput(e.to_string()))?;
     let files_before = store.find_by_tag(&tag_name)?;
 
@@ -149,7 +181,11 @@ fn remove_tag_globally(store: &dyn TagStore, tag: &str, quiet: bool, writer: &mu
     }
 
     if !quiet {
-        writeln!(writer, "Found tag '{tag}' in {} file(s):", files_before.len())?;
+        writeln!(
+            writer,
+            "Found tag '{tag}' in {} file(s):",
+            files_before.len()
+        )?;
         for file in &files_before {
             writeln!(writer, "  - {file}")?;
         }
@@ -169,9 +205,16 @@ fn remove_tag_globally(store: &dyn TagStore, tag: &str, quiet: bool, writer: &mu
     crate::completions::invalidate_cache(store);
 
     if !quiet {
-        writeln!(writer, "Removed tag '{tag}' from {} file(s).", files_before.len())?;
+        writeln!(
+            writer,
+            "Removed tag '{tag}' from {} file(s).",
+            files_before.len()
+        )?;
         if files_removed > 0 {
-            writeln!(writer, "Cleaned up {files_removed} file(s) with no remaining tags.")?;
+            writeln!(
+                writer,
+                "Cleaned up {files_removed} file(s) with no remaining tags."
+            )?;
         }
     }
     Ok(())

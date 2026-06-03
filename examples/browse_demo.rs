@@ -11,10 +11,10 @@
 use std::fs;
 use std::path::PathBuf;
 use tagr::Pair;
-use tagr::types::{TagName, TagrPath};
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
 use tagr::store::DirectStore;
+use tagr::types::{TagName, TagrPath};
 use tagr::ui::ratatui_adapter::RatatuiFinder;
 
 /// Create sample files in a temporary directory
@@ -87,7 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (filename, tags) in tags_map {
         let file_path = temp_dir.join(filename);
         let tagr_path = TagrPath::new(&file_path).expect("valid UTF-8 path");
-        let tag_names: Vec<TagName> = tags.iter()
+        let tag_names: Vec<TagName> = tags
+            .iter()
             .map(|s| TagName::new(*s).expect("valid tag name"))
             .collect();
         db.insert_pair(&Pair::new(tagr_path, tag_names))?;

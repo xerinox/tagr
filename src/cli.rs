@@ -40,9 +40,9 @@
 //! }
 //! ```
 
+use crate::commands::watch::WatchCommands;
 use clap::{Args, Parser, Subcommand, ValueEnum, ValueHint};
 use std::path::{Path, PathBuf};
-use crate::commands::watch::WatchCommands;
 
 // Dynamic completion support (behind feature flag)
 #[cfg(feature = "dynamic-completions")]
@@ -819,7 +819,10 @@ impl SearchCriteriaArgs {
                         Some(TagExpr::And(excludes))
                     } else {
                         let include_expr = if includes.len() == 1 {
-                            includes.into_iter().next().unwrap_or_else(|| unreachable!())
+                            includes
+                                .into_iter()
+                                .next()
+                                .unwrap_or_else(|| unreachable!())
                         } else {
                             TagExpr::Or(includes)
                         };
@@ -1232,7 +1235,10 @@ impl Commands {
                                 Some(TagExpr::And(excludes))
                             } else {
                                 let include_expr = if includes.len() == 1 {
-                                    includes.into_iter().next().unwrap_or_else(|| unreachable!())
+                                    includes
+                                        .into_iter()
+                                        .next()
+                                        .unwrap_or_else(|| unreachable!())
                                 } else {
                                     TagExpr::Or(includes)
                                 };
@@ -1271,7 +1277,6 @@ impl Commands {
     /// Get browse command context
     #[must_use]
     pub fn get_browse_context(&self) -> Option<BrowseContext> {
-
         match self {
             Self::Browse {
                 query,
@@ -1504,7 +1509,10 @@ mod tests {
             assert!(tags.contains(&crate::types::TagName::new("tag1").unwrap()));
             assert!(tags.contains(&crate::types::TagName::new("tag2").unwrap()));
             // any-tag → Or expression
-            assert!(matches!(criteria.tag_expr, Some(crate::types::TagExpr::Or(_))));
+            assert!(matches!(
+                criteria.tag_expr,
+                Some(crate::types::TagExpr::Or(_))
+            ));
         } else {
             panic!("Expected Search command");
         }

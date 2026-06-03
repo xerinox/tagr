@@ -90,8 +90,7 @@ mod tests {
     #[test]
     fn test_filter_glob_any() {
         let files = vec!["test.rs", "main.rs", "test.txt"];
-        let result =
-            filter_by_patterns(&files, &["*.rs".to_string()], false, false).unwrap();
+        let result = filter_by_patterns(&files, &["*.rs".to_string()], false, false).unwrap();
         assert_eq!(result.len(), 2);
         assert!(result.contains(&"test.rs".to_string()));
         assert!(result.contains(&"main.rs".to_string()));

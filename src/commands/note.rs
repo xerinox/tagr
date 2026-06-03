@@ -1,8 +1,8 @@
 //! Note management commands
 
 use crate::config::TagrConfig;
-use crate::types::NoteRecord;
 use crate::store::TagStore;
+use crate::types::NoteRecord;
 use crate::types::TagrPath;
 use crate::{config, output};
 use clap::{Args, Subcommand, ValueEnum};
@@ -154,7 +154,12 @@ impl NoteSubcommand {
 }
 
 /// Edit notes for files
-fn execute_edit(args: &EditArgs, store: &dyn TagStore, config: &TagrConfig, writer: &mut impl Write) -> Result<(), NoteError> {
+fn execute_edit(
+    args: &EditArgs,
+    store: &dyn TagStore,
+    config: &TagrConfig,
+    writer: &mut impl Write,
+) -> Result<(), NoteError> {
     let editor = args
         .editor
         .clone()
@@ -168,8 +173,8 @@ fn execute_edit(args: &EditArgs, store: &dyn TagStore, config: &TagrConfig, writ
             ))
         })?;
 
-        let tagr_path = TagrPath::new(&canonical_path)
-            .map_err(|e| NoteError::PathError(e.to_string()))?;
+        let tagr_path =
+            TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
 
         let existing_note = store.get_note(&tagr_path)?;
         let initial_content = existing_note.as_ref().map_or_else(
@@ -233,8 +238,8 @@ fn execute_add(
         ))
     })?;
 
-    let tagr_path = TagrPath::new(&canonical_path)
-        .map_err(|e| NoteError::PathError(e.to_string()))?;
+    let tagr_path =
+        TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
 
     let existing_content = store
         .get_note(&tagr_path)?
@@ -275,8 +280,8 @@ fn execute_show(
             ))
         })?;
 
-        let tagr_path = TagrPath::new(&canonical_path)
-            .map_err(|e| NoteError::PathError(e.to_string()))?;
+        let tagr_path =
+            TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
 
         let note = store.get_note(&tagr_path)?;
 
@@ -289,8 +294,16 @@ fn execute_show(
                             "File: {}",
                             output::format_path(&canonical_path, path_format)
                         )?;
-                        writeln!(writer, "Created: {}", format_timestamp(note.metadata.created_at))?;
-                        writeln!(writer, "Updated: {}", format_timestamp(note.metadata.updated_at))?;
+                        writeln!(
+                            writer,
+                            "Created: {}",
+                            format_timestamp(note.metadata.created_at)
+                        )?;
+                        writeln!(
+                            writer,
+                            "Updated: {}",
+                            format_timestamp(note.metadata.updated_at)
+                        )?;
                         writeln!(writer, "\n{}", note.content)?;
                     } else {
                         writeln!(writer, "{}", note.content)?;
@@ -308,7 +321,11 @@ fn execute_show(
                     writeln!(writer, "{}", serde_json::to_string_pretty(&json)?)?;
                 }
                 OutputFormat::Quiet => {
-                    writeln!(writer, "{}", output::format_path(&canonical_path, path_format))?;
+                    writeln!(
+                        writer,
+                        "{}",
+                        output::format_path(&canonical_path, path_format)
+                    )?;
                 }
             }
         } else {
@@ -339,8 +356,8 @@ fn execute_delete(
             ))
         })?;
 
-        let tagr_path = TagrPath::new(&canonical_path)
-            .map_err(|e| NoteError::PathError(e.to_string()))?;
+        let tagr_path =
+            TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
 
         if store.get_note(&tagr_path)?.is_some() {
             files_to_delete.push(tagr_path);
@@ -353,7 +370,11 @@ fn execute_delete(
     }
 
     if args.dry_run {
-        writeln!(writer, "Would delete notes for {} file(s):", files_to_delete.len())?;
+        writeln!(
+            writer,
+            "Would delete notes for {} file(s):",
+            files_to_delete.len()
+        )?;
         for file in &files_to_delete {
             writeln!(writer, "  - {}", output::format_path(file, path_format))?;
         }

@@ -172,28 +172,32 @@ impl<F: FuzzyFinder> BrowseController<F> {
                     // User completed refine search overlay - apply the new criteria
                     use crate::types::{QueryCriteria, TagExpr, TagName};
 
-                    let current = self.session.config().initial_search.clone()
-                        .unwrap_or_else(|| {
-                            if let PhaseType::FileSelection { selected_tags } =
-                                &self.session.current_phase().phase_type
-                            {
-                                let tag_exprs: Vec<TagExpr> = selected_tags
-                                    .iter()
-                                    .map(|t| TagExpr::Tag(t.clone()))
-                                    .collect();
-                                let tag_expr = match tag_exprs.len() {
-                                    0 => None,
-                                    1 => tag_exprs.into_iter().next(),
-                                    _ => Some(TagExpr::Or(tag_exprs)),
-                                };
-                                QueryCriteria {
-                                    tag_expr,
-                                    ..QueryCriteria::default()
+                    let current =
+                        self.session
+                            .config()
+                            .initial_search
+                            .clone()
+                            .unwrap_or_else(|| {
+                                if let PhaseType::FileSelection { selected_tags } =
+                                    &self.session.current_phase().phase_type
+                                {
+                                    let tag_exprs: Vec<TagExpr> = selected_tags
+                                        .iter()
+                                        .map(|t| TagExpr::Tag(t.clone()))
+                                        .collect();
+                                    let tag_expr = match tag_exprs.len() {
+                                        0 => None,
+                                        1 => tag_exprs.into_iter().next(),
+                                        _ => Some(TagExpr::Or(tag_exprs)),
+                                    };
+                                    QueryCriteria {
+                                        tag_expr,
+                                        ..QueryCriteria::default()
+                                    }
+                                } else {
+                                    QueryCriteria::default()
                                 }
-                            } else {
-                                QueryCriteria::default()
-                            }
-                        });
+                            });
 
                     // Build new tag expression from include/exclude tags
                     let include_exprs: Vec<TagExpr> = include_tags
@@ -203,7 +207,9 @@ impl<F: FuzzyFinder> BrowseController<F> {
                     let exclude_exprs: Vec<TagExpr> = exclude_tags
                         .iter()
                         .filter_map(|t| {
-                            TagName::new(t).ok().map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+                            TagName::new(t)
+                                .ok()
+                                .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
                         })
                         .collect();
                     let mut all_exprs = include_exprs;
@@ -669,8 +675,10 @@ impl<F: FuzzyFinder> BrowseController<F> {
         files: &[TagrPath],
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
-            "delete_from_db" => actions::execute_delete_from_db(self.session.data_source().as_ref(), files)
-                .map_err(|e| BrowseError::ActionFailed(e.to_string())),
+            "delete_from_db" => {
+                actions::execute_delete_from_db(self.session.data_source().as_ref(), files)
+                    .map_err(|e| BrowseError::ActionFailed(e.to_string()))
+            }
             _ => Err(BrowseError::UnexpectedState(format!(
                 "Unknown action_id: {action_id}"
             ))),

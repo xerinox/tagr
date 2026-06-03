@@ -48,21 +48,51 @@ pub enum Request {
     ListTags,
     ListFiles,
     ListAllPaths,
-    Query { criteria: WireQueryCriteria },
-    GetTags { file: String },
-    GetNote { file: String },
-    FindByTag { tag: String },
-    FindByTags { tags: Vec<String>, match_all: bool },
-    FindByTagRegex { pattern: String },
+    Query {
+        criteria: WireQueryCriteria,
+    },
+    GetTags {
+        file: String,
+    },
+    GetNote {
+        file: String,
+    },
+    FindByTag {
+        tag: String,
+    },
+    FindByTags {
+        tags: Vec<String>,
+        match_all: bool,
+    },
+    FindByTagRegex {
+        pattern: String,
+    },
     ListNotes,
 
     // -- Mutations --
-    AddTags { file: String, tags: Vec<String> },
-    SetTags { file: String, tags: Vec<String> },
-    RemoveTags { file: String, tags: Vec<String>, all: bool },
-    SetNote { file: String, content: String },
-    DeleteNote { file: String },
-    DeleteFromDb { file: String },
+    AddTags {
+        file: String,
+        tags: Vec<String>,
+    },
+    SetTags {
+        file: String,
+        tags: Vec<String>,
+    },
+    RemoveTags {
+        file: String,
+        tags: Vec<String>,
+        all: bool,
+    },
+    SetNote {
+        file: String,
+        content: String,
+    },
+    DeleteNote {
+        file: String,
+    },
+    DeleteFromDb {
+        file: String,
+    },
     Cleanup,
 }
 
@@ -87,7 +117,9 @@ pub enum Response {
     Notes(Vec<WireNoteEntry>),
     /// Single note response (None = no note for this file).
     Note(Option<WireNoteEntry>),
-    CleanupResult { removed: u64 },
+    CleanupResult {
+        removed: u64,
+    },
     Error(String),
 }
 
@@ -101,7 +133,10 @@ pub enum ServerEvent {
     /// A file entry was deleted from the database.
     FileRemoved { file: String },
     /// A note was created/updated (content = Some) or deleted (content = None).
-    NoteChanged { file: String, content: Option<String> },
+    NoteChanged {
+        file: String,
+        content: Option<String>,
+    },
     /// watch.toml was reloaded.
     ConfigReloaded,
 }
@@ -194,9 +229,7 @@ impl From<&WireFilePair> for crate::Pair {
     fn from(w: &WireFilePair) -> Self {
         Self::new(
             TagrPath::from_string(w.file.clone()),
-            w.tags.iter()
-                .filter_map(|s| TagName::new(s).ok())
-                .collect(),
+            w.tags.iter().filter_map(|s| TagName::new(s).ok()).collect(),
         )
     }
 }
@@ -205,7 +238,8 @@ impl From<WireFilePair> for crate::Pair {
     fn from(w: WireFilePair) -> Self {
         Self::new(
             TagrPath::from_string(w.file),
-            w.tags.into_iter()
+            w.tags
+                .into_iter()
                 .filter_map(|s| TagName::new(&s).ok())
                 .collect(),
         )
@@ -275,12 +309,12 @@ impl TryFrom<&WireTagExpr> for crate::types::TagExpr {
                 })?;
                 Ok(Self::Not(Box::new(Self::try_from(first)?)))
             }
-            WireTagExpr::And(exprs) => {
-                Ok(Self::And(exprs.iter().map(Self::try_from).collect::<Result<_, _>>()?))
-            }
-            WireTagExpr::Or(exprs) => {
-                Ok(Self::Or(exprs.iter().map(Self::try_from).collect::<Result<_, _>>()?))
-            }
+            WireTagExpr::And(exprs) => Ok(Self::And(
+                exprs.iter().map(Self::try_from).collect::<Result<_, _>>()?,
+            )),
+            WireTagExpr::Or(exprs) => Ok(Self::Or(
+                exprs.iter().map(Self::try_from).collect::<Result<_, _>>()?,
+            )),
         }
     }
 }
@@ -370,13 +404,11 @@ where
     W: tokio::io::AsyncWriteExt + Unpin,
     T: SchemaWrite<wincode::config::DefaultConfig, Src = T> + ?Sized,
 {
-    let bytes = wincode::serialize(msg).map_err(|e| {
-        IpcError::SerializationError(format!("wincode serialize: {e}"))
-    })?;
+    let bytes = wincode::serialize(msg)
+        .map_err(|e| IpcError::SerializationError(format!("wincode serialize: {e}")))?;
 
-    let len = u32::try_from(bytes.len()).map_err(|_| {
-        IpcError::SerializationError("frame too large".into())
-    })?;
+    let len = u32::try_from(bytes.len())
+        .map_err(|_| IpcError::SerializationError("frame too large".into()))?;
 
     writer
         .write_all(&len.to_le_bytes())
@@ -423,9 +455,8 @@ where
         .await
         .map_err(|e| IpcError::ConnectionFailed(e.to_string()))?;
 
-    let msg: T = wincode::deserialize(&buf).map_err(|e| {
-        IpcError::SerializationError(format!("wincode deserialize: {e}"))
-    })?;
+    let msg: T = wincode::deserialize(&buf)
+        .map_err(|e| IpcError::SerializationError(format!("wincode deserialize: {e}")))?;
 
     Ok(Some(msg))
 }
@@ -620,9 +651,7 @@ mod tests {
         let decoded: Request = wincode::deserialize(&bytes).unwrap();
         match decoded {
             Request::Query { criteria } => {
-                assert!(
-                    matches!(criteria.tag_expr, Some(WireTagExpr::Tag(ref s)) if s == "rust")
-                );
+                assert!(matches!(criteria.tag_expr, Some(WireTagExpr::Tag(ref s)) if s == "rust"));
             }
             _ => panic!("wrong variant"),
         }

@@ -470,9 +470,11 @@ impl Widget for RefineSearchOverlay<'_> {
             list.render(chunks[1], buf);
 
             // Help text
-            let help = Paragraph::new("TAB: toggle | Enter: add/confirm | Esc: cancel | Type to filter/add")
-                .style(Style::default().fg(Color::DarkGray))
-                .alignment(Alignment::Center);
+            let help = Paragraph::new(
+                "TAB: toggle | Enter: add/confirm | Esc: cancel | Type to filter/add",
+            )
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center);
             help.render(chunks[2], buf);
         } else {
             // Show field list

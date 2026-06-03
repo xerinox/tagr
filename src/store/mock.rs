@@ -46,10 +46,7 @@ impl MockStore {
     /// Create a store pre-populated from `Pair` values.
     #[must_use]
     pub fn with_pairs(pairs: Vec<Pair>) -> Self {
-        let files = pairs
-            .into_iter()
-            .map(|p| (p.file, p.tags))
-            .collect();
+        let files = pairs.into_iter().map(|p| (p.file, p.tags)).collect();
         Self {
             files,
             notes: HashMap::new(),
@@ -112,10 +109,8 @@ impl TagStore for MockStore {
                 *counts.entry(tag).or_insert(0) += 1;
             }
         }
-        let mut result: Vec<(TagName, usize)> = counts
-            .into_iter()
-            .map(|(t, c)| (t.clone(), c))
-            .collect();
+        let mut result: Vec<(TagName, usize)> =
+            counts.into_iter().map(|(t, c)| (t.clone(), c)).collect();
         result.sort_by(|(a, _), (b, _)| a.cmp(b));
         Ok(result)
     }

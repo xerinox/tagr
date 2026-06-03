@@ -1,9 +1,9 @@
+use crate::TagrError;
 use crate::cli::{AliasCommands, BulkCommands, Commands, TransformationType};
-use crate::config::TagrConfig;
-use crate::store::TagStore;
 use crate::commands;
 use crate::commands::bulk::{BatchFormat, CopyTagsConfig, TagTransformation};
-use crate::TagrError;
+use crate::config::TagrConfig;
+use crate::store::TagStore;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -28,7 +28,15 @@ pub fn dispatch_command(
             filter_args,
             criteria,
             ..
-        } => dispatch_search(command, filter_args, criteria, &*store, path_format, quiet, writer),
+        } => dispatch_search(
+            command,
+            filter_args,
+            criteria,
+            &*store,
+            path_format,
+            quiet,
+            writer,
+        ),
         Commands::List { variant, .. } => {
             commands::list::execute(&*store, *variant, path_format, quiet, writer)?;
             Ok(())
@@ -37,7 +45,14 @@ pub fn dispatch_command(
             let ctx = command.get_tag_context().ok_or_else(|| {
                 TagrError::InvalidInput("Failed to extract tag context from command".into())
             })?;
-            commands::tag::execute(&*store, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet, writer)?;
+            commands::tag::execute(
+                &*store,
+                ctx.file,
+                &ctx.tags,
+                ctx.no_canonicalize,
+                quiet,
+                writer,
+            )?;
             Ok(())
         }
         Commands::Untag { .. } => {
@@ -70,8 +85,8 @@ pub fn dispatch_command(
             Ok(())
         }
         Commands::Filter { command } => {
-             commands::filter::execute(command, quiet)?;
-             Ok(())
+            commands::filter::execute(command, quiet)?;
+            Ok(())
         }
         Commands::Browse { filter_args, .. } => {
             let ctx = command.get_browse_context().ok_or_else(|| {
@@ -96,9 +111,10 @@ pub fn dispatch_command(
             )?;
             Ok(())
         }
-        Commands::Config { .. } | Commands::Db { .. } | Commands::Completions { .. } | Commands::Watch { .. } => {
-             Ok(())
-        }
+        Commands::Config { .. }
+        | Commands::Db { .. }
+        | Commands::Completions { .. }
+        | Commands::Watch { .. } => Ok(()),
     }
 }
 
@@ -114,9 +130,9 @@ fn dispatch_search(
 ) -> Result<(), TagrError> {
     use crate::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
 
-    let criteria = command.get_search_criteria().ok_or_else(|| {
-        TagrError::InvalidInput("Failed to parse search parameters".into())
-    })?;
+    let criteria = command
+        .get_search_criteria()
+        .ok_or_else(|| TagrError::InvalidInput("Failed to parse search parameters".into()))?;
 
     let save_filter = filter_args
         .save_filter
@@ -162,7 +178,9 @@ fn dispatch_bulk(
             yes,
         } => {
             let qc = criteria.to_query_criteria();
-            commands::bulk::bulk_tag(store, &qc, add_tags, conditions, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::bulk_tag(
+                store, &qc, add_tags, conditions, *dry_run, *yes, quiet, writer,
+            )?;
         }
         BulkCommands::Untag {
             criteria,
@@ -173,7 +191,17 @@ fn dispatch_bulk(
             yes,
         } => {
             let qc = criteria.to_query_criteria();
-            commands::bulk::bulk_untag(store, &qc, remove_tags, *all, conditions, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::bulk_untag(
+                store,
+                &qc,
+                remove_tags,
+                *all,
+                conditions,
+                *dry_run,
+                *yes,
+                quiet,
+                writer,
+            )?;
         }
         BulkCommands::RenameTag {
             old_tag,
@@ -189,7 +217,15 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            commands::bulk::merge_tags(store, source_tags, target_tag, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::merge_tags(
+                store,
+                source_tags,
+                target_tag,
+                *dry_run,
+                *yes,
+                quiet,
+                writer,
+            )?;
         }
         BulkCommands::CopyTags {
             source,
@@ -273,7 +309,15 @@ fn dispatch_bulk(
             dry_run,
             yes,
         } => {
-            commands::bulk::propagate_by_extension(store, mappings, *no_defaults, *dry_run, *yes, quiet, writer)?;
+            commands::bulk::propagate_by_extension(
+                store,
+                mappings,
+                *no_defaults,
+                *dry_run,
+                *yes,
+                quiet,
+                writer,
+            )?;
         }
         BulkCommands::Transform {
             transformation,
@@ -282,7 +326,17 @@ fn dispatch_bulk(
             filter,
             dry_run,
             yes,
-        } => dispatch_transform(*transformation, param.as_deref(), replacement.as_deref(), filter, store, *dry_run, *yes, quiet, writer)?,
+        } => dispatch_transform(
+            *transformation,
+            param.as_deref(),
+            replacement.as_deref(),
+            filter,
+            store,
+            *dry_run,
+            *yes,
+            quiet,
+            writer,
+        )?,
     }
     Ok(())
 }
@@ -311,12 +365,8 @@ fn dispatch_transform(
         TransformationType::SnakeCase => TagTransformation::SnakeCase,
         TransformationType::CamelCase => TagTransformation::CamelCase,
         TransformationType::PascalCase => TagTransformation::PascalCase,
-        TransformationType::AddPrefix => {
-            TagTransformation::AddPrefix(required_param("param")?)
-        }
-        TransformationType::AddSuffix => {
-            TagTransformation::AddSuffix(required_param("param")?)
-        }
+        TransformationType::AddPrefix => TagTransformation::AddPrefix(required_param("param")?),
+        TransformationType::AddSuffix => TagTransformation::AddSuffix(required_param("param")?),
         TransformationType::RemovePrefix => {
             TagTransformation::RemovePrefix(required_param("param")?)
         }

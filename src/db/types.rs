@@ -58,7 +58,6 @@ impl AsRef<Path> for PathKey {
     }
 }
 
-
 #[cfg(test)]
 #[path = "types_tests.rs"]
 mod types_tests;

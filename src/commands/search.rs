@@ -1,8 +1,7 @@
 //! Search command - find files by tags and patterns
 
 use crate::{
-    TagrError,
-    config,
+    TagrError, config,
     filters::FilterManager,
     output,
     patterns::{PatternBuilder, PatternContext},
@@ -106,7 +105,14 @@ pub fn execute(
     let files = store.query(&criteria, &schema)?;
 
     if let Some(query) = &criteria.query {
-        print_results(store, &files, query, output_config.format, output_config.quiet, writer)?;
+        print_results(
+            store,
+            &files,
+            query,
+            output_config.format,
+            output_config.quiet,
+            writer,
+        )?;
     } else if files.is_empty() {
         if !output_config.quiet {
             let desc = criteria_description(&criteria);
@@ -123,11 +129,22 @@ pub fn execute(
     } else {
         if !output_config.quiet {
             let description = search_description(&criteria);
-            writeln!(writer, "Found {} file(s) matching {}:", files.len(), description)?;
+            writeln!(
+                writer,
+                "Found {} file(s) matching {}:",
+                files.len(),
+                description
+            )?;
         }
 
         for file in files {
-            print_file_with_tags(store, &file, output_config.format, output_config.quiet, writer)?;
+            print_file_with_tags(
+                store,
+                &file,
+                output_config.format,
+                output_config.quiet,
+                writer,
+            )?;
         }
     }
 
@@ -229,7 +246,10 @@ fn print_results(
 ) -> Result<()> {
     if files.is_empty() {
         if !quiet {
-            writeln!(writer, "No files found matching query '{query}' (searched tags and filenames)")?;
+            writeln!(
+                writer,
+                "No files found matching query '{query}' (searched tags and filenames)"
+            )?;
         }
     } else {
         if !quiet {
@@ -279,13 +299,14 @@ fn criteria_description(criteria: &QueryCriteria) -> String {
 
 fn search_description(criteria: &QueryCriteria) -> String {
     let tag_desc = criteria.tag_expr.as_ref().map_or_else(String::new, |expr| {
-        let tags = criteria
-            .flat_include_tags()
-            .map_or_else(|| format!("{expr:?}"), |set| {
+        let tags = criteria.flat_include_tags().map_or_else(
+            || format!("{expr:?}"),
+            |set| {
                 let mut names: Vec<_> = set.into_iter().map(TagName::to_string).collect();
                 names.sort();
                 names.join(", ")
-            });
+            },
+        );
 
         match expr {
             crate::types::TagExpr::Or(_) => format!("ANY tag [{tags}]"),

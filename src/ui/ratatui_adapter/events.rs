@@ -715,22 +715,34 @@ mod tests {
 
         // j/k work when search is inactive
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::MoveDown)
         );
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::MoveUp)
         );
 
         // j/k become char input when search is active
         state.search_active = true;
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::CharInput('j'))
         );
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::CharInput('k'))
         );
     }
@@ -797,7 +809,10 @@ mod tests {
         state.search_active = true;
 
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::CharInput('a'))
         );
         assert_eq!(
@@ -808,7 +823,10 @@ mod tests {
             Some(BrowseAction::CharInput('A'))
         );
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::Backspace)
         );
         assert_eq!(
@@ -844,12 +862,18 @@ mod tests {
 
         // Regular chars produce None when search is inactive (except mapped keys)
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                &state
+            ),
             None
         );
         // Backspace also None without search
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                &state
+            ),
             None
         );
     }
@@ -867,7 +891,10 @@ mod tests {
             Some(BrowseAction::ToggleExclude)
         );
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::EnterSearch)
         );
         assert_eq!(
@@ -875,7 +902,10 @@ mod tests {
             Some(BrowseAction::ShowHelp)
         );
         assert_eq!(
-            resolve_default_keybind(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE), &state),
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+                &state
+            ),
             Some(BrowseAction::ShowHelp)
         );
     }

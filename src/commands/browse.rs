@@ -13,8 +13,8 @@ use crate::{
     output,
     store::TagStore,
     types::QueryCriteria,
-    ui::{PreviewPosition, ratatui_adapter::RatatuiFinder},
     ui::ratatui_adapter::StoreMode,
+    ui::{PreviewPosition, ratatui_adapter::RatatuiFinder},
 };
 
 type Result<T> = std::result::Result<T, TagrError>;

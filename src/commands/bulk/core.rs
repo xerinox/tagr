@@ -81,7 +81,11 @@ impl BulkOpSummary {
     /// # Errors
     /// Returns I/O errors if writing to the output fails.
     pub fn print(&self, operation: &str, writer: &mut impl Write) -> Result<()> {
-        writeln!(writer, "\n{}", format!("=== {operation} Summary ===").bold())?;
+        writeln!(
+            writer,
+            "\n{}",
+            format!("=== {operation} Summary ===").bold()
+        )?;
         writeln!(writer, "  {} {}", "✓ Success:".green(), self.success)?;
         if self.skipped > 0 {
             writeln!(writer, "  {} {}", "⊘ Skipped:".yellow(), self.skipped)?;
@@ -134,7 +138,11 @@ pub fn print_dry_run_preview(
     if files.len() > 10 {
         writeln!(writer, "  ... and {} more", files.len() - 10)?;
     }
-    writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+    writeln!(
+        writer,
+        "\n{}",
+        "Run without --dry-run to apply changes.".yellow()
+    )?;
     Ok(())
 }
 

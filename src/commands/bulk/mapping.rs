@@ -6,9 +6,9 @@ use dialoguer::Confirm;
 
 use super::batch::{BatchFormat, format_mismatch_hint_parsed};
 use super::core::{BulkOpSummary, SkipReason};
+use crate::TagrError;
 use crate::store::TagStore;
 use crate::types::TagName;
-use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -51,12 +51,22 @@ pub fn bulk_map_tags(
         writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
         writeln!(writer, "Would apply {} tag mapping(s):", mappings.len())?;
         for (i, m) in mappings.iter().enumerate().take(15) {
-            writeln!(writer, "  {}. '{}' → '{}'", i + 1, m.from.cyan(), m.to.green())?;
+            writeln!(
+                writer,
+                "  {}. '{}' → '{}'",
+                i + 1,
+                m.from.cyan(),
+                m.to.green()
+            )?;
         }
         if mappings.len() > 15 {
             writeln!(writer, "  ... and {} more", mappings.len() - 15)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !yes {
@@ -134,9 +144,7 @@ pub fn bulk_map_tags(
                         writeln!(
                             writer,
                             "✓ '{}' → '{}' in {}",
-                            mapping.from,
-                            mapping.to,
-                            file
+                            mapping.from, mapping.to, file
                         )?;
                     }
                 }
@@ -145,10 +153,7 @@ pub fn bulk_map_tags(
                     if !quiet {
                         eprintln!(
                             "✗ Failed '{}' → '{}' in {}: {}",
-                            mapping.from,
-                            mapping.to,
-                            file,
-                            e
+                            mapping.from, mapping.to, file, e
                         );
                     }
                 }

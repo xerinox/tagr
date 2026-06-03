@@ -5,8 +5,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::error::{NameKind, ValidationError};
 use super::MAX_FILTER_NAME_LEN;
+use super::error::{NameKind, ValidationError};
 
 /// A validated filter name.
 ///

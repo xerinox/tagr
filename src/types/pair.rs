@@ -46,7 +46,8 @@ impl Pair {
     pub(crate) fn from_raw(file: &std::path::Path, tags: Vec<&str>) -> Self {
         Self {
             file: TagrPath::new(file).expect("valid UTF-8 path"),
-            tags: tags.into_iter()
+            tags: tags
+                .into_iter()
                 .map(|s| TagName::new(s).expect("valid tag name"))
                 .collect(),
         }

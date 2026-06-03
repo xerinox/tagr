@@ -92,11 +92,11 @@ impl DaemonHarness {
 
     /// Send a wire protocol request and receive the response.
     fn send_request(&self, request: tagr::ipc::wire::Request) -> tagr::ipc::wire::Response {
-        use tagr::ipc::wire::{ClientMessage, ServerMessage, read_frame, write_frame};
         use interprocess::local_socket::tokio::prelude::LocalSocketStream;
         use interprocess::local_socket::traits::tokio::Stream;
         use interprocess::local_socket::{GenericFilePath, ToFsName};
         use std::sync::atomic::{AtomicU32, Ordering};
+        use tagr::ipc::wire::{ClientMessage, ServerMessage, read_frame, write_frame};
 
         static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
@@ -107,7 +107,10 @@ impl DaemonHarness {
             let (mut reader, mut writer) = tokio::io::split(conn);
 
             let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-            let msg = ClientMessage::Request { id, payload: request };
+            let msg = ClientMessage::Request {
+                id,
+                payload: request,
+            };
             write_frame(&mut writer, &msg).await.unwrap();
 
             let server_msg: ServerMessage = read_frame(&mut reader).await.unwrap().unwrap();
@@ -325,7 +328,10 @@ fn test_contract_cleanup_via_daemon() {
     let cleanup = harness.send_request(Request::Cleanup);
     match cleanup {
         Response::CleanupResult { removed } => {
-            assert!(removed >= 1, "Should have removed at least 1 entry, got: {removed}");
+            assert!(
+                removed >= 1,
+                "Should have removed at least 1 entry, got: {removed}"
+            );
         }
         other => panic!("Expected CleanupResult, got: {other:?}"),
     }

@@ -67,10 +67,8 @@ impl QueryCache {
                 let Ok(path) = TagrPath::new(&file) else {
                     return;
                 };
-                let tag_names: Vec<TagName> = tags
-                    .iter()
-                    .filter_map(|t| TagName::new(t).ok())
-                    .collect();
+                let tag_names: Vec<TagName> =
+                    tags.iter().filter_map(|t| TagName::new(t).ok()).collect();
 
                 if let Some(pair) = self.widest_data.iter_mut().find(|p| p.file == path) {
                     pair.tags = tag_names;
@@ -283,7 +281,10 @@ fn wire_tag_to_tagname(tag: &str, context: &str) -> Result<TagName> {
 
 /// Convert a `Vec<String>` of file paths from the wire to `Vec<TagrPath>`.
 fn wire_paths_to_tagrpaths(paths: &[String], context: &str) -> Result<Vec<TagrPath>> {
-    paths.iter().map(|p| wire_path_to_tagrpath(p, context)).collect()
+    paths
+        .iter()
+        .map(|p| wire_path_to_tagrpath(p, context))
+        .collect()
 }
 
 impl TagStore for DaemonStore {

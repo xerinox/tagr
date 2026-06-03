@@ -136,9 +136,9 @@ pub fn watch_add(
     quiet: bool,
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
-    let rule = args
-        .to_rule()
-        .ok_or_else(|| anyhow::anyhow!("No file patterns provided. Usage: tagr watch add <patterns> -t <tags>"))?;
+    let rule = args.to_rule().ok_or_else(|| {
+        anyhow::anyhow!("No file patterns provided. Usage: tagr watch add <patterns> -t <tags>")
+    })?;
 
     // Detect likely shell glob expansion: many literal paths with a common
     // parent and extension suggest the user forgot to quote the pattern.
@@ -154,7 +154,11 @@ pub fn watch_add(
             "  This works, but a quoted glob is more flexible (catches future files too)."
         )?;
         if let Some(ref glob) = suggested {
-            writeln!(writer, "  Try: tagr watch add '{glob}' -t {}", rule.tags.join(" -t "))?;
+            writeln!(
+                writer,
+                "  Try: tagr watch add '{glob}' -t {}",
+                rule.tags.join(" -t ")
+            )?;
         } else {
             writeln!(
                 writer,
@@ -168,11 +172,18 @@ pub fn watch_add(
     watch_config.append_rule(rule.clone())?;
 
     if !quiet {
-        writeln!(writer, "Watch rule saved: patterns={:?} tags={:?}", rule.patterns, rule.tags)?;
+        writeln!(
+            writer,
+            "Watch rule saved: patterns={:?} tags={:?}",
+            rule.patterns, rule.tags
+        )?;
         if let Some(ref filter) = rule.filter {
             writeln!(writer, "  Using saved filter: {filter}")?;
         }
-        writeln!(writer, "Tip: Use `tagr filter save` to create reusable filters for complex criteria.")?;
+        writeln!(
+            writer,
+            "Tip: Use `tagr filter save` to create reusable filters for complex criteria."
+        )?;
     }
 
     ensure_daemon_running(app_config, quiet, writer)?;
@@ -187,9 +198,9 @@ fn looks_like_shell_expansion(patterns: &[String]) -> bool {
         return false;
     }
 
-    let has_any_glob = patterns.iter().any(|p| {
-        p.contains('*') || p.contains('?') || p.contains('[') || p.contains('{')
-    });
+    let has_any_glob = patterns
+        .iter()
+        .any(|p| p.contains('*') || p.contains('?') || p.contains('[') || p.contains('{'));
     if has_any_glob {
         return false;
     }
@@ -254,17 +265,17 @@ fn suggest_glob(patterns: &[String]) -> Option<String> {
 /// # Errors
 ///
 /// Returns an error if the index is out of bounds or config cannot be saved.
-pub fn watch_remove(
-    index: usize,
-    quiet: bool,
-    writer: &mut impl Write,
-) -> anyhow::Result<()> {
+pub fn watch_remove(index: usize, quiet: bool, writer: &mut impl Write) -> anyhow::Result<()> {
     let mut config = WatchConfig::load().unwrap_or_default();
     let removed = remove_rule_from_config(&mut config, index)?;
     config.save()?;
 
     if !quiet {
-        writeln!(writer, "Removed rule {index}: patterns={:?} tags={:?}", removed.patterns, removed.tags)?;
+        writeln!(
+            writer,
+            "Removed rule {index}: patterns={:?} tags={:?}",
+            removed.patterns, removed.tags
+        )?;
     }
 
     Ok(())
@@ -301,9 +312,7 @@ fn remove_rule_from_config(config: &mut WatchConfig, index: usize) -> anyhow::Re
 /// # Errors
 /// Returns I/O errors if writing to the output fails, or config errors if
 /// the watch configuration cannot be loaded.
-pub fn watch_list(
-    writer: &mut impl Write,
-) -> anyhow::Result<()> {
+pub fn watch_list(writer: &mut impl Write) -> anyhow::Result<()> {
     let config = WatchConfig::load().unwrap_or_default();
     format_rule_list(&config, writer)
 }
@@ -314,11 +323,18 @@ pub fn watch_list(
 fn format_rule_list(config: &WatchConfig, writer: &mut impl Write) -> anyhow::Result<()> {
     if config.rules.is_empty() {
         writeln!(writer, "No watch rules configured.")?;
-        writeln!(writer, "Use `tagr watch add <patterns> -t <tags>` to get started.")?;
+        writeln!(
+            writer,
+            "Use `tagr watch add <patterns> -t <tags>` to get started."
+        )?;
         return Ok(());
     }
 
-    writeln!(writer, "{:>3}  {:<30} {:<20} Filter", "#", "Patterns", "Tags")?;
+    writeln!(
+        writer,
+        "{:>3}  {:<30} {:<20} Filter",
+        "#", "Patterns", "Tags"
+    )?;
     writeln!(writer, "{}", "-".repeat(78))?;
 
     for (i, rule) in config.rules.iter().enumerate() {
@@ -338,14 +354,25 @@ fn format_rule_list(config: &WatchConfig, writer: &mut impl Write) -> anyhow::Re
             tags
         };
 
-        writeln!(writer, "{:>3}  {:<30} {:<20} {}", i + 1, patterns_display, tags_display, filter)?;
+        writeln!(
+            writer,
+            "{:>3}  {:<30} {:<20} {}",
+            i + 1,
+            patterns_display,
+            tags_display,
+            filter
+        )?;
 
         // Show extra details on separate lines if present
         if !rule.vtags.is_empty() {
             writeln!(writer, "     vtags: {}", rule.vtags.join(", "))?;
         }
         if !rule.filter_by_tags.is_empty() {
-            writeln!(writer, "     filter-by-tags: {}", rule.filter_by_tags.join(", "))?;
+            writeln!(
+                writer,
+                "     filter-by-tags: {}",
+                rule.filter_by_tags.join(", ")
+            )?;
         }
     }
 
@@ -360,9 +387,7 @@ fn format_rule_list(config: &WatchConfig, writer: &mut impl Write) -> anyhow::Re
 /// # Errors
 /// Returns I/O errors if writing to the output fails, or errors from
 /// daemon status checks and socket path resolution.
-pub fn watch_status(
-    writer: &mut impl Write,
-) -> anyhow::Result<()> {
+pub fn watch_status(writer: &mut impl Write) -> anyhow::Result<()> {
     use crate::daemon::{DaemonManager, PlatformDaemonManager};
     use crate::ipc::get_ipc_socket_path;
 
@@ -370,7 +395,9 @@ pub fn watch_status(
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("Failed to create async runtime: {e}"))?;
-    let is_running = rt.block_on(PlatformDaemonManager.is_running()).unwrap_or(false);
+    let is_running = rt
+        .block_on(PlatformDaemonManager.is_running())
+        .unwrap_or(false);
 
     if is_running {
         writeln!(writer, "Daemon: running")?;
@@ -405,7 +432,9 @@ pub fn watch_start(
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("Failed to create async runtime: {e}"))?;
 
-    let is_running = rt.block_on(PlatformDaemonManager.is_running()).unwrap_or(false);
+    let is_running = rt
+        .block_on(PlatformDaemonManager.is_running())
+        .unwrap_or(false);
     if is_running {
         anyhow::bail!("Daemon is already running. Use `tagr watch status` to check.");
     }
@@ -439,10 +468,7 @@ pub fn watch_start(
 /// # Errors
 ///
 /// Returns an error if the daemon is not running or the shutdown request fails.
-pub fn watch_stop(
-    quiet: bool,
-    writer: &mut impl Write,
-) -> anyhow::Result<()> {
+pub fn watch_stop(quiet: bool, writer: &mut impl Write) -> anyhow::Result<()> {
     use crate::daemon::client::send_request;
     use crate::daemon::{DaemonManager, PlatformDaemonManager};
     use crate::ipc::get_ipc_socket_path;
@@ -451,7 +477,9 @@ pub fn watch_stop(
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("Failed to create async runtime: {e}"))?;
 
-    let is_running = rt.block_on(PlatformDaemonManager.is_running()).unwrap_or(false);
+    let is_running = rt
+        .block_on(PlatformDaemonManager.is_running())
+        .unwrap_or(false);
     if !is_running {
         if !quiet {
             writeln!(writer, "No daemon is running.")?;
@@ -497,11 +525,16 @@ fn ensure_daemon_running(
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("Failed to create async runtime: {e}"))?;
 
-    let is_running = rt.block_on(PlatformDaemonManager.is_running()).unwrap_or(false);
+    let is_running = rt
+        .block_on(PlatformDaemonManager.is_running())
+        .unwrap_or(false);
 
     if is_running {
         if !quiet {
-            writeln!(writer, "Daemon is running. New rule will be applied automatically.")?;
+            writeln!(
+                writer,
+                "Daemon is running. New rule will be applied automatically."
+            )?;
         }
     } else {
         if app_config.get_default_database().is_none() {
@@ -802,9 +835,7 @@ mod tests {
 
     #[test]
     fn test_shell_expansion_not_detected_few_files() {
-        let patterns: Vec<String> = (0..3)
-            .map(|i| format!("/tmp/file{i}.txt"))
-            .collect();
+        let patterns: Vec<String> = (0..3).map(|i| format!("/tmp/file{i}.txt")).collect();
         assert!(!looks_like_shell_expansion(&patterns));
     }
 
@@ -824,9 +855,7 @@ mod tests {
 
     #[test]
     fn test_suggest_glob_same_extension() {
-        let patterns: Vec<String> = (0..5)
-            .map(|i| format!("/tmp/notes/file{i}.md"))
-            .collect();
+        let patterns: Vec<String> = (0..5).map(|i| format!("/tmp/notes/file{i}.md")).collect();
         let suggestion = suggest_glob(&patterns).unwrap();
         assert_eq!(suggestion, "/tmp/notes/*.md");
     }

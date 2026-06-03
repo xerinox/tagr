@@ -6,12 +6,12 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tagr::types::{MatchMode, Pair, QueryCriteria, TagExpr, TagName, TagrPath};
 use tagr::commands::bulk::{bulk_tag, bulk_untag};
 use tagr::commands::search as search_cmd;
 use tagr::config;
-use tagr::{cli::execute_command_on_files, db::Database};
 use tagr::store::DirectStore;
+use tagr::types::{MatchMode, Pair, QueryCriteria, TagExpr, TagName, TagrPath};
+use tagr::{cli::execute_command_on_files, db::Database};
 
 /// Test database wrapper that cleans up on drop
 struct TestDb {
@@ -715,7 +715,10 @@ fn test_get_pair() {
 
     let pair = pair.unwrap();
     assert_eq!(pair.file, TagrPath::from_string("pair.txt".to_owned()));
-    assert_eq!(pair.tags, vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()]);
+    assert_eq!(
+        pair.tags,
+        vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()]
+    );
 
     let _ = fs::remove_file("pair.txt");
     // Cleanup happens automatically via Drop
@@ -884,7 +887,10 @@ fn test_filter_rename() {
     let test_mgr = TestFilterManager::new("rename");
     let manager = test_mgr.manager();
 
-    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("old-name", "Description".into(), criteria)
@@ -902,7 +908,10 @@ fn test_filter_delete() {
     let test_mgr = TestFilterManager::new("delete");
     let manager = test_mgr.manager();
 
-    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("to-delete", "Will be deleted".into(), criteria)
@@ -920,7 +929,10 @@ fn test_filter_duplicate_name() {
     let test_mgr = TestFilterManager::new("duplicate");
     let manager = test_mgr.manager();
 
-    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("duplicate", "First".into(), criteria.clone())
@@ -979,7 +991,10 @@ fn test_filter_export_selective() {
     let temp_file = TempFilterFile::new("test_export_selective.toml");
     let export_path = temp_file.path();
 
-    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("filter-a", "A".into(), criteria.clone())
@@ -1015,9 +1030,15 @@ fn test_filter_import_conflict_skip() {
     let temp_file = TempFilterFile::new("test_import_skip.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("existing").unwrap())), ..Default::default() };
+    let criteria1 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("existing").unwrap())),
+        ..Default::default()
+    };
 
-    let criteria2 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("new").unwrap())), ..Default::default() };
+    let criteria2 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("new").unwrap())),
+        ..Default::default()
+    };
 
     // Create existing filter
     manager
@@ -1054,9 +1075,15 @@ fn test_filter_import_conflict_overwrite() {
     let temp_file = TempFilterFile::new("test_import_overwrite.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("original").unwrap())), ..Default::default() };
+    let criteria1 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("original").unwrap())),
+        ..Default::default()
+    };
 
-    let criteria2 = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("updated").unwrap())), ..Default::default() };
+    let criteria2 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("updated").unwrap())),
+        ..Default::default()
+    };
 
     // Create existing filter
     manager
@@ -1078,7 +1105,13 @@ fn test_filter_import_conflict_overwrite() {
     // Should be updated
     let filter = manager.get("overwrite-me").unwrap();
     assert_eq!(filter.description, "Updated");
-    assert!(filter.criteria.flat_include_tags().unwrap().contains(&TagName::new("updated").unwrap()));
+    assert!(
+        filter
+            .criteria
+            .flat_include_tags()
+            .unwrap()
+            .contains(&TagName::new("updated").unwrap())
+    );
 }
 
 #[test]
@@ -1086,7 +1119,10 @@ fn test_filter_usage_tracking() {
     let test_mgr = TestFilterManager::new("usage_tracking");
     let manager = test_mgr.manager();
 
-    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     let filter = manager
         .create("track-usage", "Test".into(), criteria)
@@ -1122,7 +1158,10 @@ fn test_filter_name_validation() {
     let test_mgr = TestFilterManager::new("name_validation");
     let manager = test_mgr.manager();
 
-    let criteria = QueryCriteria { tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())), ..Default::default() };
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     // Invalid characters
     let result = manager.create("invalid name!", "Invalid".into(), criteria.clone());
@@ -1176,8 +1215,7 @@ fn test_hierarchy_specificity_exclude_wins() {
 
     db.insert_pair(&pair(file1.path(), &["lang:javascript"]))
         .unwrap();
-    db.insert_pair(&pair(file2.path(), &["lang:rust"]))
-        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust"])).unwrap();
 
     // Search: -t lang -x lang:rust
     // Should include lang:javascript but exclude lang:rust
@@ -1266,8 +1304,7 @@ fn test_hierarchy_all_mode_requires_all_patterns() {
 
     db.insert_pair(&pair(file1.path(), &["lang:rust", "project:backend"]))
         .unwrap();
-    db.insert_pair(&pair(file2.path(), &["lang:rust"]))
-        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust"])).unwrap();
     db.insert_pair(&pair(file3.path(), &["project:backend"]))
         .unwrap();
 
@@ -1296,10 +1333,8 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
     let file1 = TestFile::create("nohier1.rs", "").unwrap();
     let file2 = TestFile::create("nohier2.rs", "").unwrap();
 
-    db.insert_pair(&pair(file1.path(), &["lang:rust"]))
-        .unwrap();
-    db.insert_pair(&pair(file2.path(), &["lang"]))
-        .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:rust"])).unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang"])).unwrap();
 
     // Search: -t lang --no-hierarchy
     // Should only match file2 (exact match only)
@@ -1323,8 +1358,13 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
 fn test_cleanup_execute_empty_db() {
     let test_db = TestDb::new("cleanup_empty");
     let mut out = Vec::new();
-    tagr::commands::cleanup::execute(test_db.store(), config::PathFormat::Absolute, false, &mut out)
-        .unwrap();
+    tagr::commands::cleanup::execute(
+        test_db.store(),
+        config::PathFormat::Absolute,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("clean") || output.contains("No issues"));
 }
@@ -1343,7 +1383,13 @@ fn test_cleanup_execute_missing_file() {
     let _ = fs::remove_file(&canonical);
     let mut out = Vec::new();
     // quiet=true auto-deletes without TTY prompt
-    tagr::commands::cleanup::execute(test_db.store(), config::PathFormat::Absolute, true, &mut out).unwrap();
+    tagr::commands::cleanup::execute(
+        test_db.store(),
+        config::PathFormat::Absolute,
+        true,
+        &mut out,
+    )
+    .unwrap();
     assert_eq!(db.count(), 0, "missing file should be cleaned up");
 }
 
@@ -1356,7 +1402,13 @@ fn test_cleanup_execute_all_files_exist() {
     db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
         .unwrap();
     let mut out = Vec::new();
-    tagr::commands::cleanup::execute(test_db.store(), config::PathFormat::Absolute, false, &mut out).unwrap();
+    tagr::commands::cleanup::execute(
+        test_db.store(),
+        config::PathFormat::Absolute,
+        false,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("clean") || output.contains("No issues"));
     assert_eq!(db.count(), 1, "existing file should remain");
@@ -1377,8 +1429,11 @@ fn test_tags_list_flat() {
     let test_db = TestDb::new("tags_list_flat");
     let db = test_db.db();
     let f = TestFile::create("tags_list_file.txt", "x").unwrap();
-    db.insert(f.path().to_str().unwrap(), vec!["alpha".into(), "beta".into()])
-        .unwrap();
+    db.insert(
+        f.path().to_str().unwrap(),
+        vec!["alpha".into(), "beta".into()],
+    )
+    .unwrap();
     let cmd = tagr::cli::TagsCommands::List { tree: false };
     let mut out = Vec::new();
     tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
@@ -1492,7 +1547,12 @@ fn test_note_add_and_show() {
     });
     let mut out = Vec::new();
     add_cmd
-        .execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
+        .execute(
+            test_db.store(),
+            &config,
+            config::PathFormat::Absolute,
+            &mut out,
+        )
         .unwrap();
 
     // Show the note
@@ -1503,7 +1563,12 @@ fn test_note_add_and_show() {
     });
     let mut out = Vec::new();
     show_cmd
-        .execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
+        .execute(
+            test_db.store(),
+            &config,
+            config::PathFormat::Absolute,
+            &mut out,
+        )
         .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("test note content"));
@@ -1524,8 +1589,13 @@ fn test_note_delete_dry_run() {
         file: canonical.clone(),
         content: "to delete".into(),
     });
-    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
-        .unwrap();
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
 
     // Dry-run delete
     let del = NoteSubcommand::Delete(DeleteArgs {
@@ -1534,8 +1604,13 @@ fn test_note_delete_dry_run() {
         yes: true,
     });
     let mut out = Vec::new();
-    del.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
-        .unwrap();
+    del.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Would delete"));
     // Note should still exist
@@ -1556,17 +1631,30 @@ fn test_note_delete_applied() {
         file: canonical.clone(),
         content: "to delete".into(),
     });
-    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
-        .unwrap();
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
 
     let del = NoteSubcommand::Delete(DeleteArgs {
         files: vec![canonical.clone()],
         dry_run: false,
         yes: true,
     });
-    del.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
-        .unwrap();
-    assert!(db.get_note(&canonical).unwrap().is_none(), "note should be deleted");
+    del.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+    assert!(
+        db.get_note(&canonical).unwrap().is_none(),
+        "note should be deleted"
+    );
 }
 
 #[test]
@@ -1584,8 +1672,16 @@ fn test_note_show_nonexistent() {
         format: OutputFormat::Text,
         verbose: false,
     });
-    let result = cmd.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink());
-    assert!(result.is_err(), "showing note for file without note should error");
+    let result = cmd.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    );
+    assert!(
+        result.is_err(),
+        "showing note for file without note should error"
+    );
 }
 
 #[test]
@@ -1602,16 +1698,26 @@ fn test_note_list_with_notes() {
         file: canonical.clone(),
         content: "some note".into(),
     });
-    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
-        .unwrap();
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
 
     let list = NoteSubcommand::List(ListArgs {
         format: OutputFormat::Text,
         verbose: false,
     });
     let mut out = Vec::new();
-    list.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
-        .unwrap();
+    list.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("note_list_file"));
 }
@@ -1630,16 +1736,26 @@ fn test_note_list_json_format() {
         file: canonical.clone(),
         content: "json test".into(),
     });
-    add.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut std::io::sink())
-        .unwrap();
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
 
     let list = NoteSubcommand::List(ListArgs {
         format: OutputFormat::Json,
         verbose: false,
     });
     let mut out = Vec::new();
-    list.execute(test_db.store(), &config, config::PathFormat::Absolute, &mut out)
-        .unwrap();
+    list.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
     let output = String::from_utf8(out).unwrap();
     // Should be valid JSON
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();

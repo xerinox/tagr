@@ -72,7 +72,11 @@ pub fn get_notes_only_files(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreErr
 /// }
 /// ```
 pub fn get_available_tags(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreError> {
-    let tag_names: Vec<String> = ds.list_all_tags()?.into_iter().map(|t| t.to_string()).collect();
+    let tag_names: Vec<String> = ds
+        .list_all_tags()?
+        .into_iter()
+        .map(|t| t.to_string())
+        .collect();
 
     // Load schema to consolidate aliases
     let schema = crate::schema::load_default_schema().ok();
@@ -149,7 +153,10 @@ pub fn get_available_tags(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreError
 ///
 /// # Errors
 /// Returns `StoreError` if database operations or pattern matching fails
-pub fn get_matching_files(ds: &dyn TagStore, criteria: &QueryCriteria) -> Result<Vec<TagrItem>, StoreError> {
+pub fn get_matching_files(
+    ds: &dyn TagStore,
+    criteria: &QueryCriteria,
+) -> Result<Vec<TagrItem>, StoreError> {
     let schema = crate::schema::load_default_schema().unwrap_or_default();
     let result_paths = ds.query(criteria, &schema)?;
 
@@ -241,10 +248,10 @@ pub fn filter_items_in_memory<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Pair;
-    use crate::types::MatchMode;
     use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
+    use crate::types::MatchMode;
+    use crate::types::Pair;
 
     fn ds(db: &TestDb) -> DirectStore {
         DirectStore::new(db.db().clone())
@@ -260,18 +267,9 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        let pair1 = Pair::from_raw(
-            file1.path(),
-            vec!["rust", "code"],
-        );
-        let pair2 = Pair::from_raw(
-            file2.path(),
-            vec!["rust", "docs"],
-        );
-        let pair3 = Pair::from_raw(
-            file3.path(),
-            vec!["python", "script"],
-        );
+        let pair1 = Pair::from_raw(file1.path(), vec!["rust", "code"]);
+        let pair2 = Pair::from_raw(file2.path(), vec!["rust", "docs"]);
+        let pair3 = Pair::from_raw(file3.path(), vec!["python", "script"]);
 
         db.insert_pair(&pair1).unwrap();
         db.insert_pair(&pair2).unwrap();
@@ -325,10 +323,7 @@ mod tests {
         let file3 = TempFile::create("file3.txt").unwrap();
 
         let pair1 = Pair::from_raw(file1.path(), vec!["rust"]);
-        let pair2 = Pair::from_raw(
-            file2.path(),
-            vec!["rust", "docs"],
-        );
+        let pair2 = Pair::from_raw(file2.path(), vec!["rust", "docs"]);
         let pair3 = Pair::from_raw(file3.path(), vec!["python"]);
 
         db.insert_pair(&pair1).unwrap();
@@ -366,11 +361,8 @@ mod tests {
 
         db.insert_pair(&Pair::from_raw(file1.path(), vec!["rust"]))
             .unwrap();
-        db.insert_pair(&Pair::from_raw(
-            file2.path(),
-            vec!["python"],
-        ))
-        .unwrap();
+        db.insert_pair(&Pair::from_raw(file2.path(), vec!["python"]))
+            .unwrap();
         db.insert_pair(&Pair::from_raw(file3.path(), vec!["go"]))
             .unwrap();
 
@@ -390,18 +382,16 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        db.insert_pair(&Pair::from_raw(
-            file1.path(),
-            vec!["rust", "web"],
-        ))
-        .unwrap();
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["rust", "web"]))
+            .unwrap();
         db.insert_pair(&Pair::from_raw(file2.path(), vec!["rust"]))
             .unwrap();
         db.insert_pair(&Pair::from_raw(file3.path(), vec!["web"]))
             .unwrap();
 
         let source = ds(&test_db);
-        let files = get_files_by_tags(&source, &["rust".into(), "web".into()], MatchMode::All).unwrap();
+        let files =
+            get_files_by_tags(&source, &["rust".into(), "web".into()], MatchMode::All).unwrap();
         assert_eq!(files.len(), 1);
 
         let item = &files[0];
@@ -420,11 +410,8 @@ mod tests {
         db.clear().unwrap();
 
         let file1 = TempFile::create("file1.txt").unwrap();
-        db.insert_pair(&Pair::from_raw(
-            file1.path(),
-            vec!["python"],
-        ))
-        .unwrap();
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["python"]))
+            .unwrap();
 
         let criteria = QueryCriteria {
             tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
@@ -478,11 +465,8 @@ mod tests {
         .unwrap();
 
         // File with tags but no note - should be excluded
-        db.insert_pair(&Pair::from_raw(
-            file3.path(),
-            vec!["python"],
-        ))
-        .unwrap();
+        db.insert_pair(&Pair::from_raw(file3.path(), vec!["python"]))
+            .unwrap();
 
         let source = ds(&test_db);
         let notes_only = get_notes_only_files(&source).unwrap();

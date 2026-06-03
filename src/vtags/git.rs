@@ -44,11 +44,7 @@ impl GitStatusChecker {
     /// Returns `None` if the path is not inside a git repository.
     #[must_use]
     pub fn discover(path: &Path) -> Option<Self> {
-        let dir = if path.is_file() {
-            path.parent()?
-        } else {
-            path
-        };
+        let dir = if path.is_file() { path.parent()? } else { path };
 
         let repo = gix::discover(dir).ok()?;
         let workdir = repo.workdir()?.to_path_buf();
@@ -235,11 +231,15 @@ impl GitStatusChecker {
         self.repo.object_cache_size_if_unset(32 * 1024);
 
         let Ok(head_id) = self.repo.head_id() else {
-            return CommitInfo { last_commit_time: None };
+            return CommitInfo {
+                last_commit_time: None,
+            };
         };
 
         let Ok(walk) = head_id.ancestors().all() else {
-            return CommitInfo { last_commit_time: None };
+            return CommitInfo {
+                last_commit_time: None,
+            };
         };
 
         for info in walk.filter_map(Result::ok) {
@@ -261,7 +261,9 @@ impl GitStatusChecker {
             }
         }
 
-        CommitInfo { last_commit_time: None }
+        CommitInfo {
+            last_commit_time: None,
+        }
     }
 
     fn is_committed_today(&mut self, rela: &str) -> bool {

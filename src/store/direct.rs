@@ -88,13 +88,10 @@ fn map_db_error(err: crate::db::DbError, context: &str) -> StoreError {
 
 /// Convert a `PathBuf` to `TagrPath`, mapping invalid UTF-8 to `StorageCorrupted`.
 fn path_to_tagrpath(path: &std::path::Path, context: &str) -> Result<TagrPath> {
-    TagrPath::new(
-        path.to_str()
-            .ok_or_else(|| StoreError::StorageCorrupted {
-                key: context.to_string(),
-                reason: format!("non-UTF-8 path in database: {}", path.display()),
-            })?,
-    )
+    TagrPath::new(path.to_str().ok_or_else(|| StoreError::StorageCorrupted {
+        key: context.to_string(),
+        reason: format!("non-UTF-8 path in database: {}", path.display()),
+    })?)
     .map_err(|e| StoreError::StorageCorrupted {
         key: context.to_string(),
         reason: e.to_string(),
@@ -108,8 +105,6 @@ fn string_to_tagname(s: &str, context: &str) -> Result<TagName> {
         reason: format!("invalid tag in database: '{s}': {e}"),
     })
 }
-
-
 
 impl TagStore for DirectStore {
     fn list_all_tags(&self) -> Result<Vec<TagName>> {
@@ -154,7 +149,8 @@ impl TagStore for DirectStore {
         match raw {
             None => Ok(None),
             Some(strings) => Ok(Some(
-                strings.iter()
+                strings
+                    .iter()
                     .map(|s| string_to_tagname(s, &format!("get_tags('{file}')")))
                     .collect::<Result<Vec<_>>>()?,
             )),

@@ -42,7 +42,11 @@ pub fn execute_alias_command(
 }
 
 /// Add a new alias
-fn add_alias(alias: &str, canonical: &str, writer: &mut impl Write) -> Result<(), Box<dyn std::error::Error>> {
+fn add_alias(
+    alias: &str,
+    canonical: &str,
+    writer: &mut impl Write,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut schema = load_default_schema()?;
 
     schema.add_alias(alias, canonical)?;
@@ -167,7 +171,12 @@ fn show_aliases(tag: &str, writer: &mut impl Write) -> Result<(), Box<dyn std::e
         sorted_synonyms.sort();
         for synonym in sorted_synonyms {
             if synonym == canonical {
-                writeln!(writer, "  • {} {}", synonym.yellow(), "(canonical)".dimmed())?;
+                writeln!(
+                    writer,
+                    "  • {} {}",
+                    synonym.yellow(),
+                    "(canonical)".dimmed()
+                )?;
             } else {
                 writeln!(writer, "  • {}", synonym.cyan())?;
             }
@@ -342,7 +351,11 @@ fn set_canonical(
     )?;
 
     writeln!(writer)?;
-    writeln!(writer, "{} Canonical tag swapped successfully", "✓".green().bold())?;
+    writeln!(
+        writer,
+        "{} Canonical tag swapped successfully",
+        "✓".green().bold()
+    )?;
 
     Ok(())
 }

@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod mock_tests {
     use crate::schema::types::TagSchema;
-    use crate::store::mock::MockStore;
     use crate::store::TagStore;
+    use crate::store::mock::MockStore;
     use crate::types::{Pair, QueryCriteria, TagExpr, TagName, TagrPath};
 
     fn tag(s: &str) -> TagName {
@@ -99,9 +99,7 @@ mod mock_tests {
     #[test]
     fn find_by_all_tags() {
         let store = sample_store();
-        let files = store
-            .find_by_all_tags(&[tag("rust"), tag("cli")])
-            .unwrap();
+        let files = store.find_by_all_tags(&[tag("rust"), tag("cli")]).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].as_str(), "src/main.rs");
     }
@@ -109,9 +107,7 @@ mod mock_tests {
     #[test]
     fn find_by_any_tag() {
         let store = sample_store();
-        let files = store
-            .find_by_any_tag(&[tag("cli"), tag("docs")])
-            .unwrap();
+        let files = store.find_by_any_tag(&[tag("cli"), tag("docs")]).unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -253,8 +249,8 @@ mod mock_tests {
 #[cfg(test)]
 mod direct_store_tests {
     use crate::schema::types::TagSchema;
-    use crate::store::direct::DirectStore;
     use crate::store::TagStore;
+    use crate::store::direct::DirectStore;
     use crate::testing::{TempFile, TestDb};
     use crate::types::{NoteRecord, QueryCriteria, TagExpr, TagName, TagrPath};
 
@@ -291,10 +287,12 @@ mod direct_store_tests {
     #[test]
     fn get_tags_missing_file() {
         let (_db, store) = setup_store("direct_get_missing");
-        assert!(store
-            .get_tags(&TagrPath::new("nonexistent").unwrap())
-            .unwrap()
-            .is_none());
+        assert!(
+            store
+                .get_tags(&TagrPath::new("nonexistent").unwrap())
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -306,9 +304,7 @@ mod direct_store_tests {
         store
             .insert(&path_of(&f1), vec![tag("rust"), tag("cli")])
             .unwrap();
-        store
-            .insert(&path_of(&f2), vec![tag("python")])
-            .unwrap();
+        store.insert(&path_of(&f2), vec![tag("python")]).unwrap();
 
         let tags = store.list_all_tags().unwrap();
         assert_eq!(tags.len(), 3);
@@ -323,9 +319,7 @@ mod direct_store_tests {
         store
             .insert(&path_of(&f1), vec![tag("rust"), tag("cli")])
             .unwrap();
-        store
-            .insert(&path_of(&f2), vec![tag("rust")])
-            .unwrap();
+        store.insert(&path_of(&f2), vec![tag("rust")]).unwrap();
 
         let counts = store.list_tags_with_counts().unwrap();
         let rust_count = counts.iter().find(|(t, _)| t.as_str() == "rust").unwrap();
@@ -360,9 +354,7 @@ mod direct_store_tests {
             .unwrap();
         store.insert(&path_of(&f2), vec![tag("rust")]).unwrap();
 
-        let files = store
-            .find_by_all_tags(&[tag("rust"), tag("cli")])
-            .unwrap();
+        let files = store.find_by_all_tags(&[tag("rust"), tag("cli")]).unwrap();
         assert_eq!(files.len(), 1);
     }
 
@@ -460,9 +452,7 @@ mod direct_store_tests {
                 vec![tag("language-rust"), tag("language-python")],
             )
             .unwrap();
-        store
-            .insert(&path_of(&f2), vec![tag("library")])
-            .unwrap();
+        store.insert(&path_of(&f2), vec![tag("library")]).unwrap();
 
         let tags = store.find_tags_by_prefix(&tag("language")).unwrap();
         assert_eq!(tags.len(), 2);
@@ -511,9 +501,7 @@ mod direct_store_tests {
         let p1 = path_of(&f1);
         let p2 = path_of(&f2);
 
-        store
-            .insert(&p1, vec![tag("rust"), tag("cli")])
-            .unwrap();
+        store.insert(&p1, vec![tag("rust"), tag("cli")]).unwrap();
         store
             .insert(&p2, vec![tag("rust"), tag("library")])
             .unwrap();

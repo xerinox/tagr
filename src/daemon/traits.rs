@@ -34,7 +34,7 @@ pub trait DaemonManager: Send + Sync {
     /// Send a command to the daemon.
     /// Implementations should handle connecting to the platform-specific IPC channel.
     async fn send_command(&self, cmd: Request) -> Result<Response>;
-    
+
     /// Check if daemon is currently running/active
     async fn is_running(&self) -> Result<bool>;
 }

@@ -11,10 +11,10 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
 use tagr::Pair;
-use tagr::types::{TagName, TagrPath};
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
 use tagr::store::DirectStore;
+use tagr::types::{TagName, TagrPath};
 use tagr::ui::{DisplayItem, FinderConfig, FinderResult, FuzzyFinder, Result as UiResult};
 
 /// Simple terminal-based finder without fuzzy matching
@@ -235,15 +235,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))?;
     db.insert_pair(&Pair::new(
         TagrPath::from_string("src/lib.rs".to_owned()),
-        vec![TagName::new("rust").unwrap(), TagName::new("library").unwrap()],
+        vec![
+            TagName::new("rust").unwrap(),
+            TagName::new("library").unwrap(),
+        ],
     ))?;
     db.insert_pair(&Pair::new(
         TagrPath::from_string("README.md".to_owned()),
-        vec![TagName::new("docs").unwrap(), TagName::new("markdown").unwrap()],
+        vec![
+            TagName::new("docs").unwrap(),
+            TagName::new("markdown").unwrap(),
+        ],
     ))?;
     db.insert_pair(&Pair::new(
         TagrPath::from_string("Cargo.toml".to_owned()),
-        vec![TagName::new("config").unwrap(), TagName::new("rust").unwrap()],
+        vec![
+            TagName::new("config").unwrap(),
+            TagName::new("rust").unwrap(),
+        ],
     ))?;
 
     println!("Choose a finder implementation:");

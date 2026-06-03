@@ -1,8 +1,8 @@
 //! Cleanup command - remove missing files and files with no tags
 
-use crate::{TagrError, config, output};
 use crate::store::TagStore;
 use crate::types::TagrPath;
+use crate::{TagrError, config, output};
 use dialoguer::Select;
 use std::io::Write;
 
@@ -77,7 +77,11 @@ pub fn execute(
     if !untagged_no_notes.is_empty() {
         if !quiet {
             writeln!(writer, "\n=== Files with No Tags or Notes ===")?;
-            writeln!(writer, "Found {} orphaned file(s):", untagged_no_notes.len())?;
+            writeln!(
+                writer,
+                "Found {} orphaned file(s):",
+                untagged_no_notes.len()
+            )?;
             for file in &untagged_no_notes {
                 writeln!(writer, "  - {}", output::format_path(file, path_format))?;
             }
@@ -100,7 +104,11 @@ pub fn execute(
         writeln!(writer, "\n=== Cleanup Summary ===")?;
         writeln!(writer, "Total issues found: {total_issues}")?;
         writeln!(writer, "  Missing files: {}", missing_files.len())?;
-        writeln!(writer, "  Files with no tags or notes: {}", untagged_no_notes.len())?;
+        writeln!(
+            writer,
+            "  Files with no tags or notes: {}",
+            untagged_no_notes.len()
+        )?;
 
         if !notes_only_files.is_empty() {
             writeln!(
@@ -125,7 +133,10 @@ pub fn execute(
         }
     }
     if !quiet && orphaned_notes > 0 {
-        writeln!(writer, "Cleaned up {orphaned_notes} orphaned note(s) from deleted files")?;
+        writeln!(
+            writer,
+            "Cleaned up {orphaned_notes} orphaned note(s) from deleted files"
+        )?;
     }
 
     Ok(())
@@ -150,7 +161,11 @@ fn process_cleanup_files(
             store.remove_file(file)?;
             deleted_count += 1;
             if !quiet {
-                writeln!(writer, "Deleted: {}", output::format_path(file, path_format))?;
+                writeln!(
+                    writer,
+                    "Deleted: {}",
+                    output::format_path(file, path_format)
+                )?;
             }
             continue;
         }
@@ -185,22 +200,38 @@ fn process_cleanup_files(
                 0 => {
                     store.remove_file(file)?;
                     deleted_count += 1;
-                    writeln!(writer, "✓ Deleted: {}", output::format_path(file, path_format))?;
+                    writeln!(
+                        writer,
+                        "✓ Deleted: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 1 => {
                     delete_all = true;
                     store.remove_file(file)?;
                     deleted_count += 1;
-                    writeln!(writer, "✓ Deleted: {}", output::format_path(file, path_format))?;
+                    writeln!(
+                        writer,
+                        "✓ Deleted: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 2 => {
                     skipped_count += 1;
-                    writeln!(writer, "⊘ Skipped: {}", output::format_path(file, path_format))?;
+                    writeln!(
+                        writer,
+                        "⊘ Skipped: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 3 => {
                     skip_all = true;
                     skipped_count += 1;
-                    writeln!(writer, "⊘ Skipped: {}", output::format_path(file, path_format))?;
+                    writeln!(
+                        writer,
+                        "⊘ Skipped: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 _ => unreachable!(),
             }

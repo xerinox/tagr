@@ -52,19 +52,20 @@ impl FilterEvaluator {
         let config = VirtualTagConfig::default();
         // Short cache TTL for watch mode — we want fresh metadata
         let vtag_evaluator = VirtualTagEvaluator::new(Duration::from_secs(1), config);
-        
+
         Self { vtag_evaluator }
     }
 
     /// Check if a file matches the query criteria.
-    /// 
+    ///
     /// # Arguments
     /// * `path` - Path to the file
     /// * `criteria` - The query criteria to match against
     /// * `store` - Tag store for checking existing tags
     pub fn matches(&mut self, path: &Path, criteria: &QueryCriteria, store: &dyn TagStore) -> bool {
         // 1. Tag + file pattern matching via QueryCriteria::matches_pair()
-        let has_tag_or_file_criteria = criteria.tag_expr.is_some() || !criteria.file_patterns.is_empty();
+        let has_tag_or_file_criteria =
+            criteria.tag_expr.is_some() || !criteria.file_patterns.is_empty();
         if has_tag_or_file_criteria {
             let Ok(tagr_path) = TagrPath::new(path) else {
                 return false;
@@ -188,7 +189,8 @@ mod tests {
         let store = test_db.store();
         let temp = TempFile::create("tagged.txt").unwrap();
 
-        db.insert(temp.path(), vec!["rust".into(), "code".into()]).unwrap();
+        db.insert(temp.path(), vec!["rust".into(), "code".into()])
+            .unwrap();
 
         let criteria = QueryCriteria {
             tag_expr: Some(TagExpr::And(vec![
@@ -266,7 +268,8 @@ mod tests {
         let store = test_db.store();
         let temp = TempFile::create("excluded.txt").unwrap();
 
-        db.insert(temp.path(), vec!["draft".into(), "docs".into()]).unwrap();
+        db.insert(temp.path(), vec!["draft".into(), "docs".into()])
+            .unwrap();
 
         let criteria = QueryCriteria {
             tag_expr: Some(TagExpr::Not(Box::new(TagExpr::Tag(

@@ -1,7 +1,7 @@
 //! List command - list files or tags in the database
 
-use crate::{TagrError, cli::ListVariant, config, output};
 use crate::store::TagStore;
+use crate::{TagrError, cli::ListVariant, config, output};
 use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -23,7 +23,12 @@ pub fn execute(
     }
 }
 
-fn list_files(store: &dyn TagStore, path_format: config::PathFormat, quiet: bool, writer: &mut impl Write) -> Result<()> {
+fn list_files(
+    store: &dyn TagStore,
+    path_format: config::PathFormat,
+    quiet: bool,
+    writer: &mut impl Write,
+) -> Result<()> {
     let all_pairs = store.list_all()?;
 
     if all_pairs.is_empty() {
@@ -58,7 +63,11 @@ fn list_tags(store: &dyn TagStore, quiet: bool, writer: &mut impl Write) -> Resu
         }
         for tag in &tags {
             let count = store.find_by_tag(tag)?.len();
-            writeln!(writer, "{}", output::tag_with_count(tag.as_str(), count, quiet))?;
+            writeln!(
+                writer,
+                "{}",
+                output::tag_with_count(tag.as_str(), count, quiet)
+            )?;
         }
     }
     Ok(())

@@ -131,12 +131,11 @@ impl Widget for StatusBar<'_> {
         let (store_label, store_style) = match self.store_mode {
             StoreMode::Daemon => (
                 "⚡daemon",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
             ),
-            StoreMode::Local => (
-                "●local",
-                Style::default().fg(Color::DarkGray),
-            ),
+            StoreMode::Local => ("●local", Style::default().fg(Color::DarkGray)),
         };
 
         let preview_indicator = match self.preview_mode {
@@ -156,10 +155,7 @@ impl Widget for StatusBar<'_> {
         // Split status bar: left fills remaining space, right gets exactly what it needs
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Min(1),
-                right_constraint,
-            ])
+            .constraints([Constraint::Min(1), right_constraint])
             .split(inner);
 
         // Left side: CLI preview or messages

@@ -31,9 +31,7 @@ impl DaemonInfo {
     pub fn probe(store_mode: StoreMode) -> Self {
         let socket_path = crate::ipc::get_ipc_socket_path().ok();
 
-        let socket_exists = socket_path
-            .as_ref()
-            .is_some_and(|p| p.exists());
+        let socket_exists = socket_path.as_ref().is_some_and(|p| p.exists());
 
         let (running, pid) = if socket_exists {
             let rt_result = tokio::runtime::Builder::new_current_thread()
@@ -41,11 +39,9 @@ impl DaemonInfo {
                 .build();
             rt_result.map_or((false, None), |rt| {
                 let is_up = rt.block_on(async {
-                    crate::daemon::client::send_request(
-                        crate::ipc::wire::Request::Ping,
-                    )
-                    .await
-                    .is_ok()
+                    crate::daemon::client::send_request(crate::ipc::wire::Request::Ping)
+                        .await
+                        .is_ok()
                 });
                 let pid = Self::find_daemon_pid();
                 (is_up, pid)
@@ -74,7 +70,8 @@ impl DaemonInfo {
             if pid_str.chars().all(|c| c.is_ascii_digit()) {
                 let cmdline_path = entry.path().join("cmdline");
                 if let Ok(cmdline) = fs::read_to_string(&cmdline_path)
-                    && cmdline.contains("tagr") && cmdline.contains("--daemon")
+                    && cmdline.contains("tagr")
+                    && cmdline.contains("--daemon")
                 {
                     return pid_str.parse().ok();
                 }
@@ -120,8 +117,13 @@ impl WatchRulesState {
     pub fn scroll_down(&mut self, visible_height: usize) {
         let content_lines = self.content_line_count();
         if content_lines > visible_height {
-            self.scroll = self.scroll.min(content_lines - visible_height).saturating_add(1);
-            self.scroll = self.scroll.min(content_lines.saturating_sub(visible_height));
+            self.scroll = self
+                .scroll
+                .min(content_lines - visible_height)
+                .saturating_add(1);
+            self.scroll = self
+                .scroll
+                .min(content_lines.saturating_sub(visible_height));
         }
     }
 
@@ -206,7 +208,12 @@ impl<'a> WatchRulesModal<'a> {
         lines.push(Line::from("─".repeat(50)));
 
         let (status_text, status_style) = if info.running {
-            ("● running", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+            (
+                "● running",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             ("○ stopped", Style::default().fg(Color::Red))
         };
@@ -262,7 +269,10 @@ impl<'a> WatchRulesModal<'a> {
 
         if self.state.rules.is_empty() {
             lines.push(Line::default());
-            lines.push(Line::from(Span::styled("No watch rules configured.", dim_style)));
+            lines.push(Line::from(Span::styled(
+                "No watch rules configured.",
+                dim_style,
+            )));
             lines.push(Line::from(Span::styled(
                 "Add rules in ~/.config/tagr/watch.toml",
                 dim_style,
@@ -271,7 +281,10 @@ impl<'a> WatchRulesModal<'a> {
             #[allow(clippy::cast_possible_truncation)]
             let rule_count = self.state.rules.len();
             lines.push(Line::from(Span::styled(
-                format!("{rule_count} rule{}", if rule_count == 1 { "" } else { "s" }),
+                format!(
+                    "{rule_count} rule{}",
+                    if rule_count == 1 { "" } else { "s" }
+                ),
                 value_style,
             )));
 

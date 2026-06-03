@@ -128,7 +128,9 @@ fn list_filters(quiet: bool) -> Result<()> {
 
     for filter in filters {
         let include_tags = filter.criteria.flat_include_tags();
-        let tags_count = include_tags.as_ref().map_or(0, std::collections::HashSet::len);
+        let tags_count = include_tags
+            .as_ref()
+            .map_or(0, std::collections::HashSet::len);
         let files_count = filter.criteria.file_patterns.len();
 
         if quiet {
@@ -238,7 +240,10 @@ fn create_filter(
                     Some(TagExpr::And(excludes_e))
                 } else {
                     let include_expr = if includes.len() == 1 {
-                        includes.into_iter().next().unwrap_or_else(|| unreachable!())
+                        includes
+                            .into_iter()
+                            .next()
+                            .unwrap_or_else(|| unreachable!())
                     } else {
                         TagExpr::Or(includes)
                     };

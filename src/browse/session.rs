@@ -168,9 +168,7 @@ impl BrowseSession {
                 .unwrap_or_default();
 
             BrowserPhase {
-                phase_type: PhaseType::FileSelection {
-                    selected_tags,
-                },
+                phase_type: PhaseType::FileSelection { selected_tags },
                 items,
                 settings: config.file_phase_settings.clone(),
             }
@@ -254,9 +252,7 @@ impl BrowseSession {
                     .collect();
 
                 self.current_phase = BrowserPhase {
-                    phase_type: PhaseType::FileSelection {
-                        selected_tags,
-                    },
+                    phase_type: PhaseType::FileSelection { selected_tags },
                     items,
                     settings: self.config.file_phase_settings.clone(),
                 };
@@ -448,7 +444,8 @@ impl BrowseSession {
     pub fn update_search_params(&mut self, new_criteria: &QueryCriteria) -> Result<()> {
         let old_criteria = self.config.initial_search.as_ref();
 
-        let filters_relaxed = old_criteria.is_some_and(|old| is_filter_relaxation(old, new_criteria));
+        let filters_relaxed =
+            old_criteria.is_some_and(|old| is_filter_relaxation(old, new_criteria));
 
         self.config.initial_search = Some(new_criteria.clone());
 
@@ -554,9 +551,7 @@ impl BrowseSession {
     ///
     /// Returns error if database query fails
     pub fn available_tags(&self) -> Result<Vec<TagName>> {
-        self.ds
-            .list_all_tags()
-            .map_err(Into::into)
+        self.ds.list_all_tags().map_err(Into::into)
     }
 }
 
@@ -720,8 +715,8 @@ mod tests {
 
     #[test]
     fn test_update_search_params() {
-        use crate::types::Pair;
         use crate::testing::TempFile;
+        use crate::types::Pair;
 
         let db = TestDb::new("test_update_search_params");
         db.db().clear().unwrap();
@@ -731,22 +726,13 @@ mod tests {
         let file3 = TempFile::create("file3.txt").unwrap();
 
         db.db()
-            .insert_pair(&Pair::from_raw(
-                file1.path(),
-                vec!["rust", "code"],
-            ))
+            .insert_pair(&Pair::from_raw(file1.path(), vec!["rust", "code"]))
             .unwrap();
         db.db()
-            .insert_pair(&Pair::from_raw(
-                file2.path(),
-                vec!["rust", "docs"],
-            ))
+            .insert_pair(&Pair::from_raw(file2.path(), vec!["rust", "docs"]))
             .unwrap();
         db.db()
-            .insert_pair(&Pair::from_raw(
-                file3.path(),
-                vec!["python"],
-            ))
+            .insert_pair(&Pair::from_raw(file3.path(), vec!["python"]))
             .unwrap();
 
         let config = BrowseConfig {
@@ -764,7 +750,9 @@ mod tests {
         let new_criteria = QueryCriteria {
             tag_expr: Some(crate::types::TagExpr::And(vec![
                 crate::types::TagExpr::Tag(TagName::new("rust").unwrap()),
-                crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(TagName::new("docs").unwrap()))),
+                crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(
+                    TagName::new("docs").unwrap(),
+                ))),
             ])),
             ..QueryCriteria::default()
         };
@@ -776,8 +764,8 @@ mod tests {
 
     #[test]
     fn test_refine_search_action_returns_needs_input() {
-        use crate::types::Pair;
         use crate::testing::TempFile;
+        use crate::types::Pair;
 
         let db = TestDb::new("test_refine_search_action");
         db.db().clear().unwrap();
@@ -868,8 +856,8 @@ mod tests {
 
     #[test]
     fn test_hybrid_filtering_small_result_set() {
-        use crate::types::Pair;
         use crate::testing::TempFile;
+        use crate::types::Pair;
 
         let db = TestDb::new("test_hybrid_small");
         db.db().clear().unwrap();
@@ -880,7 +868,10 @@ mod tests {
             db.db()
                 .insert_pair(&Pair::new(
                     TagrPath::new(file.path()).unwrap(),
-                    vec![TagName::new("rust").unwrap(), TagName::new(&format!("tag{i}")).unwrap()],
+                    vec![
+                        TagName::new("rust").unwrap(),
+                        TagName::new(&format!("tag{i}")).unwrap(),
+                    ],
                 ))
                 .unwrap();
         }
@@ -903,7 +894,9 @@ mod tests {
         let new_criteria = QueryCriteria {
             tag_expr: Some(crate::types::TagExpr::And(vec![
                 crate::types::TagExpr::Tag(TagName::new("rust").unwrap()),
-                crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(TagName::new("tag1").unwrap()))),
+                crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(
+                    TagName::new("tag1").unwrap(),
+                ))),
             ])),
             ..QueryCriteria::default()
         };
@@ -917,8 +910,8 @@ mod tests {
 
     #[test]
     fn test_hybrid_filtering_detects_relaxation() {
-        use crate::types::Pair;
         use crate::testing::TempFile;
+        use crate::types::Pair;
 
         let db = TestDb::new("test_hybrid_relaxation");
         db.db().clear().unwrap();
@@ -927,24 +920,20 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
 
         db.db()
-            .insert_pair(&Pair::from_raw(
-                file1.path(),
-                vec!["rust", "web"],
-            ))
+            .insert_pair(&Pair::from_raw(file1.path(), vec!["rust", "web"]))
             .unwrap();
 
         db.db()
-            .insert_pair(&Pair::from_raw(
-                file2.path(),
-                vec!["rust", "cli"],
-            ))
+            .insert_pair(&Pair::from_raw(file2.path(), vec!["rust", "cli"]))
             .unwrap();
 
         let config = BrowseConfig {
             initial_search: Some(QueryCriteria {
                 tag_expr: Some(crate::types::TagExpr::And(vec![
                     crate::types::TagExpr::Tag(TagName::new("rust").unwrap()),
-                    crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(TagName::new("cli").unwrap()))),
+                    crate::types::TagExpr::Not(Box::new(crate::types::TagExpr::Tag(
+                        TagName::new("cli").unwrap(),
+                    ))),
                 ])),
                 ..QueryCriteria::default()
             }),
@@ -968,8 +957,8 @@ mod tests {
 
     #[test]
     fn test_refresh_invalidates_cache() {
-        use crate::types::Pair;
         use crate::testing::TempFile;
+        use crate::types::Pair;
 
         let db = TestDb::new("test_refresh_cache");
         db.db().clear().unwrap();

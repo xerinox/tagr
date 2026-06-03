@@ -19,10 +19,7 @@ fn path(s: &str) -> TagrPath {
 
 #[test]
 fn empty_criteria_returns_all_files() {
-    let store = MockStore::with_tags(&[
-        ("file1.rs", &["rust"]),
-        ("file2.py", &["python"]),
-    ]);
+    let store = MockStore::with_tags(&[("file1.rs", &["rust"]), ("file2.py", &["python"])]);
     let criteria = QueryCriteria::default();
     let result = query::execute(&store, &criteria, &schema()).unwrap();
     assert_eq!(result.len(), 2);
@@ -80,10 +77,7 @@ fn or_tags_union() {
 
 #[test]
 fn not_tag_excludes() {
-    let store = MockStore::with_tags(&[
-        ("file1.rs", &["rust", "tests"]),
-        ("file2.rs", &["rust"]),
-    ]);
+    let store = MockStore::with_tags(&[("file1.rs", &["rust", "tests"]), ("file2.rs", &["rust"])]);
     let mut criteria = QueryCriteria::default();
     criteria.tag_expr = Some(TagExpr::And(vec![
         TagExpr::Tag(tag("rust")),
@@ -145,10 +139,8 @@ fn hierarchy_prefix_matching() {
 
 #[test]
 fn hierarchy_exclude_specificity() {
-    let store = MockStore::with_tags(&[
-        ("file1.rs", &["lang:rust"]),
-        ("file2.py", &["lang:python"]),
-    ]);
+    let store =
+        MockStore::with_tags(&[("file1.rs", &["lang:rust"]), ("file2.py", &["lang:python"])]);
     let mut criteria = QueryCriteria::default();
     criteria.tag_expr = Some(TagExpr::And(vec![
         TagExpr::Tag(tag("lang")),
@@ -192,9 +184,7 @@ fn combined_tags_and_file_patterns() {
 
 #[test]
 fn no_matching_tag_returns_empty() {
-    let store = MockStore::with_tags(&[
-        ("file1.rs", &["python"]),
-    ]);
+    let store = MockStore::with_tags(&[("file1.rs", &["python"])]);
     let mut criteria = QueryCriteria::default();
     criteria.tag_expr = Some(TagExpr::Tag(tag("rust")));
     let result = query::execute(&store, &criteria, &schema()).unwrap();

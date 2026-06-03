@@ -1,9 +1,9 @@
 //! Watch mode configuration and rule definitions.
 
+use crate::types::QueryCriteria;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use crate::types::QueryCriteria;
 
 pub mod matcher;
 
@@ -20,7 +20,7 @@ pub enum WatchError {
 
     #[error("TOML serialization error: {0}")]
     TomlError(#[from] toml::ser::Error),
-    
+
     #[error("TOML deserialization error: {0}")]
     TomlDeError(#[from] toml::de::Error),
 }
@@ -88,7 +88,7 @@ impl WatchConfig {
     /// or if creating directories or writing the file fails.
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
-        
+
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -106,14 +106,15 @@ impl WatchConfig {
         self.rules.push(rule);
         self.save()
     }
-    
+
     /// Get the path to `watch.toml`.
     ///
     /// # Errors
     /// Returns `WatchError::LoadError` if the config directory cannot be determined.
     pub fn config_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .ok_or_else(|| WatchError::LoadError("Could not determine config directory".to_string()))?;
+        let config_dir = dirs::config_dir().ok_or_else(|| {
+            WatchError::LoadError("Could not determine config directory".to_string())
+        })?;
         Ok(config_dir.join("tagr").join("watch.toml"))
     }
 

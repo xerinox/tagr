@@ -89,8 +89,7 @@ impl TagTreeNode {
     pub fn add_child(&mut self, child: Self) {
         self.children.push(child);
         // Keep children sorted
-        self.children
-            .sort_by_key(|c| c.name.to_lowercase());
+        self.children.sort_by_key(|c| c.name.to_lowercase());
     }
 
     /// Toggle expansion state

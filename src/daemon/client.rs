@@ -1,14 +1,14 @@
+use crate::daemon::traits::DaemonError;
 use crate::ipc::get_ipc_socket_path;
 use crate::ipc::wire::{self, ClientMessage, Request, Response, ServerEvent, ServerMessage};
 use interprocess::local_socket::tokio::prelude::LocalSocketStream;
 use interprocess::local_socket::traits::tokio::Stream;
 use interprocess::local_socket::{GenericFilePath, ToFsName};
-use crate::daemon::traits::DaemonError;
 use log::warn;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 /// Monotonic request ID counter (per-process).
 static NEXT_REQUEST_ID: AtomicU32 = AtomicU32::new(1);
@@ -23,8 +23,8 @@ static NEXT_REQUEST_ID: AtomicU32 = AtomicU32::new(1);
 /// Returns `DaemonError::ConnectionFailed` if the socket cannot be reached,
 /// or `DaemonError::IpcError` on framing / serialization failures.
 pub async fn send_request(req: Request) -> Result<Response, DaemonError> {
-    let socket_path = get_ipc_socket_path()
-        .map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;
+    let socket_path =
+        get_ipc_socket_path().map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;
     let name = socket_path
         .to_fs_name::<GenericFilePath>()
         .map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;
@@ -46,17 +46,25 @@ pub async fn send_request(req: Request) -> Result<Response, DaemonError> {
     let server_msg: ServerMessage = wire::read_frame(&mut reader)
         .await
         .map_err(DaemonError::IpcError)?
-        .ok_or_else(|| DaemonError::ConnectionFailed("daemon closed connection before responding".into()))?;
+        .ok_or_else(|| {
+            DaemonError::ConnectionFailed("daemon closed connection before responding".into())
+        })?;
 
     match server_msg {
-        ServerMessage::Response { id: resp_id, payload } if resp_id == id => Ok(payload),
-        ServerMessage::Response { id: resp_id, payload } => {
+        ServerMessage::Response {
+            id: resp_id,
+            payload,
+        } if resp_id == id => Ok(payload),
+        ServerMessage::Response {
+            id: resp_id,
+            payload,
+        } => {
             warn!("Request ID mismatch (sent {id}, got {resp_id})");
             Ok(payload)
         }
-        ServerMessage::Event(_) => {
-            Err(DaemonError::ConnectionFailed("unexpected event instead of response".into()))
-        }
+        ServerMessage::Event(_) => Err(DaemonError::ConnectionFailed(
+            "unexpected event instead of response".into(),
+        )),
     }
 }
 
@@ -92,8 +100,8 @@ impl PersistentClient {
     /// Returns `DaemonError::ConnectionFailed` if the socket cannot be reached,
     /// or `DaemonError::IpcError` on framing failures.
     pub async fn connect() -> Result<(Self, mpsc::Receiver<ServerEvent>), DaemonError> {
-        let socket_path = get_ipc_socket_path()
-            .map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;
+        let socket_path =
+            get_ipc_socket_path().map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;
         let name = socket_path
             .to_fs_name::<GenericFilePath>()
             .map_err(|e| DaemonError::ConnectionFailed(e.to_string()))?;

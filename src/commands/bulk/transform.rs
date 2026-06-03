@@ -7,9 +7,9 @@ use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use regex::Regex;
 
 use super::core::BulkOpSummary;
+use crate::TagrError;
 use crate::store::TagStore;
 use crate::types::{TagName, TagrPath};
-use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -138,7 +138,11 @@ pub fn transform_tags(
     }
 
     if !conflicts.is_empty() && !quiet {
-        writeln!(writer, "{}", "Warning: Tag collisions detected:".yellow().bold())?;
+        writeln!(
+            writer,
+            "{}",
+            "Warning: Tag collisions detected:".yellow().bold()
+        )?;
         for (new_tag, old_tags) in &conflicts {
             writeln!(writer, "  {} ← {}", new_tag.cyan(), old_tags.join(", "))?;
         }
@@ -147,7 +151,11 @@ pub fn transform_tags(
 
     let mut affected_files: HashSet<TagrPath> = HashSet::new();
     for pair in &all_pairs {
-        if pair.tags.iter().any(|t| tag_mapping.contains_key(t.as_str())) {
+        if pair
+            .tags
+            .iter()
+            .any(|t| tag_mapping.contains_key(t.as_str()))
+        {
             affected_files.insert(pair.file.clone());
         }
     }
@@ -169,7 +177,11 @@ pub fn transform_tags(
         if tag_mapping.len() > 20 {
             writeln!(writer, "  ... and {} more", tag_mapping.len() - 20)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
 
@@ -192,7 +204,10 @@ pub fn transform_tags(
     let mut summary = BulkOpSummary::new();
 
     for pair in all_pairs {
-        let has_affected_tags = pair.tags.iter().any(|t| tag_mapping.contains_key(t.as_str()));
+        let has_affected_tags = pair
+            .tags
+            .iter()
+            .any(|t| tag_mapping.contains_key(t.as_str()));
         if !has_affected_tags {
             continue;
         }

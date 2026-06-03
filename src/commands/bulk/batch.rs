@@ -5,9 +5,9 @@ use colored::Colorize;
 use dialoguer::Confirm;
 
 use super::core::{BulkOpSummary, SkipReason};
+use crate::TagrError;
 use crate::store::TagStore;
 use crate::types::{TagName, TagrPath};
-use crate::TagrError;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -115,7 +115,11 @@ pub fn batch_from_file(
         if entries.len() > 10 {
             writeln!(writer, "  ... and {} more", entries.len() - 10)?;
         }
-        writeln!(writer, "\n{}", "Run without --dry-run to apply changes.".yellow())?;
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !yes {

@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 pub mod error;
 pub mod types;
 
-pub use error::DbError;
 pub use crate::types::{NoteMeta, NoteRecord};
+pub use error::DbError;
 pub use types::PathKey;
 
 /// Database wrapper that encapsulates all database operations
@@ -125,9 +125,9 @@ impl Database {
             return Err(DbError::FileNotFound(path.display().to_string()));
         }
 
-        let tagr_path = TagrPath::new(path)
-            .map_err(|e| DbError::PathError(e.to_string()))?;
-        let tag_names: Vec<TagName> = tags.into_iter()
+        let tagr_path = TagrPath::new(path).map_err(|e| DbError::PathError(e.to_string()))?;
+        let tag_names: Vec<TagName> = tags
+            .into_iter()
             .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
             .collect::<Result<_, _>>()?;
 
@@ -176,7 +176,8 @@ impl Database {
                 let raw_tags: Vec<String> = postcard::from_bytes(&value)?;
 
                 let tagr_path = TagrPath::from_string(file_str);
-                let tag_names = raw_tags.into_iter()
+                let tag_names = raw_tags
+                    .into_iter()
                     .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -196,7 +197,9 @@ impl Database {
     /// Returns `DbError` if the path contains invalid UTF-8, database operations fail,
     /// or tag index cleanup fails.
     pub fn remove<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
-        let file_path = file.as_ref().to_str()
+        let file_path = file
+            .as_ref()
+            .to_str()
             .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))?;
 
         let key: Vec<u8> = PathKey::new(file.as_ref()).try_into()?;
@@ -280,7 +283,8 @@ impl Database {
             let raw_tags: Vec<String> = postcard::from_bytes(&value)?;
 
             let tagr_path = TagrPath::from_string(file_str);
-            let tag_names = raw_tags.into_iter()
+            let tag_names = raw_tags
+                .into_iter()
                 .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
                 .collect::<Result<Vec<_>, _>>()?;
 
