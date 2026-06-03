@@ -11,7 +11,7 @@ use crate::ipc::wire::{
 };
 use crate::watch::matcher::{FilterEvaluator, matches_patterns};
 use crate::watch::{WatchConfig, WatchRule};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use interprocess::local_socket::traits::tokio::Listener;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 use log::{debug, error, info, warn};
@@ -59,7 +59,13 @@ enum DaemonEvent {
 /// Returns an error if the async runtime or IPC listener cannot be created.
 pub fn run(db: &Database) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async_run(db))
+    let result = rt.block_on(async_run(db));
+    if let Err(ref e) = result {
+        error!("Daemon shutting down due to fatal error: {e:#}");
+    } else {
+        info!("Daemon stopped.");
+    }
+    result
 }
 
 /// Returns a future that resolves on SIGTERM (Unix) or never resolves (other platforms).
@@ -81,14 +87,16 @@ async fn async_run(db: &Database) -> Result<()> {
     info!("Daemon started. PID: {}", std::process::id());
 
     // Bind IPC socket first so clients can detect us immediately.
-    let socket_path = get_ipc_socket_path()?;
+    let socket_path = get_ipc_socket_path()
+        .context("failed to resolve IPC socket path")?;
     #[cfg(unix)]
     if socket_path.exists() {
         std::fs::remove_file(&socket_path).ok();
     }
     let listener = ListenerOptions::new()
         .name(socket_path.clone().to_fs_name::<GenericFilePath>()?)
-        .create_tokio()?;
+        .create_tokio()
+        .context("failed to bind IPC socket — is another daemon already running?")?;
 
     let _socket_guard = SocketGuard(socket_path.clone());
     info!("IPC socket: {}", socket_path.display());
@@ -111,7 +119,8 @@ async fn async_run(db: &Database) -> Result<()> {
                 }
             }
         },
-    )?;
+    )
+    .context("failed to initialize filesystem watcher")?;
 
     let config_path = WatchConfig::config_path().unwrap_or_else(|_| PathBuf::from("watch.toml"));
     if let Some(config_dir) = config_path.parent() {
