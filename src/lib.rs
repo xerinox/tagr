@@ -13,20 +13,23 @@ pub mod cli;
 pub mod commands;
 pub mod completions;
 pub mod config;
+#[doc(hidden)]
 pub mod daemon;
 pub mod db;
-pub mod discovery;
+pub(crate) mod discovery;
 pub mod filters;
 pub mod ipc;
-pub mod keybinds;
-pub mod output;
+pub(crate) mod keybinds;
+pub(crate) mod output;
 pub mod patterns;
-pub mod preview;
+pub(crate) mod preview;
 pub mod query;
 pub mod schema;
 pub mod store;
 pub mod ui;
+#[doc(hidden)]
 pub mod vtags;
+#[doc(hidden)]
 pub mod watch;
 
 #[cfg(test)]
