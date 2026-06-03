@@ -1358,6 +1358,88 @@ tagr bulk merge-tags bug defect issue --into bug-report --yes
 # Preview merge
 tagr bulk merge-tags wip draft --into pending --dry-run
 ```
+## Watch Mode (Daemon)
+
+Tagr includes a background daemon that watches your filesystem and automatically tags files based on configurable rules.
+
+### Quick Start
+
+```bash
+# Add a watch rule: tag all .rs files under ~/projects with "rust" and "code"
+tagr watch add "~/projects/**/*.rs" -t rust -t code
+
+# Start the daemon (foreground)
+tagr watch start
+
+# Start as a background daemon
+tagr watch start --daemon
+
+# Check daemon status
+tagr watch status
+
+# Stop the daemon
+tagr watch stop
+```
+
+### Watch Rules
+
+Rules are stored in `~/.config/tagr/watch.toml`. Each rule has:
+- **patterns** — glob patterns to match files
+- **tags** — tags to apply when files match
+- **filter** — optional saved filter name for additional criteria
+- **vtags** — optional virtual tags to apply
+- **filter_by_tags** — only apply to files that already have these tags
+
+```bash
+# List all rules
+tagr watch list
+
+# Remove rule #2
+tagr watch remove 2
+```
+
+### Logging
+
+The daemon uses structured logging via `env_logger`. Control verbosity with the `RUST_LOG` environment variable:
+
+```bash
+# Default: info level (startup, shutdown, config changes, watch directories)
+tagr watch start
+
+# Debug: includes per-file auto-tag operations
+RUST_LOG=debug tagr watch start
+
+# Trace: maximum verbosity
+RUST_LOG=trace tagr watch start
+
+# Only errors
+RUST_LOG=error tagr watch start
+
+# Filter to tagr modules only
+RUST_LOG=tagr=debug tagr watch start
+```
+
+**Log levels:**
+
+| Level | What's logged |
+|-------|--------------|
+| `error` | Tag failures, spawn errors, config reload failures |
+| `warn` | Missing watch roots, filter load issues, watcher errors |
+| `info` | Startup/shutdown, config reload, watch directory registration |
+| `debug` | Individual auto-tag operations (per-file) |
+
+When running as a background daemon (`--daemon`), logs go to stdout/stderr of the detached process. Redirect to a file for persistent logging:
+
+```bash
+RUST_LOG=info tagr watch start --daemon 2>&1 | tee ~/.local/share/tagr/daemon.log
+```
+
+### TUI Integration
+
+Press **F3** in browse mode to open the Watch Status modal, which shows:
+- Daemon status (running/stopped), PID, store mode, socket path
+- All configured watch rules with their patterns, tags, and filters
+
 ## Architecture
 
 ### Reverse Index with Sled Trees
@@ -1656,8 +1738,8 @@ cargo test
 - **sled** - Embedded database for persistent storage
 - **nucleo** - Fast fuzzy matching engine
 - **ratatui** + **crossterm** - Modern terminal user interface
-- **bincode** - Efficient binary serialization (database storage)
-- **wincode** - Wire protocol framing (daemon IPC)
+- **postcard** - Compact binary serialization (database storage)
+- **serde_json** - Wire protocol framing (daemon IPC)
 - **clap** + **clap_complete** - CLI parsing and shell completions
 - **tokio** - Async runtime (daemon, file watching)
 - **notify** - Cross-platform filesystem watcher
@@ -1666,7 +1748,8 @@ cargo test
 - **rayon** - Data parallelism (virtual tag evaluation)
 - **chrono** - Date/time handling
 - **serde** + **toml** + **serde_json** - Serialization (config, filters, export)
-- **thiserror** - Error type derivation
+- **thiserror** + **anyhow** - Error type derivation and application-level error handling
+- **log** + **env_logger** - Structured logging (daemon/watch mode)
 - **syntect** - Syntax highlighting (preview pane, optional feature)
 
 ## Performance Notes

@@ -1,6 +1,5 @@
 use crate::ipc::get_ipc_socket_path;
 use crate::ipc::wire::{self, ClientMessage, Request, Response, ServerEvent, ServerMessage};
-use anyhow::Result;
 use interprocess::local_socket::tokio::prelude::LocalSocketStream;
 use interprocess::local_socket::traits::tokio::Stream;
 use interprocess::local_socket::{GenericFilePath, ToFsName};
