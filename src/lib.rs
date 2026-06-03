@@ -16,13 +16,13 @@ pub mod config;
 #[doc(hidden)]
 pub mod daemon;
 pub mod db;
-pub(crate) mod discovery;
+pub mod discovery;
 pub mod filters;
 pub mod ipc;
-pub(crate) mod keybinds;
-pub(crate) mod output;
+pub mod keybinds;
+pub mod output;
 pub mod patterns;
-pub(crate) mod preview;
+pub mod preview;
 pub mod query;
 pub mod schema;
 pub mod store;
