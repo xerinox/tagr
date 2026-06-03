@@ -5,6 +5,7 @@ use interprocess::local_socket::tokio::prelude::LocalSocketStream;
 use interprocess::local_socket::traits::tokio::Stream;
 use interprocess::local_socket::{GenericFilePath, ToFsName};
 use crate::daemon::traits::DaemonError;
+use log::warn;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -51,7 +52,7 @@ pub async fn send_request(req: Request) -> Result<Response, DaemonError> {
     match server_msg {
         ServerMessage::Response { id: resp_id, payload } if resp_id == id => Ok(payload),
         ServerMessage::Response { id: resp_id, payload } => {
-            eprintln!("Warning: request ID mismatch (sent {id}, got {resp_id})");
+            warn!("Request ID mismatch (sent {id}, got {resp_id})");
             Ok(payload)
         }
         ServerMessage::Event(_) => {

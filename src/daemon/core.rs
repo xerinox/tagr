@@ -14,6 +14,7 @@ use crate::watch::{WatchConfig, WatchRule};
 use anyhow::Result;
 use interprocess::local_socket::traits::tokio::Listener;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
+use log::{debug, error, info, warn};
 use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, new_debouncer};
 use std::collections::{HashMap, HashSet};
@@ -77,7 +78,7 @@ async fn sigterm_or_pending() {
 
 #[allow(clippy::too_many_lines)]
 async fn async_run(db: &Database) -> Result<()> {
-    println!("Daemon started. PID: {}", std::process::id());
+    info!("Daemon started. PID: {}", std::process::id());
 
     // Bind IPC socket first so clients can detect us immediately.
     let socket_path = get_ipc_socket_path()?;
@@ -90,7 +91,7 @@ async fn async_run(db: &Database) -> Result<()> {
         .create_tokio()?;
 
     let _socket_guard = SocketGuard(socket_path.clone());
-    println!("IPC socket: {}", socket_path.display());
+    info!("IPC socket: {}", socket_path.display());
 
     // Central event channel — all sources (FS watcher, IPC connections) feed here.
     let (event_tx, mut event_rx) = mpsc::channel::<DaemonEvent>(512);
@@ -118,7 +119,7 @@ async fn async_run(db: &Database) -> Result<()> {
             std::fs::create_dir_all(config_dir).ok();
         }
         if let Err(e) = debouncer.watch(config_dir, RecursiveMode::NonRecursive) {
-            eprintln!("Warning: could not watch config directory {}: {e}", config_dir.display());
+            warn!("Could not watch config directory {}: {e}", config_dir.display());
         }
     }
 
@@ -127,14 +128,14 @@ async fn async_run(db: &Database) -> Result<()> {
     let mut watched_roots: HashSet<PathBuf> = HashSet::new();
     let mut last_config_reload: Option<Instant> = None;
     let mut filter_evaluator = FilterEvaluator::new();
-    println!("Loaded config: {} rules", current_config.rules.len());
+    info!("Loaded config: {} rules", current_config.rules.len());
     add_new_watch_roots(&mut debouncer, &current_config, &mut watched_roots);
 
     let store = DirectStore::new(db.clone());
     let initial_work = retroactive_scan(&current_config, &store, &mut filter_evaluator);
     spawn_tag_work(initial_work, db);
 
-    println!("Daemon ready.");
+    info!("Daemon ready.");
 
     // Per-connection writers for sending responses and events back.
     let mut conn_writers: HashMap<ConnId, mpsc::Sender<ServerMessage>> = HashMap::new();
@@ -187,7 +188,7 @@ async fn async_run(db: &Database) -> Result<()> {
                     }
                     DaemonEvent::FsError(errors) => {
                         for e in &errors {
-                            eprintln!("Watcher error: {e}");
+                            warn!("Watcher error: {e}");
                         }
                     }
                     DaemonEvent::NewConnection { conn_id, writer_tx } => {
@@ -199,7 +200,7 @@ async fn async_run(db: &Database) -> Result<()> {
                             &conn_writers, &mut subscribers,
                         ).await;
                         if should_shutdown {
-                            println!("Shutdown requested via IPC.");
+                            info!("Shutdown requested via IPC.");
                             break;
                         }
                     }
@@ -211,11 +212,11 @@ async fn async_run(db: &Database) -> Result<()> {
             }
 
             _ = &mut ctrl_c => {
-                println!("Received SIGINT. Stopping daemon.");
+                info!("Received SIGINT. Stopping daemon.");
                 break;
             }
             () = &mut sigterm => {
-                println!("Received SIGTERM. Stopping daemon.");
+                info!("Received SIGTERM. Stopping daemon.");
                 break;
             }
         }
@@ -348,7 +349,7 @@ fn spawn_tag_work_with_events(
         #[cfg(feature = "dynamic-completions")]
         let db_for_cache = db.clone();
         tokio::spawn(async move {
-            println!("Auto-tagging {} with {tags:?}", path.display());
+            debug!("Auto-tagging {} with {tags:?}", path.display());
             let result = tokio::task::spawn_blocking(move || {
                 let store = crate::store::DirectStore::new(db_ref);
                 let mut stdout = std::io::stdout();
@@ -364,8 +365,8 @@ fn spawn_tag_work_with_events(
             })
             .await;
             match result {
-                Ok(Err(boxed)) => eprintln!("Auto-tag failed for {}: {}", boxed.0.display(), boxed.1),
-                Err(e) => eprintln!("Spawn error: {e}"),
+                Ok(Err(boxed)) => error!("Auto-tag failed for {}: {}", boxed.0.display(), boxed.1),
+                Err(e) => error!("Spawn error: {e}"),
                 Ok(Ok(())) => {
                     #[cfg(feature = "dynamic-completions")]
                     {
@@ -409,16 +410,16 @@ fn handle_debounced_events(
                 continue;
             }
             *last_config_reload = Some(now);
-            println!("watch.toml changed, reloading config...");
+            info!("watch.toml changed, reloading config...");
             match WatchConfig::load() {
                 Ok(mut new_config) => {
                     resolve_all_rules(&mut new_config.rules);
                     *config = new_config;
-                    println!("Config reloaded: {} rules", config.rules.len());
+                    info!("Config reloaded: {} rules", config.rules.len());
                     add_new_watch_roots(debouncer, config, watched_roots);
                     work.extend(retroactive_scan(config, &store, filter_evaluator));
                 }
-                Err(e) => eprintln!("Failed to reload watch config: {e}"),
+                Err(e) => error!("Failed to reload watch config: {e}"),
             }
             continue;
         }
@@ -473,7 +474,7 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
         {
             match fm.get(name) {
                 Ok(f) => criteria = f.criteria,
-                Err(e) => eprintln!("Watch: could not load filter '{name}': {e}"),
+                Err(e) => warn!("Watch: could not load filter '{name}': {e}"),
             }
         }
 
@@ -518,18 +519,18 @@ fn add_new_watch_roots(
                 continue;
             }
             if !root.exists() {
-                eprintln!(
+                warn!(
                     "Watch root {} does not exist yet (will not be watched until it is created)",
                     root.display()
                 );
                 continue;
             }
-            println!("Watching directory: {}", root.display());
+            info!("Watching directory: {}", root.display());
             match debouncer.watch(&root, RecursiveMode::Recursive) {
                 Ok(()) => {
                     watched.insert(root);
                 }
-                Err(e) => eprintln!("Failed to watch {}: {e}", root.display()),
+                Err(e) => error!("Failed to watch {}: {e}", root.display()),
             }
         }
     }
@@ -638,7 +639,7 @@ fn retroactive_scan(
     }
 
     if !work.is_empty() {
-        println!("Retroactive scan: {} files to tag", work.len());
+        info!("Retroactive scan: {} files to tag", work.len());
     }
 
     work
@@ -664,8 +665,8 @@ fn spawn_tag_work(work: Vec<(PathBuf, Vec<String>)>, db: &Database) {
             })
             .await;
             match result {
-                Ok(Err(boxed)) => eprintln!("Retroactive tag failed for {}: {}", boxed.0.display(), boxed.1),
-                Err(e) => eprintln!("Spawn error: {e}"),
+                Ok(Err(boxed)) => error!("Retroactive tag failed for {}: {}", boxed.0.display(), boxed.1),
+                Err(e) => error!("Spawn error: {e}"),
                 Ok(Ok(())) => {}
             }
         });

@@ -430,6 +430,9 @@ fn main() -> Result<()> {
                 TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
             })?;
             let db = Database::open(db_path)?;
+            env_logger::Builder::from_env(
+                env_logger::Env::default().default_filter_or("info"),
+            ).init();
             tagr::daemon::core::run(&db)
                 .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
         } else {
