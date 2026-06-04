@@ -8,6 +8,7 @@ use crate::vtags::types::{
 use chrono::{DateTime, Datelike, Local, Utc};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -145,6 +146,7 @@ impl VirtualTagEvaluator {
         evaluate_range_condition(depth, range)
     }
 
+    #[cfg(unix)]
     fn check_permission(&mut self, path: &Path, perm: &PermissionCondition) -> io::Result<bool> {
         let metadata = self.cache.get(path)?;
         let mode = metadata.permissions.mode();
@@ -154,6 +156,17 @@ impl VirtualTagEvaluator {
             PermissionCondition::Readable => mode & 0o444 != 0,
             PermissionCondition::Writable => mode & 0o222 != 0,
             PermissionCondition::ReadOnly => mode & 0o222 == 0,
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn check_permission(&mut self, path: &Path, perm: &PermissionCondition) -> io::Result<bool> {
+        let metadata = self.cache.get(path)?;
+        Ok(match perm {
+            PermissionCondition::Readable => !metadata.permissions.readonly(),
+            PermissionCondition::ReadOnly => metadata.permissions.readonly(),
+            // Windows has no Unix-style executable/writable mode bits
+            PermissionCondition::Executable | PermissionCondition::Writable => false,
         })
     }
 
