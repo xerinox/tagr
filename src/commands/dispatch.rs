@@ -27,18 +27,24 @@ pub fn dispatch_command(
         Commands::Search {
             filter_args,
             criteria,
+            json,
             ..
         } => dispatch_search(
             command,
             filter_args,
             criteria,
+            *json,
             &*store,
             path_format,
             quiet,
             writer,
         ),
-        Commands::List { variant, .. } => {
-            commands::list::execute(&*store, *variant, path_format, quiet, writer)?;
+        Commands::List { variant, json, .. } => {
+            commands::list::execute(&*store, *variant, path_format, quiet, *json, writer)?;
+            Ok(())
+        }
+        Commands::File { command: file_cmd, .. } => {
+            commands::file::execute(&*store, file_cmd, path_format, writer)?;
             Ok(())
         }
         Commands::Tag { .. } => {
@@ -104,8 +110,9 @@ pub fn dispatch_command(
                 filter_args.filter.as_deref(),
                 save_filter,
                 ctx.execute_cmd,
+                ctx.selected_output.as_ref(),
                 Some(&ctx.preview_overrides),
-                path_format,
+                &path_format,
                 quiet,
                 crate::ui::ratatui_adapter::StoreMode::Local,
             )?;
@@ -123,6 +130,7 @@ fn dispatch_search(
     command: &Commands,
     filter_args: &crate::cli::FilterArgs,
     criteria_args: &crate::cli::SearchCriteriaArgs,
+    json: bool,
     store: &dyn TagStore,
     path_format: crate::config::PathFormat,
     quiet: bool,
@@ -155,6 +163,7 @@ fn dispatch_search(
         OutputConfig {
             format: path_format,
             quiet,
+            json,
         },
         writer,
     )?;

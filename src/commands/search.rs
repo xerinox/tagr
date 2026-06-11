@@ -26,6 +26,7 @@ pub struct ExplicitFlags {
 pub struct OutputConfig {
     pub format: config::PathFormat,
     pub quiet: bool,
+    pub json: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -104,7 +105,9 @@ pub fn execute(
     let schema = schema::load_default_schema().unwrap_or_default();
     let files = store.query(&criteria, &schema)?;
 
-    if let Some(query) = &criteria.query {
+    if output_config.json {
+        print_results_json(store, &files, output_config.format, writer)?;
+    } else if let Some(query) = &criteria.query {
         print_results(
             store,
             &files,
@@ -334,6 +337,33 @@ fn search_description(criteria: &QueryCriteria) -> String {
     parts.join(" and ")
 }
 
+#[derive(serde::Serialize)]
+struct JsonPair {
+    file: String,
+    tags: Vec<String>,
+}
+
+fn print_results_json(
+    store: &dyn TagStore,
+    files: &[TagrPath],
+    path_format: config::PathFormat,
+    writer: &mut impl Write,
+) -> Result<()> {
+    let mut json_pairs = Vec::new();
+    for file in files {
+        let tags = store.get_tags(file)?.unwrap_or_default();
+        json_pairs.push(JsonPair {
+            file: output::format_path(file, path_format),
+            tags: tags.iter().map(|t| t.as_str().to_string()).collect(),
+        });
+    }
+
+    let json_str = serde_json::to_string_pretty(&json_pairs)
+        .map_err(|e| TagrError::InvalidInput(format!("Failed to serialize JSON: {e}")))?;
+    writeln!(writer, "{json_str}")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,6 +393,7 @@ mod tests {
             OutputConfig {
                 format: config::PathFormat::Absolute,
                 quiet: true,
+                json: false,
             },
             &mut Vec::new(),
         )
@@ -398,6 +429,7 @@ mod tests {
             OutputConfig {
                 format: config::PathFormat::Absolute,
                 quiet: true,
+                json: false,
             },
             &mut Vec::new(),
         );
@@ -432,6 +464,7 @@ mod tests {
             OutputConfig {
                 format: config::PathFormat::Absolute,
                 quiet: true,
+                json: false,
             },
             &mut Vec::new(),
         );

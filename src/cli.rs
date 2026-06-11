@@ -101,6 +101,8 @@ pub struct BrowseContext {
     pub search_criteria: Option<crate::types::QueryCriteria>,
     /// Command to execute on selected files
     pub execute_cmd: Option<String>,
+    /// Save selection to file on exit
+    pub selected_output: Option<PathBuf>,
     /// Preview configuration overrides
     pub preview_overrides: PreviewOverrides,
 }
@@ -916,6 +918,10 @@ pub enum Commands {
         #[arg(long = "no-preview")]
         no_preview: bool,
 
+        /// Save file selection to a custom output path on exit
+        #[arg(long = "selected-output", value_name = "FILE", value_hint = ValueHint::FilePath)]
+        selected_output: Option<PathBuf>,
+
         /// Preview position (right, bottom, top)
         #[arg(long = "preview-position", value_name = "POSITION")]
         preview_position: Option<String>,
@@ -949,6 +955,16 @@ pub enum Commands {
     Db {
         #[command(subcommand)]
         command: DbCommands,
+    },
+
+    /// Manage individual file metadata and tags
+    #[command(visible_alias = "f")]
+    File {
+        #[command(subcommand)]
+        command: crate::commands::file::FileCommands,
+
+        #[command(flatten)]
+        db_args: DbArgs,
     },
 
     /// Manage saved filters
@@ -1023,6 +1039,10 @@ pub enum Commands {
 
         #[command(flatten)]
         filter_args: FilterArgs,
+
+        /// Output in JSON format
+        #[arg(long = "json")]
+        json: bool,
     },
     /// Remove tags from a file
     #[command(visible_alias = "u")]
@@ -1096,6 +1116,10 @@ pub enum Commands {
         /// Display relative paths (overrides config)
         #[arg(long = "relative", conflicts_with = "absolute")]
         relative: bool,
+
+        /// Output in JSON format
+        #[arg(long = "json")]
+        json: bool,
 
         #[command(flatten)]
         db_args: DbArgs,
@@ -1284,6 +1308,7 @@ impl Commands {
                 no_hierarchy,
                 execute,
                 no_preview,
+                selected_output,
                 preview_position,
                 preview_width,
                 ..
@@ -1305,6 +1330,7 @@ impl Commands {
                 Some(BrowseContext {
                     search_criteria,
                     execute_cmd: execute.clone(),
+                    selected_output: selected_output.clone(),
                     preview_overrides: PreviewOverrides {
                         no_preview: *no_preview,
                         preview_position: preview_position.clone(),
@@ -1355,6 +1381,7 @@ impl Commands {
             | Self::Tags { db_args, .. }
             | Self::Bulk { db_args, .. }
             | Self::Cleanup { db_args }
+            | Self::File { db_args, .. }
             | Self::List { db_args, .. } => db_args.db.clone(),
             _ => None,
         }
@@ -1414,6 +1441,7 @@ impl Cli {
             no_hierarchy: false,
             execute: None,
             no_preview: false,
+            selected_output: None,
             preview_position: None,
             preview_width: None,
             absolute: false,
@@ -1453,6 +1481,12 @@ impl Cli {
                 }
                 | Commands::Note {
                     absolute, relative, ..
+                }
+                | Commands::File {
+                    command: crate::commands::file::FileCommands::Show {
+                        absolute, relative, ..
+                    },
+                    ..
                 },
             ) => to_format(*absolute, *relative),
             _ => None,

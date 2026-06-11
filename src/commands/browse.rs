@@ -30,8 +30,9 @@ pub fn execute(
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
     execute_cmd: Option<String>,
+    selected_output: Option<&std::path::PathBuf>,
     preview_overrides: Option<&PreviewOverrides>,
-    path_format: config::PathFormat,
+    path_format: &config::PathFormat,
     quiet: bool,
     store_mode: StoreMode,
 ) -> Result<()> {
@@ -122,7 +123,7 @@ pub fn execute(
 
     let config = BrowseConfig {
         initial_search: search_criteria.clone(),
-        path_format,
+        path_format: *path_format,
         tag_phase_settings,
         file_phase_settings,
         store_mode,
@@ -147,11 +148,27 @@ pub fn execute(
             }
 
             for file in &result.selected_files {
-                let formatted_path = output::format_path(file, path_format);
+                let formatted_path = output::format_path(file, *path_format);
                 if quiet {
                     println!("{formatted_path}");
                 } else {
                     println!("  - {formatted_path}");
+                }
+            }
+
+            if let Some(ref out_path) = selected_output {
+                let mut out_file = std::fs::File::create(out_path).map_err(|e| {
+                    TagrError::BrowseError(format!(
+                        "Failed to create selected output file '{}': {}",
+                        out_path.display(),
+                        e
+                    ))
+                })?;
+                for file in &result.selected_files {
+                    use std::io::Write;
+                    writeln!(out_file, "{}", file.as_str()).map_err(|e| {
+                        TagrError::BrowseError(format!("Failed to write to selected output file: {e}"))
+                    })?;
                 }
             }
 

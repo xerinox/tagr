@@ -725,8 +725,14 @@ impl RatatuiFinder {
                             let editor =
                                 std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
-                            // Get existing note or create new one
-                            let existing_note = state.cached_note(&canonical_path).cloned();
+                            // Get existing note from database or fallback to cache
+                            let tagr_path = crate::types::TagrPath::new(&canonical_path).ok();
+                            let existing_note = state.database.as_ref().and_then(|ds| tagr_path.as_ref().and_then(|tp| ds.get_note(tp).ok().flatten()).or_else(|| {
+                                crate::types::TagrPath::new(&file_path).ok().and_then(|tp| ds.get_note(&tp).ok().flatten())
+                            })).or_else(|| {
+                                state.cached_note(&canonical_path).cloned()
+                                    .or_else(|| state.cached_note(&file_path).cloned())
+                            });
 
                             let initial_content = existing_note
                                 .as_ref()
@@ -757,6 +763,7 @@ impl RatatuiFinder {
                                                     let _ = ds.delete_note(tp);
                                                 }
                                                 state.note_cache.remove(&canonical_path);
+                                                state.note_cache.remove(&file_path);
 
                                                 // Update has_note metadata
                                                 if state.is_tag_selection_phase() {
@@ -795,7 +802,10 @@ impl RatatuiFinder {
                                                     .map(|tp| ds.set_note(tp, &note));
                                                 state
                                                     .note_cache
-                                                    .insert(canonical_path.clone(), note);
+                                                    .insert(canonical_path.clone(), note.clone());
+                                                state
+                                                    .note_cache
+                                                    .insert(file_path.clone(), note);
 
                                                 // Update has_note metadata for the current item
                                                 if state.is_tag_selection_phase() {

@@ -618,6 +618,7 @@ fn dispatch_via_ipc(
     match command {
         Commands::Search { .. }
         | Commands::List { .. }
+        | Commands::File { .. }
         | Commands::Cleanup { .. }
         | Commands::Tags { .. }
         | Commands::Note { .. }
@@ -661,8 +662,9 @@ fn dispatch_via_ipc(
             filter_args.filter.as_deref(),
             save_filter,
             ctx.execute_cmd,
+            ctx.selected_output.as_ref(),
             Some(&ctx.preview_overrides),
-            path_format,
+            &path_format,
             quiet,
             tagr::ui::ratatui_adapter::StoreMode::Daemon,
         );

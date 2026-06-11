@@ -29,7 +29,7 @@ mod filter_name;
 mod note;
 mod pair;
 mod query;
-mod tag_name;
+pub mod tag_name;
 mod tagr_path;
 
 pub use error::{NameKind, ValidationError};

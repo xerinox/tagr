@@ -217,6 +217,7 @@ fn test_e2e_search_execute_with_glob_flag() {
         OutputConfig {
             format: config::PathFormat::Absolute,
             quiet: true,
+            json: false,
         },
         &mut Vec::new(),
     );
@@ -1760,4 +1761,181 @@ fn test_note_list_json_format() {
     // Should be valid JSON
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert!(parsed.is_array());
+}
+
+#[test]
+fn test_search_command_json_format() {
+    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+    let test_db = TestDb::new("search_json_format");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("search_json1.rs", "content 1").unwrap();
+    let file2 = TestFile::create("search_json2.rs", "content 2").unwrap();
+
+    db.insert_pair(&pair(file1.path(), &["rust", "json-test"])).unwrap();
+    db.insert_pair(&pair(file2.path(), &["rust", "other"])).unwrap();
+
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("json-test").unwrap())),
+        ..QueryCriteria::default()
+    };
+
+    let mut out = Vec::new();
+    tagr::commands::search::execute(
+        test_db.store(),
+        criteria,
+        FilterConfig {
+            apply: None,
+            save: None,
+        },
+        ExplicitFlags {
+            tag_mode: false,
+            file_mode: false,
+            virtual_mode: false,
+            glob_files: false,
+        },
+        OutputConfig {
+            format: config::PathFormat::Absolute,
+            quiet: true,
+            json: true,
+        },
+        &mut out,
+    )
+    .unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(parsed.is_array());
+    let array = parsed.as_array().unwrap();
+    assert_eq!(array.len(), 1);
+    
+    let item = &array[0];
+    assert!(item["file"].as_str().unwrap().contains("search_json1.rs"));
+    
+    let tags = item["tags"].as_array().unwrap();
+    let tag_strs: Vec<&str> = tags.iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(tag_strs.contains(&"rust"));
+    assert!(tag_strs.contains(&"json-test"));
+}
+
+#[test]
+fn test_list_command_json_format() {
+    use tagr::cli::ListVariant;
+    let test_db = TestDb::new("list_json_format");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("list_json_file1.rs", "").unwrap();
+    db.insert_pair(&pair(file1.path(), &["alpha", "beta"])).unwrap();
+
+    // 1. Files List JSON
+    let mut out_files = Vec::new();
+    tagr::commands::list::execute(
+        test_db.store(),
+        ListVariant::Files,
+        config::PathFormat::Absolute,
+        true,
+        true,
+        &mut out_files,
+    )
+    .unwrap();
+
+    let output_files = String::from_utf8(out_files).unwrap();
+    let parsed_files: serde_json::Value = serde_json::from_str(&output_files).unwrap();
+    assert!(parsed_files.is_array());
+    let files_arr = parsed_files.as_array().unwrap();
+    assert_eq!(files_arr.len(), 1);
+    assert!(files_arr[0]["file"].as_str().unwrap().contains("list_json_file1.rs"));
+    let tags_arr = files_arr[0]["tags"].as_array().unwrap();
+    assert_eq!(tags_arr.len(), 2);
+
+    // 2. Tags List JSON
+    let mut out_tags = Vec::new();
+    tagr::commands::list::execute(
+        test_db.store(),
+        ListVariant::Tags,
+        config::PathFormat::Absolute,
+        true,
+        true,
+        &mut out_tags,
+    )
+    .unwrap();
+
+    let output_tags = String::from_utf8(out_tags).unwrap();
+    let parsed_tags: serde_json::Value = serde_json::from_str(&output_tags).unwrap();
+    assert!(parsed_tags.is_array());
+    let tags_arr = parsed_tags.as_array().unwrap();
+    // alpha and beta tags
+    assert_eq!(tags_arr.len(), 2);
+    // alphabetical or db order - let's check both are present
+    let tag_names: Vec<&str> = tags_arr.iter().map(|item| item["name"].as_str().unwrap()).collect();
+    assert!(tag_names.contains(&"alpha"));
+    assert!(tag_names.contains(&"beta"));
+    
+    let file_count = tags_arr[0]["file_count"].as_u64().unwrap();
+    assert_eq!(file_count, 1);
+}
+
+#[test]
+fn test_file_show_command() {
+    use tagr::commands::file::{FileCommands, execute};
+    use tagr::types::NoteRecord;
+    let test_db = TestDb::new("file_show_command");
+    let db = test_db.db();
+
+    let file = TestFile::create("show_file_test.rs", "fn main() {}").unwrap();
+    let canonical_path = fs::canonicalize(file.path()).unwrap();
+    let tagr_path = tagr::types::TagrPath::new(&canonical_path).unwrap();
+
+    // Setup tags and note in db
+    db.insert_pair(&pair(file.path(), &["rust", "show-test"])).unwrap();
+    db.set_note(&tagr_path, &NoteRecord::new("This is a show command test note".to_string())).unwrap();
+
+    // 1. Text Format
+    let mut out_text = Vec::new();
+    execute(
+        test_db.store(),
+        &FileCommands::Show {
+            file: file.path().to_path_buf(),
+            json: false,
+            absolute: true,
+            relative: false,
+        },
+        config::PathFormat::Absolute,
+        &mut out_text,
+    )
+    .unwrap();
+
+    let output_text = String::from_utf8(out_text).unwrap();
+    assert!(output_text.contains("File:"));
+    assert!(output_text.contains("Status: Exists"));
+    assert!(output_text.contains("Tags: [rust, show-test]"));
+    assert!(output_text.contains("This is a show command test note"));
+
+    // 2. JSON Format
+    let mut out_json = Vec::new();
+    execute(
+        test_db.store(),
+        &FileCommands::Show {
+            file: file.path().to_path_buf(),
+            json: true,
+            absolute: true,
+            relative: false,
+        },
+        config::PathFormat::Absolute,
+        &mut out_json,
+    )
+    .unwrap();
+
+    let output_json = String::from_utf8(out_json).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output_json).unwrap();
+    assert_eq!(parsed["exists"].as_bool().unwrap(), true);
+    assert_eq!(parsed["tags"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        parsed["tags"].as_array().unwrap()[0].as_str().unwrap(),
+        "rust"
+    );
+    assert_eq!(
+        parsed["note"]["content"].as_str().unwrap(),
+        "This is a show command test note"
+    );
 }
