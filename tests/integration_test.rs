@@ -1887,7 +1887,7 @@ fn test_file_show_command() {
     let tagr_path = tagr::types::TagrPath::new(&canonical_path).unwrap();
 
     // Setup tags and note in db
-    db.insert_pair(&pair(file.path(), &["rust", "show-test"])).unwrap();
+    db.insert_pair(&pair(&canonical_path, &["rust", "show-test"])).unwrap();
     db.set_note(&tagr_path, &NoteRecord::new("This is a show command test note".to_string())).unwrap();
 
     // 1. Text Format
