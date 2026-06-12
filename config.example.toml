@@ -1,21 +1,24 @@
 # Example tagr configuration file
 # Copy this to ~/.config/tagr/config.toml and customize as needed
 
-# Default database configuration
-[default_db]
-# Name of the default database
-name = "default"
+# The default database to use when none is specified
+default_database = "default"
 
-# Path to the default database (platform-specific defaults used if not specified)
-# Linux: ~/.local/share/tagr/default
-# macOS: ~/Library/Application Support/tagr/default
-# Windows: %APPDATA%\tagr\default
-# path = "/path/to/your/database"
+# Map of database names to their filesystem paths
+[databases]
+default = "~/.local/share/tagr/default"
+# project2 = "~/.local/share/tagr/project2"
+
+# Suppress informational output by default
+quiet = false
+
+# Default format for displaying paths: "absolute", "relative", or "basename" (default: "absolute")
+path_format = "absolute"
 
 # UI configuration
 [ui]
-# Fuzzy finder backend: "ratatui" (built-in TUI with nucleo fuzzy matching)
-backend = "ratatui"
+# Fuzzy finder backend: "Skim" or "Custom" (default: "Skim")
+backend = "Skim"
 
 # Preview pane configuration
 [preview]
@@ -25,25 +28,21 @@ enabled = true
 # Maximum file size to preview (bytes, default: 5MB)
 max_file_size = 5242880
 
-# Maximum lines to display (default: 50)
-max_lines = 50
-
 # Enable syntax highlighting (default: true)
 syntax_highlighting = true
 
 # Show line numbers (default: true)
 show_line_numbers = true
 
-# Position of preview pane: "right", "bottom", or "top" (default: "right")
-position = "right"
+# Position of preview pane: "Right", "Bottom", "Top", or "Left" (default: "Right")
+position = "Right"
 
 # Width percentage 0-100 (default: 50)
 width_percent = 50
 
 # Notes configuration
 [notes]
-# Storage mode: "integrated" (database) or "files" (future: external markdown files)
-# Currently only "integrated" is supported
+# Storage mode: "integrated" (database)
 storage = "integrated"
 
 # Editor command for editing notes
@@ -57,112 +56,8 @@ max_note_size_kb = 100
 
 # Default template for new notes (optional)
 # Use this to pre-populate new notes with a template
-# default_template = ""
+default_template = ""
 
-# Virtual tags configuration
-[virtual_tags]
-# Enable/disable virtual tags globally
-enabled = true
-
-# Cache file metadata for performance
-cache_metadata = true
-
-# Metadata cache TTL in seconds (default: 300 = 5 minutes)
-cache_ttl_seconds = 300
-
-# Size category thresholds
-[virtual_tags.size_categories]
-tiny = "1KB"      # Files smaller than 1KB
-small = "100KB"   # Files between 1KB and 100KB
-medium = "1MB"    # Files between 100KB and 1MB
-large = "10MB"    # Files between 1MB and 10MB
-huge = "100MB"    # Files larger than 10MB
-
-# Extension type mappings
-# Customize which extensions belong to which categories
-[virtual_tags.extension_types]
-source = [
-    ".rs",    # Rust
-    ".py",    # Python
-    ".js",    # JavaScript
-    ".ts",    # TypeScript
-    ".go",    # Go
-    ".cpp",   # C++
-    ".c",     # C
-    ".java",  # Java
-    ".rb",    # Ruby
-    ".php",   # PHP
-]
-
-document = [
-    ".md",    # Markdown
-    ".txt",   # Text
-    ".pdf",   # PDF
-    ".doc",   # Word (old)
-    ".docx",  # Word (new)
-    ".org",   # Org-mode
-    ".tex",   # LaTeX
-    ".rst",   # reStructuredText
-]
-
-config = [
-    ".toml",  # TOML
-    ".yaml",  # YAML
-    ".yml",   # YAML (alt)
-    ".json",  # JSON
-    ".ini",   # INI
-    ".conf",  # Config
-    ".xml",   # XML
-    ".env",   # Environment
-]
-
-image = [
-    ".png",   # PNG
-    ".jpg",   # JPEG
-    ".jpeg",  # JPEG (alt)
-    ".gif",   # GIF
-    ".svg",   # SVG
-    ".webp",  # WebP
-    ".bmp",   # Bitmap
-    ".ico",   # Icon
-]
-
-archive = [
-    ".zip",   # ZIP
-    ".tar",   # TAR
-    ".gz",    # Gzip
-    ".bz2",   # Bzip2
-    ".xz",    # XZ
-    ".7z",    # 7-Zip
-    ".rar",   # RAR
-]
-
-# Time-based defaults
-[virtual_tags.time]
-# Number of days to consider a file "recent"
-recent = 7
-
-# Number of days before a file is considered "stale"
-stale = 180
-
-# Git integration settings
-[virtual_tags.git]
-# Enable Git virtual tags (requires file to be in a Git repository)
-enabled = true
-
-# Automatically detect Git repositories
-detect_repo = true
-
-# Tag schema configuration
-[schema]
-# Path to tag schema file (stores aliases and hierarchy metadata)
-# Default: ~/.config/tagr/tag_schema.toml
-# schema_path = "/path/to/tag_schema.toml"
-
-# Enable automatic tag canonicalization when tagging files
-# When true, aliases are resolved to canonical tags before storage
-# Use --no-canonicalize flag to opt out per command
-auto_canonicalize = true
 
 # Enable hierarchy expansion in searches
 # When true, searching for a tag includes its parent tags
