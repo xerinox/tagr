@@ -66,7 +66,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create temporary directory for sample files
     let temp_dir = PathBuf::from("example_browse_demo_files");
     let files = create_sample_files(&temp_dir)?;
-    println!("Created {} sample files in {}", files.len(), temp_dir.display());
+    println!(
+        "Created {} sample files in {}",
+        files.len(),
+        temp_dir.display()
+    );
 
     // Create and populate database
     let db = Database::open("example_browse_demo_db")?;

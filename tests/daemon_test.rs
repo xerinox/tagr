@@ -86,7 +86,8 @@ impl DaemonHarness {
         let _ = self.child.kill();
         panic!(
             "Daemon socket did not appear at {} within {:?}",
-            self.socket_path.display(), timeout
+            self.socket_path.display(),
+            timeout
         );
     }
 
