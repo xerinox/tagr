@@ -43,7 +43,9 @@ pub fn dispatch_command(
             commands::list::execute(&*store, *variant, path_format, quiet, *json, writer)?;
             Ok(())
         }
-        Commands::File { command: file_cmd, .. } => {
+        Commands::File {
+            command: file_cmd, ..
+        } => {
             commands::file::execute(&*store, file_cmd, path_format, writer)?;
             Ok(())
         }

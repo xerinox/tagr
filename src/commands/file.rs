@@ -84,14 +84,15 @@ fn show_file(
     writer: &mut impl Write,
 ) -> Result<()> {
     // Attempt canonicalization, fallback to original path if not existing on disk
-    let (target_path, exists) = file_path.canonicalize().map_or_else(|_| (file_path.to_path_buf(), false), |canonical| (canonical, true));
+    let (target_path, exists) = file_path.canonicalize().map_or_else(
+        |_| (file_path.to_path_buf(), false),
+        |canonical| (canonical, true),
+    );
 
     let canonical_path = crate::types::TagrPath::new(&target_path)
         .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
 
-    let tags = store
-        .get_tags(&canonical_path)?
-        .unwrap_or_default();
+    let tags = store.get_tags(&canonical_path)?.unwrap_or_default();
 
     let note_rec = store.get_note(&canonical_path)?;
 
@@ -119,26 +120,33 @@ fn show_file(
     } else {
         let display_path = output::format_path(&canonical_path, path_format);
         writeln!(writer, "File: {display_path}")?;
-        
+
         let status_str = if exists {
-            size_bytes.map_or_else(|| "Exists".to_string(), |bytes| format!("Exists ({:.2} KB)", bytes as f64 / 1024.0))
+            size_bytes.map_or_else(
+                || "Exists".to_string(),
+                |bytes| format!("Exists ({:.2} KB)", bytes as f64 / 1024.0),
+            )
         } else {
             "Not found on disk (orphaned database entry)".to_string()
-        
         };
         writeln!(writer, "Status: {status_str}")?;
 
         if tags.is_empty() {
             writeln!(writer, "Tags: (no tags)")?;
         } else {
-            let tags_str: Vec<&str> = tags.iter().map(crate::types::tag_name::TagName::as_str).collect();
+            let tags_str: Vec<&str> = tags
+                .iter()
+                .map(crate::types::tag_name::TagName::as_str)
+                .collect();
             writeln!(writer, "Tags: [{}]", tags_str.join(", "))?;
         }
 
         writeln!(writer, "Note:")?;
         if let Some(n) = note_rec {
-            let time_str = chrono::DateTime::from_timestamp(n.metadata.updated_at, 0)
-                .map_or_else(|| "Unknown time".to_string(), |dt| dt.with_timezone(&chrono::Local).to_rfc2822());
+            let time_str = chrono::DateTime::from_timestamp(n.metadata.updated_at, 0).map_or_else(
+                || "Unknown time".to_string(),
+                |dt| dt.with_timezone(&chrono::Local).to_rfc2822(),
+            );
             writeln!(writer, "  Last updated: {time_str}")?;
             writeln!(writer, "  ---")?;
             for line in n.content.lines() {

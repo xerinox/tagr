@@ -1772,8 +1772,10 @@ fn test_search_command_json_format() {
     let file1 = TestFile::create("search_json1.rs", "content 1").unwrap();
     let file2 = TestFile::create("search_json2.rs", "content 2").unwrap();
 
-    db.insert_pair(&pair(file1.path(), &["rust", "json-test"])).unwrap();
-    db.insert_pair(&pair(file2.path(), &["rust", "other"])).unwrap();
+    db.insert_pair(&pair(file1.path(), &["rust", "json-test"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["rust", "other"]))
+        .unwrap();
 
     let criteria = QueryCriteria {
         tag_expr: Some(TagExpr::Tag(TagName::new("json-test").unwrap())),
@@ -1808,10 +1810,10 @@ fn test_search_command_json_format() {
     assert!(parsed.is_array());
     let array = parsed.as_array().unwrap();
     assert_eq!(array.len(), 1);
-    
+
     let item = &array[0];
     assert!(item["file"].as_str().unwrap().contains("search_json1.rs"));
-    
+
     let tags = item["tags"].as_array().unwrap();
     let tag_strs: Vec<&str> = tags.iter().map(|v| v.as_str().unwrap()).collect();
     assert!(tag_strs.contains(&"rust"));
@@ -1825,7 +1827,8 @@ fn test_list_command_json_format() {
     let db = test_db.db();
 
     let file1 = TestFile::create("list_json_file1.rs", "").unwrap();
-    db.insert_pair(&pair(file1.path(), &["alpha", "beta"])).unwrap();
+    db.insert_pair(&pair(file1.path(), &["alpha", "beta"]))
+        .unwrap();
 
     // 1. Files List JSON
     let mut out_files = Vec::new();
@@ -1844,7 +1847,12 @@ fn test_list_command_json_format() {
     assert!(parsed_files.is_array());
     let files_arr = parsed_files.as_array().unwrap();
     assert_eq!(files_arr.len(), 1);
-    assert!(files_arr[0]["file"].as_str().unwrap().contains("list_json_file1.rs"));
+    assert!(
+        files_arr[0]["file"]
+            .as_str()
+            .unwrap()
+            .contains("list_json_file1.rs")
+    );
     let tags_arr = files_arr[0]["tags"].as_array().unwrap();
     assert_eq!(tags_arr.len(), 2);
 
@@ -1867,10 +1875,13 @@ fn test_list_command_json_format() {
     // alpha and beta tags
     assert_eq!(tags_arr.len(), 2);
     // alphabetical or db order - let's check both are present
-    let tag_names: Vec<&str> = tags_arr.iter().map(|item| item["name"].as_str().unwrap()).collect();
+    let tag_names: Vec<&str> = tags_arr
+        .iter()
+        .map(|item| item["name"].as_str().unwrap())
+        .collect();
     assert!(tag_names.contains(&"alpha"));
     assert!(tag_names.contains(&"beta"));
-    
+
     let file_count = tags_arr[0]["file_count"].as_u64().unwrap();
     assert_eq!(file_count, 1);
 }
@@ -1887,8 +1898,13 @@ fn test_file_show_command() {
     let tagr_path = tagr::types::TagrPath::new(&canonical_path).unwrap();
 
     // Setup tags and note in db
-    db.insert_pair(&pair(&canonical_path, &["rust", "show-test"])).unwrap();
-    db.set_note(&tagr_path, &NoteRecord::new("This is a show command test note".to_string())).unwrap();
+    db.insert_pair(&pair(&canonical_path, &["rust", "show-test"]))
+        .unwrap();
+    db.set_note(
+        &tagr_path,
+        &NoteRecord::new("This is a show command test note".to_string()),
+    )
+    .unwrap();
 
     // 1. Text Format
     let mut out_text = Vec::new();

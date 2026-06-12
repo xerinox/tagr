@@ -167,7 +167,9 @@ pub fn execute(
                 for file in &result.selected_files {
                     use std::io::Write;
                     writeln!(out_file, "{}", file.as_str()).map_err(|e| {
-                        TagrError::BrowseError(format!("Failed to write to selected output file: {e}"))
+                        TagrError::BrowseError(format!(
+                            "Failed to write to selected output file: {e}"
+                        ))
                     })?;
                 }
             }
