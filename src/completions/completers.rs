@@ -94,12 +94,12 @@ impl DynamicCompleter for DatabaseCompleter {
         // Load directly from config (fast enough to not need caching)
         let databases = crate::config::TagrConfig::load()
             .map(|c| {
-                let default = c.get_default_database().cloned();
+                let default = c.get_default_database().map(ToOwned::to_owned);
                 c.list_databases()
-                    .iter()
+                    .into_iter()
                     .map(|name| {
-                        let is_default = default.as_ref() == Some(name);
-                        ((*name).clone(), is_default)
+                        let is_default = default.as_deref() == Some(name);
+                        (name.to_string(), is_default)
                     })
                     .collect::<Vec<_>>()
             })

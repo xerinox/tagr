@@ -55,6 +55,11 @@ use tagr::{
 
 type Result<T> = std::result::Result<T, TagrError>;
 
+#[allow(dead_code)]
+fn required_arg(name: &'static str) -> TagrError {
+    TagrError::InvalidInput(format!("Missing required argument '{name}'"))
+}
+
 /// Handle the db command - manage multiple databases
 fn handle_db_command(config: config::TagrConfig, command: &DbCommands, quiet: bool) -> Result<()> {
     match command {
@@ -126,7 +131,7 @@ fn handle_db_list(config: &config::TagrConfig, quiet: bool) -> Result<()> {
 
     let default_db = config.get_default_database();
     let mut db_names: Vec<_> = config.list_databases();
-    db_names.sort();
+    db_names.sort_unstable();
 
     for name in db_names {
         if let Some(path) = config.get_database(name) {
@@ -159,7 +164,7 @@ fn handle_db_remove(
         )));
     }
 
-    let is_default = config.get_default_database().map(String::as_str) == Some(name);
+    let is_default = config.get_default_database() == Some(name);
     if is_default && !quiet {
         println!("Warning: Removing the default database. You'll need to set a new default.");
     }
@@ -428,7 +433,7 @@ fn run() -> Result<()> {
             }
 
             let db_name = command.get_db()
-                .or_else(|| config.get_default_database().cloned())
+                .or_else(|| config.get_default_database().map(ToString::to_string))
                 .ok_or_else(|| TagrError::InvalidInput(
                     "Daemon requires a default database. Set one with: tagr db add <name> <path>".into(),
                 ))?;
@@ -469,9 +474,10 @@ fn run() -> Result<()> {
             }
         }
     } else {
-        let db_name = command.get_db().or_else(|| {
-            config.get_default_database().cloned()
-        }).ok_or_else(|| TagrError::InvalidInput(
+        let db_name = command
+            .get_db()
+            .or_else(|| config.get_default_database().map(ToOwned::to_owned))
+            .ok_or_else(|| TagrError::InvalidInput(
             "No default database set. Use 'tagr db add <name> <path>' to create one, or specify --db <name>.".into()
         ))?;
 
@@ -581,7 +587,7 @@ fn dispatch_alias_set_canonical(
 
     let db_name = command
         .get_db()
-        .or_else(|| config.get_default_database().cloned())
+        .or_else(|| config.get_default_database().map(ToString::to_string))
         .ok_or_else(|| {
             TagrError::InvalidInput(
                 "No default database set. Use 'tagr db add <name> <path>' to create one.".into(),

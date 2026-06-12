@@ -297,8 +297,8 @@ impl TagrConfig {
 
     /// List all database names
     #[must_use]
-    pub fn list_databases(&self) -> Vec<&String> {
-        self.databases.keys().collect()
+    pub fn list_databases(&self) -> Vec<&str> {
+        self.databases.keys().map(String::as_str).collect()
     }
 
     /// Set the default database
@@ -319,8 +319,8 @@ impl TagrConfig {
 
     /// Get the default database name
     #[must_use]
-    pub const fn get_default_database(&self) -> Option<&String> {
-        self.default_database.as_ref()
+    pub fn get_default_database(&self) -> Option<&str> {
+        self.default_database.as_deref()
     }
 
     /// Load configuration, running first-time setup if config doesn't exist
@@ -458,9 +458,9 @@ mod tests {
 
         let db_list = config.list_databases();
         assert_eq!(db_list.len(), 3);
-        assert!(db_list.contains(&&"alpha".to_string()));
-        assert!(db_list.contains(&&"beta".to_string()));
-        assert!(db_list.contains(&&"gamma".to_string()));
+        assert!(db_list.contains(&"alpha"));
+        assert!(db_list.contains(&"beta"));
+        assert!(db_list.contains(&"gamma"));
     }
 
     #[test]
@@ -476,7 +476,7 @@ mod tests {
 
         config.default_database = Some("db1".to_string());
 
-        assert_eq!(config.get_default_database(), Some(&"db1".to_string()));
+        assert_eq!(config.get_default_database(), Some("db1"));
     }
 
     #[test]
@@ -491,10 +491,7 @@ mod tests {
         config.databases.remove("default_db");
 
         assert!(config.get_database("default_db").is_none());
-        assert_eq!(
-            config.get_default_database(),
-            Some(&"default_db".to_string())
-        );
+        assert_eq!(config.get_default_database(), Some("default_db"));
     }
 
     #[test]

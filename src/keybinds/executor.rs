@@ -79,19 +79,7 @@ impl ActionExecutor {
             .filter_map(|s| crate::types::TagName::new(s).ok())
             .collect();
 
-        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
-            context
-                .current_file
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        } else {
-            context
-                .selected_files
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        };
+        let files = Self::require_selected_files(context)?;
 
         let outcome = actions::execute_add_tag(context.ds, &files, &new_tags)?;
 
@@ -100,23 +88,7 @@ impl ActionExecutor {
 
     /// Execute the `RemoveTag` action.
     fn execute_remove_tag(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
-            context
-                .current_file
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        } else {
-            context
-                .selected_files
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        };
-
-        if files.is_empty() {
-            return Err(ExecutorError::NoSelection);
-        }
+        let files = Self::require_selected_files(context)?;
 
         let mut all_tags = std::collections::HashSet::new();
         for file in &files {
@@ -165,23 +137,7 @@ impl ActionExecutor {
 
     /// Execute the `DeleteFromDb` action.
     fn execute_delete_from_db(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
-            context
-                .current_file
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        } else {
-            context
-                .selected_files
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        };
-
-        if files.is_empty() {
-            return Err(ExecutorError::NoSelection);
-        }
+        let files = Self::require_selected_files(context)?;
 
         let confirm =
             prompt_for_confirmation(&format!("Delete {} file(s) from database?", files.len()))?;
@@ -197,23 +153,7 @@ impl ActionExecutor {
 
     /// Execute the `OpenInDefault` action.
     fn execute_open_in_default(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
-            context
-                .current_file
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        } else {
-            context
-                .selected_files
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        };
-
-        if files.is_empty() {
-            return Err(ExecutorError::NoSelection);
-        }
+        let files = Self::require_selected_files(context)?;
 
         let outcome = actions::execute_open_in_default(&files);
 
@@ -222,23 +162,7 @@ impl ActionExecutor {
 
     /// Execute the `OpenInEditor` action.
     fn execute_open_in_editor(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
-            context
-                .current_file
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        } else {
-            context
-                .selected_files
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        };
-
-        if files.is_empty() {
-            return Err(ExecutorError::NoSelection);
-        }
+        let files = Self::require_selected_files(context)?;
 
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
@@ -247,9 +171,8 @@ impl ActionExecutor {
         Ok(outcome.into())
     }
 
-    /// Execute the `CopyPath` action.
-    fn execute_copy_path(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
+    fn selected_or_current_files(context: &ActionContext) -> Vec<TagrPath> {
+        if context.selected_files.is_empty() {
             context
                 .current_file
                 .iter()
@@ -261,11 +184,20 @@ impl ActionExecutor {
                 .iter()
                 .filter_map(|p| TagrPath::new(p).ok())
                 .collect()
-        };
+        }
+    }
 
+    fn require_selected_files(context: &ActionContext) -> Result<Vec<TagrPath>, ExecutorError> {
+        let files = Self::selected_or_current_files(context);
         if files.is_empty() {
             return Err(ExecutorError::NoSelection);
         }
+        Ok(files)
+    }
+
+    /// Execute the `CopyPath` action.
+    fn execute_copy_path(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
+        let files = Self::require_selected_files(context)?;
 
         match actions::execute_copy_path(&files) {
             Ok(outcome) => Ok(outcome.into()),
@@ -286,23 +218,7 @@ impl ActionExecutor {
 
     /// Execute the `CopyFiles` action.
     fn execute_copy_files(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let files: Vec<TagrPath> = if context.selected_files.is_empty() {
-            context
-                .current_file
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        } else {
-            context
-                .selected_files
-                .iter()
-                .filter_map(|p| TagrPath::new(p).ok())
-                .collect()
-        };
-
-        if files.is_empty() {
-            return Err(ExecutorError::NoSelection);
-        }
+        let files = Self::require_selected_files(context)?;
 
         let dest_input = prompt_for_input("Enter destination directory: ")?;
         let dest_dir = std::path::PathBuf::from(dest_input.trim());
@@ -318,16 +234,10 @@ impl ActionExecutor {
 
     /// Execute the `EditNote` action.
     fn execute_edit_note(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
-        let file_to_edit = if let Some(file) = context.current_file {
-            file
-        } else if let Some(file) = context.selected_files.first() {
-            file
-        } else {
-            return Err(ExecutorError::NoSelection);
-        };
+        let files = Self::require_selected_files(context)?;
+        let file_to_edit = files.first().ok_or(ExecutorError::NoSelection)?;
 
-        let tagrpath = TagrPath::new(file_to_edit)
-            .map_err(|e| ExecutorError::ExecutionFailed(format!("Invalid path: {e}")))?;
+        let tagrpath = file_to_edit.clone();
 
         // Get editor from environment
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
@@ -371,8 +281,7 @@ impl ActionExecutor {
         context.ds.set_note(&tagrpath, &note)?;
 
         Ok(ActionResult::Message(format!(
-            "✓ Updated note for {}",
-            file_to_edit.display()
+            "✓ Updated note for {file_to_edit}"
         )))
     }
 

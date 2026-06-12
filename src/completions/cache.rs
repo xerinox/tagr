@@ -180,7 +180,7 @@ pub fn load_cached_tags() -> Vec<String> {
 fn resolve_default_db_name() -> Option<String> {
     crate::config::TagrConfig::load()
         .ok()
-        .and_then(|c| c.get_default_database().cloned())
+        .and_then(|c| c.get_default_database().map(ToString::to_string))
 }
 
 /// Open the database and build the initial cache. Only called once per DB
