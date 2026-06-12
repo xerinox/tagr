@@ -540,7 +540,7 @@ mod tests {
                 assert_eq!(id, 42);
                 assert!(matches!(payload, Response::Pong));
             }
-            _ => panic!("wrong variant"),
+            ServerMessage::Event(_) => panic!("wrong variant"),
         }
     }
 

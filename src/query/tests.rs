@@ -1,4 +1,5 @@
 //! Tests for the query engine using `MockStore`.
+#![allow(clippy::field_reassign_with_default)]
 
 use crate::query;
 use crate::schema::types::TagSchema;

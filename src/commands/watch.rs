@@ -671,7 +671,7 @@ mod tests {
         format_rule_list(&config, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("#"));
+        assert!(output.contains('#'));
         assert!(output.contains("Patterns"));
         assert!(output.contains("Tags"));
         assert!(output.contains("Filter"));

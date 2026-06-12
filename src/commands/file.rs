@@ -124,7 +124,11 @@ fn show_file(
         let status_str = if exists {
             size_bytes.map_or_else(
                 || "Exists".to_string(),
-                |bytes| format!("Exists ({:.2} KB)", bytes as f64 / 1024.0),
+                |bytes| {
+                    #[allow(clippy::cast_precision_loss)]
+                    let kb = bytes as f64 / 1024.0;
+                    format!("Exists ({kb:.2} KB)")
+                },
             )
         } else {
             "Not found on disk (orphaned database entry)".to_string()

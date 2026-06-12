@@ -870,7 +870,8 @@ mod tests {
                     TagrPath::new(file.path()).unwrap(),
                     vec![
                         TagName::new("rust").unwrap(),
-                        TagName::new(&format!("tag{i}")).unwrap(),
+                        #[allow(clippy::needless_borrows_for_generic_args)]
+                        TagName::new(format!("tag{i}")).unwrap(),
                     ],
                 ))
                 .unwrap();

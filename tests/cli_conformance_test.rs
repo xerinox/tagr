@@ -8,6 +8,8 @@
 //!
 //! Run with: `cargo test --test cli_conformance_test -- --ignored`
 
+#![allow(clippy::ignore_without_reason)]
+
 use std::process::Command;
 use tempfile::TempDir;
 

@@ -128,6 +128,7 @@ pub fn dispatch_command(
 }
 
 /// Handle the search command with filter and output configuration.
+#[allow(clippy::too_many_arguments)]
 fn dispatch_search(
     command: &Commands,
     filter_args: &crate::cli::FilterArgs,

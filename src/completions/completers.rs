@@ -225,7 +225,7 @@ impl DynamicCompleter for HierarchicalTagCompleter {
                     } else if child_lower.contains(&suffix_lower) {
                         // Contains match - rank by Levenshtein distance
                         let distance = strsim::levenshtein(&child_lower, &suffix_lower);
-                        2 + distance.min(255) as u8
+                        2 + u8::try_from(distance).unwrap_or(255)
                     } else {
                         return None;
                     };
@@ -258,7 +258,7 @@ impl DynamicCompleter for HierarchicalTagCompleter {
                 } else if tag_lower.contains(&current_lower) {
                     // Contains match - rank by Levenshtein distance
                     let distance = strsim::levenshtein(&tag_lower, &current_lower);
-                    2 + distance.min(255) as u8
+                    2 + u8::try_from(distance).unwrap_or(255)
                 } else {
                     return None;
                 };

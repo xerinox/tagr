@@ -657,6 +657,7 @@ mod tests {
 
     #[test]
     fn test_metadata_cache_operations() {
+        #[allow(clippy::duration_suboptimal_units)]
         let mut cache = MetadataCache::with_ttl(std::time::Duration::from_secs(300));
         let path = PathBuf::from("/tmp/test.txt");
 

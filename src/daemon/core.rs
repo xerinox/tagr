@@ -1029,9 +1029,8 @@ mod tests {
         // A glob with no directory prefix resolves to empty string (no parent)
         let result = glob_parent("*.txt");
         assert!(
-            result == PathBuf::from(".") || result == PathBuf::from(""),
-            "Expected '.' or '', got: {:?}",
-            result
+            result == std::path::Path::new(".") || result == std::path::Path::new(""),
+            "Expected '.' or '', got: {result:?}"
         );
     }
 

@@ -2,9 +2,9 @@
 //!
 //! These tests spawn the tagr binary in daemon mode and verify IPC communication
 //! using the binary wire protocol (wincode + length-prefixed framing).
-//! Each test uses an isolated XDG_RUNTIME_DIR to avoid conflicts with real daemons.
+//! Each test uses an isolated `XDG_RUNTIME_DIR` to avoid conflicts with real daemons.
 
-#![allow(dead_code)]
+#![allow(dead_code, clippy::ignore_without_reason)]
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -85,8 +85,8 @@ impl DaemonHarness {
         }
         let _ = self.child.kill();
         panic!(
-            "Daemon socket did not appear at {:?} within {:?}",
-            self.socket_path, timeout
+            "Daemon socket did not appear at {} within {:?}",
+            self.socket_path.display(), timeout
         );
     }
 

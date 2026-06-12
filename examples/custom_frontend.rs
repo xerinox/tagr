@@ -297,7 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Selected tags: {:?}", result.selected_tags);
             println!("Selected {} files:", result.selected_files.len());
             for file in result.selected_files {
-                println!("  - {}", file);
+                println!("  - {file}");
             }
         }
         None => {

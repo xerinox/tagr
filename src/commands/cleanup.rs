@@ -12,6 +12,7 @@ type Result<T> = std::result::Result<T, TagrError>;
 ///
 /// # Errors
 /// Returns an error if database operations fail or if user interaction fails
+#[allow(clippy::too_many_lines)]
 pub fn execute(
     store: &dyn TagStore,
     path_format: config::PathFormat,

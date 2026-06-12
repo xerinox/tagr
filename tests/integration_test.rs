@@ -188,13 +188,13 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
 
 #[test]
 fn test_e2e_search_execute_with_glob_flag() {
+    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+    use tagr::types::QueryCriteria;
+
     let test_db = TestDb::new("e2e_search_glob");
     let db = test_db.db();
     let f_rs = TestFile::create("e2e_s1.rs", "content").unwrap();
     db.insert(f_rs.path(), vec!["t1".into()]).unwrap();
-
-    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
-    use tagr::types::QueryCriteria;
 
     let criteria = QueryCriteria {
         file_patterns: vec!["*.rs".to_string()],
@@ -262,6 +262,7 @@ fn test_tag_command_add_tags() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_search_command_single_tag() {
     let test_db = TestDb::new("search_single");
 
@@ -1558,7 +1559,7 @@ fn test_note_add_and_show() {
 
     // Show the note
     let show_cmd = NoteSubcommand::Show(ShowArgs {
-        files: vec![canonical.clone()],
+        files: vec![canonical],
         format: OutputFormat::Text,
         verbose: false,
     });
@@ -1696,7 +1697,7 @@ fn test_note_list_with_notes() {
     db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
         .unwrap();
     let add = NoteSubcommand::Add(AddArgs {
-        file: canonical.clone(),
+        file: canonical,
         content: "some note".into(),
     });
     add.execute(
@@ -1734,7 +1735,7 @@ fn test_note_list_json_format() {
     db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
         .unwrap();
     let add = NoteSubcommand::Add(AddArgs {
-        file: canonical.clone(),
+        file: canonical,
         content: "json test".into(),
     });
     add.execute(
@@ -1944,7 +1945,7 @@ fn test_file_show_command() {
 
     let output_json = String::from_utf8(out_json).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output_json).unwrap();
-    assert_eq!(parsed["exists"].as_bool().unwrap(), true);
+    assert!(parsed["exists"].as_bool().unwrap());
     assert_eq!(parsed["tags"].as_array().unwrap().len(), 2);
     assert_eq!(
         parsed["tags"].as_array().unwrap()[0].as_str().unwrap(),

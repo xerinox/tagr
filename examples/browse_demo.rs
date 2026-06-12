@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create temporary directory for sample files
     let temp_dir = PathBuf::from("example_browse_demo_files");
     let files = create_sample_files(&temp_dir)?;
-    println!("Created {} sample files in {:?}", files.len(), temp_dir);
+    println!("Created {} sample files in {}", files.len(), temp_dir.display());
 
     // Create and populate database
     let db = Database::open("example_browse_demo_db")?;
@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for file in result.selected_files {
                 let exists = file.as_path().exists();
                 let status = if exists { "✓" } else { "✗" };
-                println!("  {} {}", status, file);
+                println!("  {status} {file}");
             }
 
             if has_files {

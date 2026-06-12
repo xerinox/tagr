@@ -259,7 +259,8 @@ mod tests {
     #[test]
     fn test_stdout_writer_creation() {
         let _writer = StdoutWriter::new();
-        let _writer2 = StdoutWriter;
+        let writer2 = StdoutWriter;
+        let _ = &writer2;
     }
 
     #[test]

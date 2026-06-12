@@ -803,12 +803,14 @@ mod is_narrower_than {
 
     #[test]
     fn complex_nested_expr_not_narrower() {
-        let mut a = QueryCriteria::default();
         // Nested And inside And — not flat
-        a.tag_expr = Some(TagExpr::And(vec![
-            TagExpr::And(vec![TagExpr::Tag(tag("rust"))]),
-            TagExpr::Tag(tag("cli")),
-        ]));
+        let a = QueryCriteria {
+            tag_expr: Some(TagExpr::And(vec![
+                TagExpr::And(vec![TagExpr::Tag(tag("rust"))]),
+                TagExpr::Tag(tag("cli")),
+            ])),
+            ..QueryCriteria::default()
+        };
         let b = criteria_with_tags(&["rust"], &[]);
         assert!(!a.is_narrower_than(&b));
     }
@@ -985,7 +987,7 @@ mod query_cache_apply_event {
             content: None,
         });
         let path = TagrPath::new("src/main.rs").unwrap();
-        assert!(cache.notes.get(&path).is_none());
+        assert!(!cache.notes.contains_key(&path));
     }
 
     #[test]

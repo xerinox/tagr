@@ -151,7 +151,6 @@ pub fn invalidate_cache(store: &dyn crate::store::TagStore) {
     #[cfg(test)]
     {
         let _ = store;
-        return;
     }
     #[cfg(not(test))]
     {

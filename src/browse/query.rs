@@ -247,6 +247,7 @@ pub fn filter_items_in_memory<'a>(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::similar_names)]
     use super::*;
     use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
@@ -313,6 +314,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::similar_names)]
     fn test_get_matching_files_by_tag() {
         let test_db = TestDb::new("test_get_matching_files");
         let db = test_db.db();

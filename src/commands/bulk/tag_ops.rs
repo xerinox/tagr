@@ -290,6 +290,7 @@ pub fn bulk_untag(
 /// # Errors
 /// Returns database errors during lookups and updates, and `TagrError::InvalidInput`
 /// for invalid arguments (e.g., identical old/new names).
+#[allow(clippy::too_many_lines)]
 pub fn rename_tag(
     store: &dyn TagStore,
     old_tag: &str,
@@ -426,6 +427,7 @@ pub struct CopyTagsConfig<'a> {
 /// # Errors
 /// Returns database errors during lookups and updates, and `TagrError::InvalidInput`
 /// when the source file is missing or after filtering no tags are available.
+#[allow(clippy::too_many_lines)]
 pub fn copy_tags(
     store: &dyn TagStore,
     source_file: &Path,

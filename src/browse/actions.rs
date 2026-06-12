@@ -659,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::similar_names)]
     fn test_multiple_files_partial_success() {
         let test_db = TestDb::new("test_multi_partial");
         let file1 = TempFile::create("file1.txt").unwrap();
