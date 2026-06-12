@@ -6,6 +6,7 @@
 //! Uses the standard `tempfile` crate for automatic cleanup.
 
 use crate::db::Database;
+use crate::store::DirectStore;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -28,6 +29,7 @@ pub struct TestDb {
     #[allow(dead_code)] // Keeps temp dir alive
     temp_dir: tempfile::TempDir,
     db: Database,
+    store: DirectStore,
 }
 
 impl TestDb {
@@ -42,14 +44,25 @@ impl TestDb {
         let path = temp_dir.path().join(name.as_ref());
         let db = Database::open(&path).expect("Failed to open test database");
         db.clear().expect("Failed to clear test database");
+        let store = DirectStore::new(db.clone());
 
-        Self { temp_dir, db }
+        Self {
+            temp_dir,
+            db,
+            store,
+        }
     }
 
     /// Get a reference to the underlying database
     #[must_use]
     pub const fn db(&self) -> &Database {
         &self.db
+    }
+
+    /// Get a reference to the `DirectStore` (implements `TagStore`)
+    #[must_use]
+    pub const fn store(&self) -> &DirectStore {
+        &self.store
     }
 
     /// Get the path to the test database directory

@@ -11,5 +11,3 @@ pub mod metadata;
 pub mod prompts;
 
 pub use actions::{ActionResult, BrowseAction};
-pub use config::KeybindConfig;
-pub use executor::{ActionContext, ActionExecutor};

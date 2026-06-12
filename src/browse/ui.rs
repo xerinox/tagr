@@ -29,20 +29,22 @@
 
 use crate::browse::actions;
 use crate::browse::models::{ActionOutcome, ItemMetadata, TagrItem};
-use crate::browse::session::{AcceptResult, BrowseResult, BrowseSession, PathFormat, PhaseType};
+use crate::browse::session::{AcceptResult, BrowseResult, BrowseSession, PhaseType};
 use crate::keybinds::actions::BrowseAction;
 use crate::keybinds::prompts::{prompt_for_confirmation, prompt_for_input};
+use crate::types::{TagName, TagrPath};
 use crate::ui::{DisplayItem, FinderConfig, FuzzyFinder};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// UI controller - unified browser loop for tags and files
-pub struct BrowseController<'a, F: FuzzyFinder> {
-    session: BrowseSession<'a>,
+pub struct BrowseController<F: FuzzyFinder> {
+    session: BrowseSession,
     finder: F,
 }
 
-impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
+impl<F: FuzzyFinder> BrowseController<F> {
     /// Create new browser controller
     ///
     /// # Arguments
@@ -50,7 +52,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     /// * `session` - Browse session with state management
     /// * `finder` - UI adapter implementing `FuzzyFinder` trait
     #[must_use]
-    pub const fn new(session: BrowseSession<'a>, finder: F) -> Self {
+    pub const fn new(session: BrowseSession, finder: F) -> Self {
         Self { session, finder }
     }
 
@@ -94,7 +96,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
 
             match browser_result {
                 BrowserResult::Accept(selected_ids) => {
-                    match self.session.handle_accept(selected_ids)? {
+                    match self.session.handle_accept(&selected_ids)? {
                         AcceptResult::PhaseTransition => {
                             // Transitioned to file phase, loop continues
                         }
@@ -117,7 +119,10 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         return Ok(None);
                     }
 
-                    let selected_files = file_paths.into_iter().map(PathBuf::from).collect();
+                    let selected_files: Vec<TagrPath> = file_paths
+                        .into_iter()
+                        .filter_map(|p| TagrPath::new(&p).ok())
+                        .collect();
 
                     return Ok(Some(BrowseResult {
                         selected_tags,
@@ -137,6 +142,10 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                         BrowseAction::ShowDetails => {
                             // Details modal is handled internally by the TUI (Ctrl+L)
                             // This branch shouldn't be reached with ratatui
+                            continue;
+                        }
+                        BrowseAction::ShowWatchRules => {
+                            // Watch rules modal is handled internally by the TUI (F3)
                             continue;
                         }
                         BrowseAction::RefineSearch => {
@@ -161,7 +170,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                     virtual_tags,
                 } => {
                     // User completed refine search overlay - apply the new criteria
-                    use crate::cli::SearchParams;
+                    use crate::types::{QueryCriteria, TagExpr, TagName};
 
                     let current =
                         self.session
@@ -172,54 +181,58 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                                 if let PhaseType::FileSelection { selected_tags } =
                                     &self.session.current_phase().phase_type
                                 {
-                                    SearchParams {
-                                        query: None,
-                                        tags: selected_tags.clone(),
-                                        tag_mode: crate::cli::SearchMode::Any,
-                                        file_patterns: vec![],
-                                        file_mode: crate::cli::SearchMode::All,
-                                        exclude_tags: vec![],
-                                        regex_tag: false,
-                                        regex_file: false,
-                                        glob_files: false,
-                                        virtual_tags: vec![],
-                                        virtual_mode: crate::cli::SearchMode::All,
-                                        no_hierarchy: false,
+                                    let tag_exprs: Vec<TagExpr> = selected_tags
+                                        .iter()
+                                        .map(|t| TagExpr::Tag(t.clone()))
+                                        .collect();
+                                    let tag_expr = match tag_exprs.len() {
+                                        0 => None,
+                                        1 => tag_exprs.into_iter().next(),
+                                        _ => Some(TagExpr::Or(tag_exprs)),
+                                    };
+                                    QueryCriteria {
+                                        tag_expr,
+                                        ..QueryCriteria::default()
                                     }
                                 } else {
-                                    SearchParams {
-                                        query: None,
-                                        tags: vec![],
-                                        tag_mode: crate::cli::SearchMode::Any,
-                                        file_patterns: vec![],
-                                        file_mode: crate::cli::SearchMode::All,
-                                        exclude_tags: vec![],
-                                        regex_tag: false,
-                                        regex_file: false,
-                                        glob_files: false,
-                                        virtual_tags: vec![],
-                                        virtual_mode: crate::cli::SearchMode::All,
-                                        no_hierarchy: false,
-                                    }
+                                    QueryCriteria::default()
                                 }
                             });
 
-                    let new_params = SearchParams {
-                        query: current.query.clone(),
-                        tags: include_tags,
-                        tag_mode: current.tag_mode,
-                        file_patterns,
-                        file_mode: current.file_mode,
-                        exclude_tags,
-                        regex_tag: current.regex_tag,
-                        regex_file: current.regex_file,
-                        glob_files: current.glob_files,
-                        virtual_tags,
-                        virtual_mode: current.virtual_mode,
-                        no_hierarchy: current.no_hierarchy,
+                    // Build new tag expression from include/exclude tags
+                    let include_exprs: Vec<TagExpr> = include_tags
+                        .iter()
+                        .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+                        .collect();
+                    let exclude_exprs: Vec<TagExpr> = exclude_tags
+                        .iter()
+                        .filter_map(|t| {
+                            TagName::new(t)
+                                .ok()
+                                .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+                        })
+                        .collect();
+                    let mut all_exprs = include_exprs;
+                    all_exprs.extend(exclude_exprs);
+                    let tag_expr = match all_exprs.len() {
+                        0 => None,
+                        1 => all_exprs.into_iter().next(),
+                        _ => Some(TagExpr::And(all_exprs)),
                     };
 
-                    self.session.update_search_params(new_params)?;
+                    let new_criteria = QueryCriteria {
+                        tag_expr,
+                        regex_tags: current.regex_tags,
+                        expand_hierarchy: current.expand_hierarchy,
+                        file_patterns,
+                        file_mode: current.file_mode,
+                        regex_files: current.regex_files,
+                        virtual_tags,
+                        virtual_mode: current.virtual_mode,
+                        query: current.query.clone(),
+                    };
+
+                    self.session.update_search_params(&new_criteria)?;
                     // Continue browsing with updated criteria
                 }
                 BrowserResult::InputAction {
@@ -316,31 +329,38 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
         let keybinds = phase.settings.keybind_config.bindings();
 
         let search_criteria = self.session.search_criteria();
-        let available_tags = self.session.available_tags().unwrap_or_default();
+        let available_tags: Vec<String> = self
+            .session
+            .available_tags()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.to_string())
+            .collect();
 
         // Wrap schema and database in Arc for sharing
         let tag_schema = self
             .session
             .schema()
             .map(|s| std::sync::Arc::new(s.clone()));
-        let database = Some(std::sync::Arc::new(self.session.db().clone()));
+        let database = Some(Arc::clone(self.session.data_source()));
 
         let config = FinderConfig::new(display_items, prompt.to_string())
             .with_multi_select(true)
             .with_ansi(true)
             .with_binds(keybinds)
             .with_available_tags(available_tags)
-            .with_search_criteria(crate::ui::RefineSearchCriteria::new(
-                search_criteria.tags,
-                search_criteria.exclude_tags,
-                search_criteria.file_patterns,
-                search_criteria.virtual_tags,
-            ))
+            .with_search_criteria(crate::ui::RefinedSearchCriteria {
+                include_tags: search_criteria.tags,
+                exclude_tags: search_criteria.exclude_tags,
+                file_patterns: search_criteria.file_patterns,
+                virtual_tags: search_criteria.virtual_tags,
+            })
             .with_schema(tag_schema)
-            .with_database(database);
+            .with_database(database)
+            .with_store_mode(self.session.config().store_mode);
 
         let config = if let Some(preview_cfg) = phase.settings.preview_config.clone() {
-            config.with_preview(preview_cfg.into())
+            config.with_preview(preview_cfg)
         } else {
             config
         };
@@ -448,7 +468,7 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 DisplayItem::with_metadata(item.id.clone(), display, item.name.clone(), metadata)
             }
             ItemMetadata::File(file_meta) => {
-                let path_str = self.format_path(&file_meta.path, phase_type);
+                let path_str = self.format_path(file_meta.path.as_path(), phase_type);
 
                 let path_display = if file_meta.cached.exists {
                     path_str.green()
@@ -459,22 +479,26 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
                 let tags_display = if file_meta.tags.is_empty() {
                     String::new()
                 } else {
-                    format!(" {}", format!("[{}]", file_meta.tags.join(", ")).dimmed())
+                    let tag_strs: Vec<&str> = file_meta.tags.iter().map(AsRef::as_ref).collect();
+                    format!(" {}", format!("[{}]", tag_strs.join(", ")).dimmed())
                 };
 
                 let display = format!("{path_display}{tags_display}");
 
                 // Check if file has a note
-                let has_note = file_meta
-                    .path
+                let has_note = std::path::Path::new(file_meta.path.as_str())
                     .canonicalize()
                     .ok()
-                    .and_then(|canonical| self.session.db().get_note(&canonical).ok().flatten())
+                    .and_then(|canonical| {
+                        crate::types::TagrPath::new(&canonical)
+                            .ok()
+                            .and_then(|tp| self.session.data_source().get_note(&tp).ok().flatten())
+                    })
                     .is_some();
 
                 let metadata = crate::ui::ItemMetadata {
                     index: Some(index),
-                    tags: file_meta.tags.clone(),
+                    tags: file_meta.tags.iter().map(ToString::to_string).collect(),
                     exists: file_meta.cached.exists,
                     has_note,
                 };
@@ -488,9 +512,11 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     ///
     /// Applies `PathFormat` settings from session config
     fn format_path(&self, path: &Path, phase_type: &PhaseType) -> String {
+        use crate::config::PathFormat;
+
         let path_format = match phase_type {
-            PhaseType::FileSelection { .. } => &self.session.config().path_format,
-            PhaseType::TagSelection => &PathFormat::Absolute,
+            PhaseType::FileSelection { .. } => self.session.config().path_format,
+            PhaseType::TagSelection => PathFormat::Absolute,
         };
 
         match path_format {
@@ -591,28 +617,34 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     fn execute_action_with_input(
         &self,
         action_id: &str,
-        files: &[PathBuf],
+        files: &[TagrPath],
         input: &str,
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
             "add_tag" => {
-                let tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+                let tags: Vec<TagName> = input
+                    .split_whitespace()
+                    .filter_map(|s| TagName::new(s).ok())
+                    .collect();
 
                 if tags.is_empty() {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_add_tag(self.session.db(), files, &tags)
+                actions::execute_add_tag(self.session.data_source().as_ref(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "remove_tag" => {
-                let tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+                let tags: Vec<TagName> = input
+                    .split_whitespace()
+                    .filter_map(|s| TagName::new(s).ok())
+                    .collect();
 
                 if tags.is_empty() {
                     return Ok(ActionOutcome::Failed("No tags specified".to_string()));
                 }
 
-                actions::execute_remove_tag(self.session.db(), files, &tags)
+                actions::execute_remove_tag(self.session.data_source().as_ref(), files, &tags)
                     .map_err(|e| BrowseError::ActionFailed(e.to_string()))
             }
             "copy_files" => {
@@ -640,11 +672,13 @@ impl<'a, F: FuzzyFinder> BrowseController<'a, F> {
     fn execute_confirmed_action(
         &self,
         action_id: &str,
-        files: &[PathBuf],
+        files: &[TagrPath],
     ) -> Result<ActionOutcome, BrowseError> {
         match action_id {
-            "delete_from_db" => actions::execute_delete_from_db(self.session.db(), files)
-                .map_err(|e| BrowseError::ActionFailed(e.to_string())),
+            "delete_from_db" => {
+                actions::execute_delete_from_db(self.session.data_source().as_ref(), files)
+                    .map_err(|e| BrowseError::ActionFailed(e.to_string()))
+            }
             _ => Err(BrowseError::UnexpectedState(format!(
                 "Unknown action_id: {action_id}"
             ))),
@@ -667,7 +701,7 @@ enum BrowserResult {
         /// Selected file paths
         file_paths: Vec<String>,
         /// Selected tags that filtered these files
-        selected_tags: Vec<String>,
+        selected_tags: Vec<TagName>,
     },
 
     /// User triggered action (ctrl+t, etc.) with current selection
@@ -712,14 +746,15 @@ pub enum BrowseError {
     #[error("Unexpected state: {0}")]
     UnexpectedState(String),
 
-    #[error("Database error: {0}")]
-    Database(#[from] crate::db::DbError),
+    #[error("Store error: {0}")]
+    Store(#[from] crate::store::StoreError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::browse::session::BrowseConfig;
+    use crate::store::{DirectStore, TagStore};
     use crate::testing::TestDb;
     use crate::ui::FinderResult;
 
@@ -764,7 +799,11 @@ mod tests {
     fn test_controller_cancels_on_empty_tag_selection() {
         let db = TestDb::new("test_controller_cancel");
         let config = BrowseConfig::default();
-        let session = BrowseSession::new(db.db(), config).unwrap();
+        let session = BrowseSession::new(
+            Arc::new(DirectStore::new(db.db().clone())) as Arc<dyn TagStore>,
+            config,
+        )
+        .unwrap();
 
         let mock_finder = MockFinder::new(vec![FinderResult {
             selected: vec![],

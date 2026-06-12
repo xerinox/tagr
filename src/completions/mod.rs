@@ -53,7 +53,7 @@ pub fn generate_static<W: Write>(shell: Shell, cmd: &mut Command, buf: &mut W) {
 
 /// Initialize dynamic completion system
 ///
-/// Call this at the start of main() before argument parsing when
+/// Call this at the start of `main()` before argument parsing when
 /// the `dynamic-completions` feature is enabled.
 ///
 /// This checks for the `COMPLETE` environment variable and handles
@@ -69,7 +69,7 @@ pub fn init_dynamic_completions<F: Fn() -> Command>(factory: F) {
 
 /// Complete tags for `-t/--tag` argument
 ///
-/// This is the entry point for ArgValueCompleter. It returns candidates
+/// This is the entry point for `ArgValueCompleter`. It returns candidates
 /// for database tags based on what the user has typed.
 ///
 /// Uses hierarchical completion with smart sorting:
@@ -78,6 +78,7 @@ pub fn init_dynamic_completions<F: Fn() -> Command>(factory: F) {
 /// - Fuzzy matches ranked by Levenshtein distance
 /// - Hierarchy-aware (shows `lang:` roots, filters children)
 #[cfg(feature = "dynamic-completions")]
+#[must_use]
 pub fn complete_tags(current: &std::ffi::OsStr) -> Vec<clap_complete::engine::CompletionCandidate> {
     use clap_complete::engine::CompletionCandidate;
     use traits::DynamicCompleter;
@@ -97,9 +98,10 @@ pub fn complete_tags(current: &std::ffi::OsStr) -> Vec<clap_complete::engine::Co
 
 /// Complete virtual tags for `-v/--virtual-tag` argument
 ///
-/// This is the entry point for ArgValueCompleter. It returns candidates
+/// This is the entry point for `ArgValueCompleter`. It returns candidates
 /// for virtual tags (modified:, size:, etc.) based on what the user has typed.
 #[cfg(feature = "dynamic-completions")]
+#[must_use]
 pub fn complete_vtags(
     current: &std::ffi::OsStr,
 ) -> Vec<clap_complete::engine::CompletionCandidate> {
@@ -121,6 +123,7 @@ pub fn complete_vtags(
 
 /// Complete filter names for `-F/--filter` argument
 #[cfg(feature = "dynamic-completions")]
+#[must_use]
 pub fn complete_filters(
     current: &std::ffi::OsStr,
 ) -> Vec<clap_complete::engine::CompletionCandidate> {
@@ -153,6 +156,7 @@ pub fn complete_filters(
 
 /// Complete database names for `--db` argument
 #[cfg(feature = "dynamic-completions")]
+#[must_use]
 pub fn complete_databases(
     current: &std::ffi::OsStr,
 ) -> Vec<clap_complete::engine::CompletionCandidate> {
@@ -170,10 +174,10 @@ pub fn complete_databases(
             .filter(|name| name.to_lowercase().starts_with(&current_lower))
             .map(|name| {
                 let mut candidate = CompletionCandidate::new(name);
-                if let Some(ref def) = default_db {
-                    if name == def {
-                        candidate = candidate.help(Some("default".into()));
-                    }
+                if let Some(ref def) = default_db
+                    && name == def
+                {
+                    candidate = candidate.help(Some("default".into()));
                 }
                 candidate
             })
@@ -185,6 +189,7 @@ pub fn complete_databases(
 
 /// Complete aliases
 #[cfg(feature = "dynamic-completions")]
+#[must_use]
 pub fn complete_aliases(
     current: &std::ffi::OsStr,
 ) -> Vec<clap_complete::engine::CompletionCandidate> {
@@ -201,7 +206,7 @@ pub fn complete_aliases(
             .filter(|(alias, _)| alias.to_lowercase().starts_with(&current_lower))
             .take(50)
             .map(|(alias, target)| {
-                CompletionCandidate::new(alias).help(Some(format!("-> {}", target).into()))
+                CompletionCandidate::new(alias).help(Some(format!("-> {target}").into()))
             })
             .collect();
     }

@@ -7,19 +7,19 @@
 //! - `files`: Main tree mapping file paths to tags
 //! - `tags`: Reverse index mapping tags to file paths
 
-use crate::Pair;
-use bincode;
+use crate::types::{Pair, TagName, TagrPath};
+
 use regex::Regex;
 use sled::{Db, Tree};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub mod error;
-pub mod query;
 pub mod types;
 
+pub use crate::types::{NoteMeta, NoteRecord};
 pub use error::DbError;
-pub use types::{NoteMeta, NoteRecord, PathKey, PathString};
+pub use types::PathKey;
 
 /// Database wrapper that encapsulates all database operations
 ///
@@ -68,15 +68,18 @@ impl Database {
     /// Insert or update a file-tags pairing
     ///
     /// # Arguments
-    /// * `pair` - The Pair struct containing file path and tags
+    /// * `pair` - A [`Pair`] containing file path and tags
     ///
     /// # Examples
     /// ```no_run
-    /// use tagr::{db::Database, Pair};
-    /// use std::path::PathBuf;
+    /// use tagr::db::Database;
+    /// use tagr::types::{Pair, TagrPath, TagName};
     ///
     /// let db = Database::open("my_db").unwrap();
-    /// let pair = Pair::new(PathBuf::from("file.txt"), vec!["tag1".into()]);
+    /// let pair = Pair::new(
+    ///     TagrPath::new("file.txt").unwrap(),
+    ///     vec![TagName::new("tag1").unwrap()],
+    /// );
     /// db.insert_pair(&pair).unwrap();
     /// ```
     ///
@@ -85,21 +88,23 @@ impl Database {
     /// Returns `DbError` if the file does not exist, the path contains invalid UTF-8,
     /// database operations fail, or serialization errors occur.
     pub fn insert_pair(&self, pair: &Pair) -> Result<(), DbError> {
-        if !pair.file.exists() {
-            return Err(DbError::FileNotFound(pair.file.display().to_string()));
+        let path = Path::new(pair.file.as_str());
+        if !path.exists() {
+            return Err(DbError::FileNotFound(pair.file.to_string()));
         }
 
-        let file_path = PathString::new(&pair.file)?;
+        let file_str = pair.file.as_str();
+        let raw_tags: Vec<String> = pair.tags.iter().map(ToString::to_string).collect();
 
-        if let Some(old_tags) = self.get_tags(&pair.file)? {
-            self.remove_from_tag_index(&file_path, &old_tags)?;
+        if let Some(old_tags) = self.get_tags(file_str)? {
+            self.remove_from_tag_index(file_str, &old_tags)?;
         }
 
-        let key = bincode::encode_to_vec(&pair.file, bincode::config::standard())?;
-        let value = bincode::encode_to_vec(&pair.tags, bincode::config::standard())?;
+        let key = postcard::to_allocvec(&pair.file)?;
+        let value = postcard::to_allocvec(&raw_tags)?;
         self.files.insert(key, value)?;
 
-        self.add_to_tag_index(&file_path, &pair.tags)?;
+        self.add_to_tag_index(file_str, &raw_tags)?;
 
         Ok(())
     }
@@ -115,11 +120,18 @@ impl Database {
     /// Returns `DbError` if the file does not exist, the path contains invalid UTF-8,
     /// database operations fail, or serialization errors occur.
     pub fn insert<P: AsRef<Path>>(&self, file: P, tags: Vec<String>) -> Result<(), DbError> {
-        if !file.as_ref().exists() {
-            return Err(DbError::FileNotFound(file.as_ref().display().to_string()));
+        let path = file.as_ref();
+        if !path.exists() {
+            return Err(DbError::FileNotFound(path.display().to_string()));
         }
 
-        let pair = Pair::new(file.as_ref().to_path_buf(), tags);
+        let tagr_path = TagrPath::new(path).map_err(|e| DbError::PathError(e.to_string()))?;
+        let tag_names: Vec<TagName> = tags
+            .into_iter()
+            .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
+            .collect::<Result<_, _>>()?;
+
+        let pair = Pair::new(tagr_path, tag_names);
         self.insert_pair(&pair)
     }
 
@@ -140,15 +152,14 @@ impl Database {
 
         match self.files.get(key.as_slice())? {
             Some(value) => {
-                let (tags, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
+                let tags: Vec<String> = postcard::from_bytes(&value)?;
                 Ok(Some(tags))
             }
             None => Ok(None),
         }
     }
 
-    /// Get the complete Pair (file and tags) for a specific file
+    /// Get the complete [`Pair`] (file and tags) for a specific file
     ///
     /// # Arguments
     /// * `file` - Path to the file
@@ -161,11 +172,16 @@ impl Database {
 
         match self.files.get(key.as_slice())? {
             Some(value) => {
-                let (file_path, _): (PathBuf, usize) =
-                    bincode::decode_from_slice(&key, bincode::config::standard())?;
-                let (tags, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
-                Ok(Some(Pair::new(file_path, tags)))
+                let file_str: String = postcard::from_bytes(&key)?;
+                let raw_tags: Vec<String> = postcard::from_bytes(&value)?;
+
+                let tagr_path = TagrPath::from_string(file_str);
+                let tag_names = raw_tags
+                    .into_iter()
+                    .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(Some(Pair::new(tagr_path, tag_names)))
             }
             None => Ok(None),
         }
@@ -181,12 +197,15 @@ impl Database {
     /// Returns `DbError` if the path contains invalid UTF-8, database operations fail,
     /// or tag index cleanup fails.
     pub fn remove<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
-        let file_path = PathString::new(file.as_ref())?;
+        let file_path = file
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| DbError::SerializeError("Invalid UTF-8 in path".into()))?;
 
         let key: Vec<u8> = PathKey::new(file.as_ref()).try_into()?;
 
         if let Some(tags) = self.get_tags(file.as_ref())? {
-            self.remove_from_tag_index(&file_path, &tags)?;
+            self.remove_from_tag_index(file_path, &tags)?;
         }
 
         self.delete_note(file.as_ref())?;
@@ -251,7 +270,7 @@ impl Database {
     /// List all file-tag pairings in the database
     ///
     /// # Returns
-    /// Vector of all Pair structs in the database
+    /// Vector of all [`Pair`] structs in the database
     ///
     /// # Errors
     ///
@@ -260,11 +279,16 @@ impl Database {
         let mut pairs = Vec::new();
         for result in &self.files {
             let (key, value) = result?;
-            let (file, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
-            let (tags, _): (Vec<String>, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
-            pairs.push(Pair::new(file, tags));
+            let file_str: String = postcard::from_bytes(&key)?;
+            let raw_tags: Vec<String> = postcard::from_bytes(&value)?;
+
+            let tagr_path = TagrPath::from_string(file_str);
+            let tag_names = raw_tags
+                .into_iter()
+                .map(|s| TagName::new(&s).map_err(|e| DbError::SerializeError(e.to_string())))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            pairs.push(Pair::new(tagr_path, tag_names));
         }
         Ok(pairs)
     }
@@ -288,8 +312,7 @@ impl Database {
 
         match self.tags.get(key)? {
             Some(value) => {
-                let (files, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
+                let files: Vec<String> = postcard::from_bytes(&value)?;
                 Ok(files.into_iter().map(PathBuf::from).collect())
             }
             None => Ok(Vec::new()),
@@ -407,6 +430,46 @@ impl Database {
         Ok(tag_vec)
     }
 
+    /// List all tags with the number of files each tag is applied to.
+    ///
+    /// Iterates the reverse tag index, deserializing each value to count entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if database iteration or deserialization fails.
+    pub fn list_tags_with_counts(&self) -> Result<Vec<(String, usize)>, DbError> {
+        let mut results = Vec::new();
+        for item in &self.tags {
+            let (key, value) = item?;
+            let tag = String::from_utf8(key.to_vec())
+                .map_err(|e| DbError::SerializeError(format!("invalid UTF-8 in tag key: {e}")))?;
+            let files: Vec<String> = postcard::from_bytes(&value)?;
+            results.push((tag, files.len()));
+        }
+        results.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(results)
+    }
+
+    /// Find tags that start with a given prefix string.
+    ///
+    /// Uses sled's `scan_prefix()` for O(log n + k) performance.
+    /// Powers hierarchy expansion, autocomplete, and alias resolution.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DbError` if database iteration fails.
+    pub fn find_tags_by_prefix(&self, prefix: &str) -> Result<Vec<String>, DbError> {
+        let mut tags = Vec::new();
+        for item in self.tags.scan_prefix(prefix.as_bytes()) {
+            let (key, _) = item?;
+            let tag = String::from_utf8(key.to_vec())
+                .map_err(|e| DbError::SerializeError(format!("invalid UTF-8 in tag key: {e}")))?;
+            tags.push(tag);
+        }
+        tags.sort();
+        Ok(tags)
+    }
+
     /// Get the number of entries in the database
     #[must_use]
     pub fn count(&self) -> usize {
@@ -494,8 +557,7 @@ impl Database {
         let mut files = Vec::new();
         for result in &self.files {
             let (key, _) = result?;
-            let (file, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
+            let file: PathBuf = postcard::from_bytes(&key)?;
             files.push(file);
         }
         Ok(files)
@@ -589,8 +651,7 @@ impl Database {
 
             let mut files: Vec<String> = match self.tags.get(tag_key)? {
                 Some(value) => {
-                    let (files, _): (Vec<String>, usize) =
-                        bincode::decode_from_slice(&value, bincode::config::standard())?;
+                    let files: Vec<String> = postcard::from_bytes(&value)?;
                     files
                 }
                 None => Vec::new(),
@@ -600,7 +661,7 @@ impl Database {
                 files.push(file_path.to_string());
             }
 
-            let encoded = bincode::encode_to_vec(&files, bincode::config::standard())?;
+            let encoded = postcard::to_allocvec(&files)?;
             self.tags.insert(tag_key, encoded)?;
         }
         Ok(())
@@ -623,15 +684,14 @@ impl Database {
             let tag_key = tag.as_bytes();
 
             if let Some(value) = self.tags.get(tag_key)? {
-                let (mut files, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&value, bincode::config::standard())?;
+                let mut files: Vec<String> = postcard::from_bytes(&value)?;
 
                 files.retain(|f| f != file_path);
 
                 if files.is_empty() {
                     self.tags.remove(tag_key)?;
                 } else {
-                    let encoded = bincode::encode_to_vec(&files, bincode::config::standard())?;
+                    let encoded = postcard::to_allocvec(&files)?;
                     self.tags.insert(tag_key, encoded)?;
                 }
             }
@@ -661,8 +721,8 @@ impl Database {
     /// Returns `DbError` if path contains invalid UTF-8 or serialization fails.
     pub fn set_note<P: AsRef<Path>>(&self, file: P, note: &NoteRecord) -> Result<(), DbError> {
         let file_path = file.as_ref();
-        let key = bincode::encode_to_vec(file_path, bincode::config::standard())?;
-        let value = bincode::encode_to_vec(note, bincode::config::standard())?;
+        let key = postcard::to_allocvec(file_path)?;
+        let value = postcard::to_allocvec(note)?;
         self.notes.insert(key, value)?;
 
         // Ensure file exists in files tree (with empty tags if not already present)
@@ -687,11 +747,10 @@ impl Database {
     ///
     /// Returns `DbError` if deserialization fails.
     pub fn get_note<P: AsRef<Path>>(&self, file: P) -> Result<Option<NoteRecord>, DbError> {
-        let key = bincode::encode_to_vec(file.as_ref(), bincode::config::standard())?;
+        let key = postcard::to_allocvec(file.as_ref())?;
 
         if let Some(value) = self.notes.get(key)? {
-            let (note, _): (NoteRecord, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let note: NoteRecord = postcard::from_bytes(&value)?;
             Ok(Some(note))
         } else {
             Ok(None)
@@ -715,14 +774,13 @@ impl Database {
     /// Returns `DbError` if database operation fails.
     pub fn delete_note<P: AsRef<Path>>(&self, file: P) -> Result<bool, DbError> {
         let file_path = file.as_ref();
-        let key = bincode::encode_to_vec(file_path, bincode::config::standard())?;
+        let key = postcard::to_allocvec(file_path)?;
         let was_deleted = self.notes.remove(key.clone())?.is_some();
 
         if was_deleted {
             // Maintaining equality model: files with no tags AND no notes shouldn't exist in db
             if let Some(tags_value) = self.files.get(key.clone())? {
-                let (tags, _): (Vec<String>, usize) =
-                    bincode::decode_from_slice(&tags_value, bincode::config::standard())?;
+                let tags: Vec<String> = postcard::from_bytes(&tags_value)?;
 
                 if tags.is_empty() {
                     self.files.remove(key)?;
@@ -746,10 +804,8 @@ impl Database {
 
         for item in &self.notes {
             let (key, value) = item?;
-            let (path, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
-            let (note, _): (NoteRecord, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let path: PathBuf = postcard::from_bytes(&key)?;
+            let note: NoteRecord = postcard::from_bytes(&value)?;
             results.push((path, note));
         }
 
@@ -776,10 +832,8 @@ impl Database {
 
         for item in &self.notes {
             let (key, value) = item?;
-            let (path, _): (PathBuf, usize) =
-                bincode::decode_from_slice(&key, bincode::config::standard())?;
-            let (note, _): (NoteRecord, usize) =
-                bincode::decode_from_slice(&value, bincode::config::standard())?;
+            let path: PathBuf = postcard::from_bytes(&key)?;
+            let note: NoteRecord = postcard::from_bytes(&value)?;
 
             // Case-insensitive search in content
             if note.content.to_lowercase().contains(&query_lower) {
@@ -823,16 +877,20 @@ mod tests {
             }
         }
 
-        match last_error {
-            Some(err) => panic!(
-                "Failed to open test database at '{}' after retries: {err}",
-                path.display()
-            ),
-            None => panic!(
-                "Failed to open test database at '{}' with unknown error",
-                path.display()
-            ),
-        }
+        last_error.map_or_else(
+            || {
+                panic!(
+                    "Failed to open test database at '{}' with unknown error",
+                    path.display()
+                );
+            },
+            |err| {
+                panic!(
+                    "Failed to open test database at '{}' after retries: {err}",
+                    path.display()
+                );
+            },
+        )
     }
 
     #[test]
@@ -1037,8 +1095,8 @@ mod tests {
 
         let file = TempFile::create("test.txt").unwrap();
         let pair = Pair::new(
-            file.path().to_path_buf(),
-            vec!["tag1".into(), "tag2".into()],
+            TagrPath::new(file.path()).unwrap(),
+            vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()],
         );
         db.insert_pair(&pair).unwrap();
 

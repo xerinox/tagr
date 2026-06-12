@@ -12,7 +12,8 @@
 
 use crate::TagrError;
 use crate::cli::FilterCommands;
-use crate::filters::{FileMode, FilterCriteria, FilterManager, TagMode};
+use crate::filters::FilterManager;
+use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName};
 use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
@@ -45,19 +46,19 @@ pub fn execute(command: &FilterCommands, quiet: bool) -> Result<()> {
             criteria,
         } => {
             let tag_mode = if criteria.any_tag {
-                TagMode::Any
+                MatchMode::Any
             } else {
-                TagMode::All
+                MatchMode::All
             };
             let file_mode = if criteria.any_file {
-                FileMode::Any
+                MatchMode::Any
             } else {
-                FileMode::All
+                MatchMode::All
             };
             let virtual_mode = if criteria.any_virtual {
-                TagMode::Any
+                MatchMode::Any
             } else {
-                TagMode::All
+                MatchMode::All
             };
 
             create_filter(
@@ -126,7 +127,10 @@ fn list_filters(quiet: bool) -> Result<()> {
         .max(4);
 
     for filter in filters {
-        let tags_count = filter.criteria.tags.len();
+        let include_tags = filter.criteria.flat_include_tags();
+        let tags_count = include_tags
+            .as_ref()
+            .map_or(0, std::collections::HashSet::len);
         let files_count = filter.criteria.file_patterns.len();
 
         if quiet {
@@ -191,39 +195,81 @@ fn create_filter(
     name: &str,
     description: Option<&str>,
     tags: &[String],
-    tag_mode: TagMode,
+    tag_mode: MatchMode,
     file_patterns: &[String],
-    file_mode: FileMode,
+    file_mode: MatchMode,
     excludes: &[String],
     regex_tag: bool,
     regex_file: bool,
     virtual_tags: &[String],
-    virtual_mode: TagMode,
+    virtual_mode: MatchMode,
     quiet: bool,
 ) -> Result<()> {
     let filter_path = crate::filters::get_filter_path()?;
     let manager = FilterManager::new(filter_path);
 
-    let criteria = FilterCriteria {
-        tags: tags.to_vec(),
-        tag_mode,
+    // Build tag expression from flat tag/exclude lists
+    let include_exprs: Vec<TagExpr> = tags
+        .iter()
+        .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+        .collect();
+    let exclude_exprs: Vec<TagExpr> = excludes
+        .iter()
+        .filter_map(|t| {
+            TagName::new(t)
+                .ok()
+                .map(|tn| TagExpr::Not(Box::new(TagExpr::Tag(tn))))
+        })
+        .collect();
+
+    let mut all_exprs = include_exprs;
+    all_exprs.extend(exclude_exprs);
+
+    let tag_expr = match all_exprs.len() {
+        0 => None,
+        1 => all_exprs.into_iter().next(),
+        _ => match tag_mode {
+            MatchMode::All => Some(TagExpr::And(all_exprs)),
+            MatchMode::Any => {
+                let (includes, excludes_e): (Vec<_>, Vec<_>) = all_exprs
+                    .into_iter()
+                    .partition(|e| !matches!(e, TagExpr::Not(_)));
+                if excludes_e.is_empty() {
+                    Some(TagExpr::Or(includes))
+                } else if includes.is_empty() {
+                    Some(TagExpr::And(excludes_e))
+                } else {
+                    let include_expr = if includes.len() == 1 {
+                        includes
+                            .into_iter()
+                            .next()
+                            .unwrap_or_else(|| unreachable!())
+                    } else {
+                        TagExpr::Or(includes)
+                    };
+                    let mut combined = vec![include_expr];
+                    combined.extend(excludes_e);
+                    Some(TagExpr::And(combined))
+                }
+            }
+        },
+    };
+
+    let criteria = QueryCriteria {
+        tag_expr,
+        regex_tags: regex_tag,
+        expand_hierarchy: true,
         file_patterns: file_patterns.to_vec(),
         file_mode,
-        excludes: excludes.to_vec(),
-        regex_tag,
-        regex_file,
-        glob_files: false,
+        regex_files: regex_file,
         virtual_tags: virtual_tags.to_vec(),
         virtual_mode,
+        query: None,
     };
 
     let desc = description.unwrap_or("").to_string();
 
     manager.create(name, desc, criteria)?;
-
-    // Invalidate completion cache since filter list changed
-    #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_filter_cache();
 
     if !quiet {
         println!("Filter '{name}' created successfully");
@@ -254,10 +300,6 @@ fn delete_filter(name: &str, force: bool, quiet: bool) -> Result<()> {
     }
 
     manager.delete(name)?;
-
-    // Invalidate completion cache since filter list changed
-    #[cfg(feature = "dynamic-completions")]
-    crate::completions::invalidate_filter_cache();
 
     if !quiet {
         println!("Filter '{name}' deleted");

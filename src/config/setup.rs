@@ -59,6 +59,23 @@ pub fn first_time_setup() -> Result<TagrConfig, ConfigError> {
 
     config.save()?;
 
+    #[cfg(target_os = "linux")]
+    {
+        if dialoguer::Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Enable background watch mode via systemd?")
+            .default(true)
+            .interact()
+            .unwrap_or(false)
+        {
+            println!("Installing systemd units...");
+            if let Err(e) = crate::daemon::linux::install_systemd_units() {
+                eprintln!("Warning: Failed to install systemd units: {e}");
+            } else {
+                println!("Systemd units installed and enabled.");
+            }
+        }
+    }
+
     println!("\nConfiguration saved successfully!");
     Ok(config)
 }

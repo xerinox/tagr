@@ -82,8 +82,8 @@ impl PatternBuilder {
     /// * Returns `PatternError::InvalidEmpty` for empty tokens in literal/regex/glob constructors.
     pub fn build(
         self,
-        tag_mode: crate::cli::SearchMode,
-        file_mode: crate::cli::SearchMode,
+        tag_mode: crate::types::MatchMode,
+        file_mode: crate::types::MatchMode,
     ) -> Result<(TagQuery, FileQuery), PatternError> {
         let mut tag_patterns = Vec::with_capacity(self.tag_tokens.len());
         for t in &self.tag_tokens {
@@ -126,7 +126,7 @@ impl PatternBuilder {
 /// Returns `PatternError::TooManyPatterns` if pattern count exceeds the configured maximum.
 pub fn build_tag_query(
     patterns: Vec<TagPattern>,
-    mode: crate::cli::SearchMode,
+    mode: crate::types::MatchMode,
 ) -> Result<TagQuery, PatternError> {
     TagQuery::new(patterns, mode, MAX_PATTERNS)
 }
@@ -137,7 +137,7 @@ pub fn build_tag_query(
 /// Returns `PatternError::TooManyPatterns` if pattern count exceeds the configured maximum.
 pub fn build_file_query(
     patterns: Vec<FilePattern>,
-    mode: crate::cli::SearchMode,
+    mode: crate::types::MatchMode,
 ) -> Result<FileQuery, PatternError> {
     FileQuery::new(patterns, mode, MAX_PATTERNS)
 }
@@ -153,7 +153,7 @@ mod tests {
             .glob_files_flag(false);
         builder.add_file_token("src/**/*.rs");
         let (_tq, fq) = builder
-            .build(crate::cli::SearchMode::All, crate::cli::SearchMode::All)
+            .build(crate::types::MatchMode::All, crate::types::MatchMode::All)
             .expect("builder should succeed");
         // Expect one glob pattern in file query
         assert_eq!(fq.patterns.len(), 1);
@@ -168,7 +168,7 @@ mod tests {
         let mut builder = PatternBuilder::new(PatternContext::BulkFiles).regex_tags(false);
         builder.add_tag_token("feature/*");
         let err = builder
-            .build(crate::cli::SearchMode::All, crate::cli::SearchMode::All)
+            .build(crate::types::MatchMode::All, crate::types::MatchMode::All)
             .expect_err("should error");
         match err {
             PatternError::MixedPatternMisuse { .. } => {}
@@ -184,7 +184,7 @@ mod tests {
             .glob_files_flag(false);
         builder.add_file_token("*.md");
         let (_tq, fq) = builder
-            .build(crate::cli::SearchMode::All, crate::cli::SearchMode::All)
+            .build(crate::types::MatchMode::All, crate::types::MatchMode::All)
             .expect("builder should succeed");
         match &fq.patterns[0] {
             FilePattern::Literal(_) => {}
@@ -197,7 +197,7 @@ mod tests {
             .glob_files_flag(true);
         builder.add_file_token("*.md");
         let (_tq, fq) = builder
-            .build(crate::cli::SearchMode::All, crate::cli::SearchMode::All)
+            .build(crate::types::MatchMode::All, crate::types::MatchMode::All)
             .expect("builder should succeed");
         match &fq.patterns[0] {
             FilePattern::Glob { .. } => {}

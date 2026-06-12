@@ -89,7 +89,7 @@ impl FilePattern {
 #[derive(Debug, Clone)]
 pub struct FileQuery {
     pub patterns: Vec<FilePattern>,
-    pub mode: crate::cli::SearchMode,
+    pub mode: crate::types::MatchMode,
 }
 
 impl FileQuery {
@@ -99,7 +99,7 @@ impl FileQuery {
     /// Returns `PatternError::TooManyPatterns` when `patterns.len() > max`.
     pub fn new(
         patterns: Vec<FilePattern>,
-        mode: crate::cli::SearchMode,
+        mode: crate::types::MatchMode,
         max: usize,
     ) -> Result<Self, PatternError> {
         if patterns.len() > max {

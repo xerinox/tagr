@@ -25,6 +25,8 @@ pub enum PathFormat {
     Absolute,
     /// Display relative paths (relative to current directory)
     Relative,
+    /// Display only the filename
+    Basename,
 }
 
 /// UI backend selection
@@ -64,10 +66,6 @@ pub struct PreviewConfig {
     #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
 
-    /// Maximum lines to display
-    #[serde(default = "default_max_lines")]
-    pub max_lines: usize,
-
     /// Enable syntax highlighting
     #[serde(default = "default_syntax_highlighting")]
     pub syntax_highlighting: bool,
@@ -90,7 +88,6 @@ impl Default for PreviewConfig {
         Self {
             enabled: default_preview_enabled(),
             max_file_size: default_max_file_size(),
-            max_lines: default_max_lines(),
             syntax_highlighting: default_syntax_highlighting(),
             show_line_numbers: default_show_line_numbers(),
             position: PreviewPosition::default(),
@@ -107,10 +104,6 @@ const fn default_max_file_size() -> u64 {
     5_242_880 // 5MB
 }
 
-const fn default_max_lines() -> usize {
-    50
-}
-
 const fn default_syntax_highlighting() -> bool {
     true
 }
@@ -121,20 +114,6 @@ const fn default_show_line_numbers() -> bool {
 
 const fn default_width_percent() -> u8 {
     50
-}
-
-impl From<&PreviewConfig> for crate::ui::PreviewConfig {
-    fn from(config: &PreviewConfig) -> Self {
-        Self {
-            enabled: config.enabled,
-            max_file_size: config.max_file_size,
-            max_lines: config.max_lines,
-            syntax_highlighting: config.syntax_highlighting,
-            show_line_numbers: config.show_line_numbers,
-            position: config.position,
-            width_percent: config.width_percent,
-        }
-    }
 }
 
 /// Notes configuration

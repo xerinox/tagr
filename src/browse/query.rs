@@ -7,10 +7,9 @@
 //! Functions here return domain models (`TagrItem`) rather than raw database
 //! types, making them suitable for direct use in browse workflows.
 
-use crate::browse::models::{PairWithCache, TagWithDb, TagrItem};
-use crate::cli::SearchParams;
-use crate::db::{Database, DbError};
-use crate::search::FilterExt; // Import trait for in-memory filtering
+use crate::browse::models::{MetadataCache, TagWithDb, TagrItem};
+use crate::store::{StoreError, TagStore};
+use crate::types::{MatchMode, QueryCriteria, TagExpr, TagName};
 use std::collections::{HashMap, HashSet};
 
 /// Query files that have notes but no tags (notes-only files)
@@ -26,26 +25,18 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Errors
 /// Returns `DbError` if database operations fail
-pub fn get_notes_only_files(db: &Database) -> Result<Vec<TagrItem>, DbError> {
-    let all_notes = db.list_all_notes()?;
+pub fn get_notes_only_files(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreError> {
+    let all_notes = ds.list_all_notes()?;
 
     #[allow(clippy::match_same_arms)]
-    let items: Result<Vec<TagrItem>, DbError> = all_notes
+    let items: Result<Vec<TagrItem>, StoreError> = all_notes
         .into_iter()
         .filter_map(|(path, _note)| {
-            // Get tags for this file
-            match db.get_tags(&path) {
+            match ds.get_tags(&path) {
                 Ok(Some(tags)) if tags.is_empty() => {
-                    // File has note but no tags - include it
-                    let mut cache = crate::browse::models::MetadataCache::new();
-                    let pair = crate::Pair {
-                        file: path,
-                        tags: vec![],
-                    };
-                    Some(Ok(TagrItem::from(PairWithCache {
-                        pair,
-                        cache: &mut cache,
-                    })))
+                    let mut cache = MetadataCache::new();
+                    let cached = cache.get_or_insert(path.as_path());
+                    Some(Ok(TagrItem::file(path, vec![], cached)))
                 }
                 Ok(Some(_)) => None,    // Has tags - exclude
                 Ok(None) => None,       // Not in files tree - exclude
@@ -80,8 +71,12 @@ pub fn get_notes_only_files(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 ///     println!("{} ({} files)", tag.name, tag.metadata.file_count());
 /// }
 /// ```
-pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
-    let tag_names = db.list_all_tags()?;
+pub fn get_available_tags(ds: &dyn TagStore) -> Result<Vec<TagrItem>, StoreError> {
+    let tag_names: Vec<String> = ds
+        .list_all_tags()?
+        .into_iter()
+        .map(|t| t.to_string())
+        .collect();
 
     // Load schema to consolidate aliases
     let schema = crate::schema::load_default_schema().ok();
@@ -92,18 +87,18 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
         for tag_name in tag_names {
             let canonical = schema.canonicalize(&tag_name);
-            let files = db.find_by_tag(&tag_name)?;
+            let files = TagName::new(&tag_name)
+                .ok()
+                .map(|tn| ds.find_by_tag(&tn))
+                .transpose()?
+                .unwrap_or_default();
 
-            // Add unique file paths to the canonical tag's set
             let file_set = canonical_map.entry(canonical).or_default();
             for file_path in files {
-                if let Some(path_str) = file_path.to_str() {
-                    file_set.insert(path_str.to_string());
-                }
+                file_set.insert(file_path.as_str().to_string());
             }
         }
 
-        // Convert to TagrItem instances with unique file counts
         let mut tags: Vec<TagrItem> = canonical_map
             .into_iter()
             .map(|(canonical, file_set)| TagrItem::tag(canonical, file_set.len()))
@@ -111,8 +106,7 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
         tags.sort_by(|a, b| a.name.cmp(&b.name));
 
-        // Add notes-only virtual tag if there are files with notes but no tags
-        if let Ok(notes_only_files) = get_notes_only_files(db)
+        if let Ok(notes_only_files) = get_notes_only_files(ds)
             && !notes_only_files.is_empty()
         {
             tags.push(TagrItem::tag(
@@ -123,15 +117,13 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
 
         Ok(tags)
     } else {
-        // No schema - use original behavior
-        let mut tags: Result<Vec<TagrItem>, DbError> = tag_names
+        let mut tags: Result<Vec<TagrItem>, StoreError> = tag_names
             .into_iter()
-            .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, db }))
+            .map(|tag_name| TagrItem::try_from(TagWithDb { tag: tag_name, ds }))
             .collect();
 
-        // Add notes-only virtual tag if there are files with notes but no tags
         if let Ok(mut tag_vec) = tags {
-            if let Ok(notes_only_files) = get_notes_only_files(db)
+            if let Ok(notes_only_files) = get_notes_only_files(ds)
                 && !notes_only_files.is_empty()
             {
                 tag_vec.push(TagrItem::tag(
@@ -146,45 +138,35 @@ pub fn get_available_tags(db: &Database) -> Result<Vec<TagrItem>, DbError> {
     }
 }
 
-/// Query files matching the given search parameters
+/// Query files matching the given search criteria
 ///
 /// Applies search criteria including tag matching (any/all), file patterns,
 /// exclusions, and virtual tags. Returns files as `TagrItem` instances with
 /// full metadata.
 ///
 /// # Arguments
-/// * `db` - Database to query
-/// * `params` - Search parameters specifying filters
+/// * `ds` - Data store to query
+/// * `criteria` - Query criteria specifying filters
 ///
 /// # Returns
 /// Vector of `TagrItem` instances representing files, with tags and metadata
 ///
 /// # Errors
-/// Returns `DbError` if database operations or pattern matching fails
-///
-/// # Examples
-/// ```ignore
-/// let params = SearchParams {
-///     tags: vec!["rust".to_string()],
-///     tag_mode: SearchMode::Any,
-///     ..Default::default()
-/// };
-/// let files = get_matching_files(&db, &params)?;
-/// ```
-pub fn get_matching_files(db: &Database, params: &SearchParams) -> Result<Vec<TagrItem>, DbError> {
-    let file_paths = crate::db::query::apply_search_params(db, params)?;
+/// Returns `StoreError` if database operations or pattern matching fails
+pub fn get_matching_files(
+    ds: &dyn TagStore,
+    criteria: &QueryCriteria,
+) -> Result<Vec<TagrItem>, StoreError> {
+    let schema = crate::schema::load_default_schema().unwrap_or_default();
+    let result_paths = ds.query(criteria, &schema)?;
 
-    let items: Result<Vec<TagrItem>, DbError> = file_paths
+    let items: Result<Vec<TagrItem>, StoreError> = result_paths
         .into_iter()
-        .map(|path| {
-            let tags = db.get_tags(&path)?.unwrap_or_default();
-            let pair = crate::Pair { file: path, tags };
-
-            let mut cache = crate::browse::models::MetadataCache::new();
-            Ok(TagrItem::from(PairWithCache {
-                pair,
-                cache: &mut cache,
-            }))
+        .map(|tagrpath| {
+            let tags = ds.get_tags(&tagrpath)?.unwrap_or_default();
+            let mut cache = MetadataCache::new();
+            let cached = cache.get_or_insert(tagrpath.as_path());
+            Ok(TagrItem::file(tagrpath, tags, cached))
         })
         .collect();
 
@@ -193,11 +175,11 @@ pub fn get_matching_files(db: &Database, params: &SearchParams) -> Result<Vec<Ta
 
 /// Query files for specific tags with a given search mode
 ///
-/// Convenience function that builds `SearchParams` from tags and mode,
+/// Convenience function that builds `QueryCriteria` from tags and mode,
 /// then queries matching files.
 ///
 /// # Arguments
-/// * `db` - Database to query
+/// * `ds` - Data store to query
 /// * `tags` - Tags to search for
 /// * `mode` - Search mode (Any = OR, All = AND)
 ///
@@ -205,79 +187,76 @@ pub fn get_matching_files(db: &Database, params: &SearchParams) -> Result<Vec<Ta
 /// Vector of `TagrItem` instances for matching files
 ///
 /// # Errors
-/// Returns `DbError` if database operations fail
+/// Returns `StoreError` if database operations fail
 pub fn get_files_by_tags(
-    db: &Database,
+    ds: &dyn TagStore,
     tags: &[String],
-    mode: crate::browse::models::SearchMode,
-) -> Result<Vec<TagrItem>, DbError> {
-    let params = SearchParams {
-        query: None,
-        tags: tags.to_vec(),
-        tag_mode: mode.into(),
-        file_patterns: vec![],
-        file_mode: crate::cli::SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: crate::cli::SearchMode::All,
-        no_hierarchy: false,
+    mode: MatchMode,
+) -> Result<Vec<TagrItem>, StoreError> {
+    let match_mode = mode;
+
+    let tag_exprs: Vec<TagExpr> = tags
+        .iter()
+        .filter_map(|t| TagName::new(t).ok().map(TagExpr::Tag))
+        .collect();
+
+    let tag_expr = match tag_exprs.len() {
+        0 => None,
+        1 => tag_exprs.into_iter().next(),
+        _ => match match_mode {
+            MatchMode::All => Some(TagExpr::And(tag_exprs)),
+            MatchMode::Any => Some(TagExpr::Or(tag_exprs)),
+        },
     };
 
-    get_matching_files(db, &params)
+    let criteria = QueryCriteria {
+        tag_expr,
+        ..QueryCriteria::default()
+    };
+
+    get_matching_files(ds, &criteria)
 }
 
-/// Filter an existing collection of items in-memory using search parameters
+/// Filter an existing collection of items in-memory using query criteria
 ///
-/// This function provides fast in-memory filtering without requiring database queries.
+/// Uses tag expression matching for include/exclude criteria.
 /// Useful for live filtering in the TUI as users type or adjust search criteria.
-///
-/// # Arguments
-/// * `items` - Collection of `TagrItem` to filter
-/// * `params` - Search parameters containing tag filters
-///
-/// # Returns
-/// Vector of references to items that match the search criteria
-///
-/// # Examples
-/// ```ignore
-/// let filtered: Vec<_> = filter_items_in_memory(&all_items, &params);
-/// ```
 #[must_use]
 pub fn filter_items_in_memory<'a>(
     items: &'a [TagrItem],
-    params: &'a SearchParams,
+    criteria: &'a QueryCriteria,
 ) -> Vec<&'a TagrItem> {
-    items.apply_filter(params).collect()
-}
+    items
+        .iter()
+        .filter(|item| {
+            let tags: &[TagName] = match &item.metadata {
+                crate::browse::models::ItemMetadata::File(fm) => &fm.tags,
+                crate::browse::models::ItemMetadata::Tag(_) => return true,
+            };
 
-impl From<crate::browse::models::SearchMode> for crate::cli::SearchMode {
-    fn from(mode: crate::browse::models::SearchMode) -> Self {
-        match mode {
-            crate::browse::models::SearchMode::Any => Self::Any,
-            crate::browse::models::SearchMode::All => Self::All,
-        }
-    }
-}
+            if let Some(ref expr) = criteria.tag_expr
+                && !expr.matches(tags)
+            {
+                return false;
+            }
 
-impl From<crate::cli::SearchMode> for crate::browse::models::SearchMode {
-    fn from(mode: crate::cli::SearchMode) -> Self {
-        match mode {
-            crate::cli::SearchMode::Any => Self::Any,
-            crate::cli::SearchMode::All => Self::All,
-        }
-    }
+            true
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::similar_names)]
     use super::*;
-    use crate::Pair;
-    use crate::browse::models::SearchMode;
-    use crate::cli::SearchParams;
+    use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
+    use crate::types::MatchMode;
+    use crate::types::Pair;
+
+    fn ds(db: &TestDb) -> DirectStore {
+        DirectStore::new(db.db().clone())
+    }
 
     #[test]
     fn test_get_available_tags() {
@@ -289,24 +268,16 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        let pair1 = Pair::new(
-            file1.path().to_path_buf(),
-            vec!["rust".into(), "code".into()],
-        );
-        let pair2 = Pair::new(
-            file2.path().to_path_buf(),
-            vec!["rust".into(), "docs".into()],
-        );
-        let pair3 = Pair::new(
-            file3.path().to_path_buf(),
-            vec!["python".into(), "script".into()],
-        );
+        let pair1 = Pair::from_raw(file1.path(), vec!["rust", "code"]);
+        let pair2 = Pair::from_raw(file2.path(), vec!["rust", "docs"]);
+        let pair3 = Pair::from_raw(file3.path(), vec!["python", "script"]);
 
         db.insert_pair(&pair1).unwrap();
         db.insert_pair(&pair2).unwrap();
         db.insert_pair(&pair3).unwrap();
 
-        let tags = get_available_tags(db).unwrap();
+        let source = ds(&test_db);
+        let tags = get_available_tags(&source).unwrap();
 
         assert_eq!(tags.len(), 5);
 
@@ -337,11 +308,13 @@ mod tests {
         let db = test_db.db();
         db.clear().unwrap();
 
-        let tags = get_available_tags(db).unwrap();
+        let source = ds(&test_db);
+        let tags = get_available_tags(&source).unwrap();
         assert_eq!(tags.len(), 0);
     }
 
     #[test]
+    #[allow(clippy::similar_names)]
     fn test_get_matching_files_by_tag() {
         let test_db = TestDb::new("test_get_matching_files");
         let db = test_db.db();
@@ -351,38 +324,26 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        let pair1 = Pair::new(file1.path().to_path_buf(), vec!["rust".into()]);
-        let pair2 = Pair::new(
-            file2.path().to_path_buf(),
-            vec!["rust".into(), "docs".into()],
-        );
-        let pair3 = Pair::new(file3.path().to_path_buf(), vec!["python".into()]);
+        let pair1 = Pair::from_raw(file1.path(), vec!["rust"]);
+        let pair2 = Pair::from_raw(file2.path(), vec!["rust", "docs"]);
+        let pair3 = Pair::from_raw(file3.path(), vec!["python"]);
 
         db.insert_pair(&pair1).unwrap();
         db.insert_pair(&pair2).unwrap();
         db.insert_pair(&pair3).unwrap();
 
-        let params = SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        let criteria = QueryCriteria {
+            tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+            ..QueryCriteria::default()
         };
 
-        let files = get_matching_files(db, &params).unwrap();
+        let source = ds(&test_db);
+        let files = get_matching_files(&source, &criteria).unwrap();
         assert_eq!(files.len(), 2);
 
         for item in &files {
             if let crate::browse::models::ItemMetadata::File(ref file_meta) = item.metadata {
-                assert!(file_meta.tags.contains(&"rust".to_string()));
+                assert!(file_meta.tags.iter().any(|t| t.as_str() == "rust"));
                 assert!(file_meta.cached.exists);
             } else {
                 panic!("Expected File metadata");
@@ -400,18 +361,16 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        db.insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["rust"]))
             .unwrap();
-        db.insert_pair(&Pair::new(
-            file2.path().to_path_buf(),
-            vec!["python".into()],
-        ))
-        .unwrap();
-        db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["go".into()]))
+        db.insert_pair(&Pair::from_raw(file2.path(), vec!["python"]))
+            .unwrap();
+        db.insert_pair(&Pair::from_raw(file3.path(), vec!["go"]))
             .unwrap();
 
+        let source = ds(&test_db);
         let files =
-            get_files_by_tags(db, &["rust".into(), "python".into()], SearchMode::Any).unwrap();
+            get_files_by_tags(&source, &["rust".into(), "python".into()], MatchMode::Any).unwrap();
         assert_eq!(files.len(), 2);
     }
 
@@ -425,41 +384,25 @@ mod tests {
         let file2 = TempFile::create("file2.txt").unwrap();
         let file3 = TempFile::create("file3.txt").unwrap();
 
-        db.insert_pair(&Pair::new(
-            file1.path().to_path_buf(),
-            vec!["rust".into(), "web".into()],
-        ))
-        .unwrap();
-        db.insert_pair(&Pair::new(file2.path().to_path_buf(), vec!["rust".into()]))
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["rust", "web"]))
             .unwrap();
-        db.insert_pair(&Pair::new(file3.path().to_path_buf(), vec!["web".into()]))
+        db.insert_pair(&Pair::from_raw(file2.path(), vec!["rust"]))
+            .unwrap();
+        db.insert_pair(&Pair::from_raw(file3.path(), vec!["web"]))
             .unwrap();
 
-        let files = get_files_by_tags(db, &["rust".into(), "web".into()], SearchMode::All).unwrap();
+        let source = ds(&test_db);
+        let files =
+            get_files_by_tags(&source, &["rust".into(), "web".into()], MatchMode::All).unwrap();
         assert_eq!(files.len(), 1);
 
         let item = &files[0];
         if let crate::browse::models::ItemMetadata::File(ref file_meta) = item.metadata {
-            assert!(file_meta.tags.contains(&"rust".to_string()));
-            assert!(file_meta.tags.contains(&"web".to_string()));
+            assert!(file_meta.tags.iter().any(|t| t.as_str() == "rust"));
+            assert!(file_meta.tags.iter().any(|t| t.as_str() == "web"));
         } else {
             panic!("Expected File metadata");
         }
-    }
-
-    #[test]
-    fn test_search_mode_conversion() {
-        let cli_any: crate::cli::SearchMode = SearchMode::Any.into();
-        assert!(matches!(cli_any, crate::cli::SearchMode::Any));
-
-        let cli_all: crate::cli::SearchMode = SearchMode::All.into();
-        assert!(matches!(cli_all, crate::cli::SearchMode::All));
-
-        let browse_any: SearchMode = crate::cli::SearchMode::Any.into();
-        assert!(matches!(browse_any, SearchMode::Any));
-
-        let browse_all: SearchMode = crate::cli::SearchMode::All.into();
-        assert!(matches!(browse_all, SearchMode::All));
     }
 
     #[test]
@@ -469,35 +412,23 @@ mod tests {
         db.clear().unwrap();
 
         let file1 = TempFile::create("file1.txt").unwrap();
-        db.insert_pair(&Pair::new(
-            file1.path().to_path_buf(),
-            vec!["python".into()],
-        ))
-        .unwrap();
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["python"]))
+            .unwrap();
 
-        let params = SearchParams {
-            query: None,
-            tags: vec!["rust".to_string()],
-            tag_mode: crate::cli::SearchMode::Any,
-            file_patterns: vec![],
-            file_mode: crate::cli::SearchMode::All,
-            exclude_tags: vec![],
-            regex_tag: false,
-            regex_file: false,
-            glob_files: false,
-            virtual_tags: vec![],
-            virtual_mode: crate::cli::SearchMode::All,
-            no_hierarchy: false,
+        let criteria = QueryCriteria {
+            tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+            ..QueryCriteria::default()
         };
 
-        let files = get_matching_files(db, &params).unwrap();
+        let source = ds(&test_db);
+        let files = get_matching_files(&source, &criteria).unwrap();
         assert_eq!(files.len(), 0);
     }
 
     #[test]
     fn test_get_notes_only_files() {
-        use crate::db::NoteMeta;
-        use crate::db::NoteRecord;
+        use crate::types::NoteMeta;
+        use crate::types::NoteRecord;
 
         let test_db = TestDb::new("test_notes_only");
         let db = test_db.db();
@@ -508,7 +439,7 @@ mod tests {
         let file3 = TempFile::create("file3.txt").unwrap();
 
         // File with tags and note - should be excluded
-        db.insert_pair(&Pair::new(file1.path().to_path_buf(), vec!["rust".into()]))
+        db.insert_pair(&Pair::from_raw(file1.path(), vec!["rust"]))
             .unwrap();
         db.set_note(
             file1.path(),
@@ -536,13 +467,11 @@ mod tests {
         .unwrap();
 
         // File with tags but no note - should be excluded
-        db.insert_pair(&Pair::new(
-            file3.path().to_path_buf(),
-            vec!["python".into()],
-        ))
-        .unwrap();
+        db.insert_pair(&Pair::from_raw(file3.path(), vec!["python"]))
+            .unwrap();
 
-        let notes_only = get_notes_only_files(db).unwrap();
+        let source = ds(&test_db);
+        let notes_only = get_notes_only_files(&source).unwrap();
 
         // Only file2 should be included
         assert_eq!(notes_only.len(), 1);

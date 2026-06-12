@@ -22,6 +22,7 @@
 //! ```no_run
 //! use tagr::browse::{BrowseSession, BrowseController, BrowseConfig};
 //! use tagr::db::Database;
+//! use tagr::store::DirectStore;
 //! use tagr::ui::ratatui_adapter::RatatuiFinder;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,7 +31,7 @@
 //!
 //! // Create browse session with default config
 //! let config = BrowseConfig::default();
-//! let session = BrowseSession::new(&db, config)?;
+//! let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), config)?;
 //!
 //! // Create controller with finder
 //! let finder = RatatuiFinder::new();
@@ -42,7 +43,7 @@
 //!     Some(result) => {
 //!         println!("Selected {} files", result.selected_files.len());
 //!         for file in &result.selected_files {
-//!             println!("  - {}", file.display());
+//!             println!("  - {}", file);
 //!         }
 //!     }
 //!     None => println!("Cancelled"),
@@ -54,8 +55,10 @@
 //! ## Custom Configuration
 //!
 //! ```no_run
-//! use tagr::browse::{BrowseSession, BrowseConfig, PathFormat};
+//! use tagr::browse::{BrowseSession, BrowseConfig};
+//! use tagr::config::PathFormat;
 //! use tagr::db::Database;
+//! use tagr::store::DirectStore;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let db = Database::open("mydb")?;
@@ -66,7 +69,7 @@
 //!     ..Default::default()
 //! };
 //!
-//! let session = BrowseSession::new(&db, config)?;
+//! let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), config)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -79,6 +82,7 @@
 //! use tagr::browse::{BrowseSession, BrowseController};
 //! use tagr::ui::FuzzyFinder;
 //! use tagr::db::Database;
+//! use tagr::store::DirectStore;
 //!
 //! // Your custom finder implementation
 //! struct MyCustomFinder;
@@ -93,7 +97,7 @@
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let db = Database::open("mydb")?;
-//! let session = BrowseSession::new(&db, Default::default())?;
+//! let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), Default::default())?;
 //! let finder = MyCustomFinder;
 //! let controller = BrowseController::new(session, finder);
 //!
@@ -105,7 +109,6 @@
 //! See `examples/custom_frontend.rs` for a complete working example.
 
 pub mod actions;
-pub mod filter;
 pub mod models;
 pub mod query;
 pub mod session;
@@ -115,15 +118,13 @@ pub use actions::{
     execute_add_tag, execute_copy_files, execute_copy_path, execute_delete_from_db,
     execute_open_in_default, execute_open_in_editor, execute_remove_tag,
 };
-pub use filter::ActiveFilter;
 pub use models::{
     ActionContext, ActionData, ActionOutcome, CachedMetadata, FileMetadata, ItemMetadata,
-    MetadataCache, PairWithCache, PathWithDb, SearchMode, SelectionState, TagMetadata, TagWithDb,
-    TagrItem,
+    MetadataCache, PairWithCache, PathWithDb, SelectionState, TagMetadata, TagWithDb, TagrItem,
 };
 pub use query::{get_available_tags, get_files_by_tags, get_matching_files};
 pub use session::{
     AcceptResult, BrowseConfig, BrowseError, BrowseResult, BrowseSession, BrowserPhase, HelpText,
-    PathFormat, PhaseSettings, PhaseType,
+    PhaseSettings, PhaseType,
 };
 pub use ui::BrowseController;

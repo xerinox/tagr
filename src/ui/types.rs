@@ -1,5 +1,6 @@
 //! Common types for UI abstraction layer
 
+use crate::types::TagName;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -111,7 +112,7 @@ pub struct FinderResult {
     /// Tags that were selected/used to filter files in direct file selection mode
     ///
     /// Only populated when `direct_file_selection` is true.
-    pub selected_tags: Vec<String>,
+    pub selected_tags: Vec<TagName>,
 }
 
 /// Input action submitted from modal text input
@@ -185,7 +186,7 @@ impl FinderResult {
         items: Vec<String>,
         key: Option<String>,
         direct_file_selection: bool,
-        selected_tags: Vec<String>,
+        selected_tags: Vec<TagName>,
     ) -> Self {
         Self {
             selected: items,

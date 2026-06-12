@@ -274,6 +274,16 @@ static ALL_ACTIONS: &[ActionMetadata] = &[
         available_in_tag_phase: true,
         available_in_file_phase: true,
     },
+    ActionMetadata {
+        action: BrowseAction::ShowWatchRules,
+        id: "show_watch_rules",
+        default_keys: &["f3"],
+        short_name: "Watch Rules",
+        description: "Show active watch rules",
+        category: ActionCategory::System,
+        available_in_tag_phase: true,
+        available_in_file_phase: true,
+    },
 ];
 
 #[cfg(test)]

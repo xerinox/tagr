@@ -5,7 +5,7 @@ mod generator;
 mod provider;
 mod types;
 
-pub use error::{PreviewError, Result};
+pub use error::PreviewError;
 pub use generator::PreviewGenerator;
 pub use provider::FilePreviewProvider;
-pub use types::{FileMetadata, ImageMetadata, PreviewContent};
+pub use types::PreviewContent;

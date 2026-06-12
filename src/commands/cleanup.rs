@@ -1,8 +1,10 @@
 //! Cleanup command - remove missing files and files with no tags
 
-use crate::{TagrError, config, db::Database, output};
+use crate::store::TagStore;
+use crate::types::TagrPath;
+use crate::{TagrError, config, output};
 use dialoguer::Select;
-use std::path::PathBuf;
+use std::io::Write;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -10,27 +12,30 @@ type Result<T> = std::result::Result<T, TagrError>;
 ///
 /// # Errors
 /// Returns an error if database operations fail or if user interaction fails
-pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> Result<()> {
+#[allow(clippy::too_many_lines)]
+pub fn execute(
+    store: &dyn TagStore,
+    path_format: config::PathFormat,
+    quiet: bool,
+    writer: &mut impl Write,
+) -> Result<()> {
     if !quiet {
-        println!("Scanning database for issues...");
+        writeln!(writer, "Scanning database for issues...")?;
     }
 
-    let all_pairs = db.list_all()?;
+    let all_pairs = store.list_all()?;
     let mut missing_files = Vec::new();
     let mut untagged_no_notes = Vec::new();
     let mut notes_only_files = Vec::new();
 
     for pair in all_pairs {
-        if !pair.file.exists() {
+        if !pair.file.as_path().exists() {
             missing_files.push(pair.file);
         } else if pair.tags.is_empty() {
-            // File has no tags - check if it has a note
-            let has_note = db.get_note(&pair.file)?.is_some();
+            let has_note = store.get_note(&pair.file)?.is_some();
             if has_note {
                 notes_only_files.push(pair.file);
             } else {
-                // No tags and no note - this shouldn't happen with equality model
-                // but handle it gracefully
                 untagged_no_notes.push(pair.file);
             }
         }
@@ -40,7 +45,7 @@ pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> R
 
     if total_issues == 0 && notes_only_files.is_empty() {
         if !quiet {
-            println!("No issues found. Database is clean.");
+            writeln!(writer, "No issues found. Database is clean.")?;
         }
         return Ok(());
     }
@@ -50,70 +55,89 @@ pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> R
 
     if !missing_files.is_empty() {
         if !quiet {
-            println!("\n=== Missing Files ===");
-            println!("Found {} missing file(s):", missing_files.len());
+            writeln!(writer, "\n=== Missing Files ===")?;
+            writeln!(writer, "Found {} missing file(s):", missing_files.len())?;
             for file in &missing_files {
-                println!("  - {}", output::format_path(file, path_format));
+                writeln!(writer, "  - {}", output::format_path(file, path_format))?;
             }
-            println!();
+            writeln!(writer)?;
         }
 
-        let (deleted, skipped) =
-            process_cleanup_files(db, &missing_files, "File not found", path_format, quiet)?;
+        let (deleted, skipped) = process_cleanup_files(
+            store,
+            &missing_files,
+            "File not found",
+            path_format,
+            quiet,
+            writer,
+        )?;
         deleted_count += deleted;
         skipped_count += skipped;
     }
 
     if !untagged_no_notes.is_empty() {
         if !quiet {
-            println!("\n=== Files with No Tags or Notes ===");
-            println!("Found {} orphaned file(s):", untagged_no_notes.len());
+            writeln!(writer, "\n=== Files with No Tags or Notes ===")?;
+            writeln!(
+                writer,
+                "Found {} orphaned file(s):",
+                untagged_no_notes.len()
+            )?;
             for file in &untagged_no_notes {
-                println!("  - {}", output::format_path(file, path_format));
+                writeln!(writer, "  - {}", output::format_path(file, path_format))?;
             }
-            println!();
+            writeln!(writer)?;
         }
 
         let (deleted, skipped) = process_cleanup_files(
-            db,
+            store,
             &untagged_no_notes,
             "File has no tags or notes",
             path_format,
             quiet,
+            writer,
         )?;
         deleted_count += deleted;
         skipped_count += skipped;
     }
 
     if !quiet {
-        println!("\n=== Cleanup Summary ===");
-        println!("Total issues found: {total_issues}");
-        println!("  Missing files: {}", missing_files.len());
-        println!("  Files with no tags or notes: {}", untagged_no_notes.len());
+        writeln!(writer, "\n=== Cleanup Summary ===")?;
+        writeln!(writer, "Total issues found: {total_issues}")?;
+        writeln!(writer, "  Missing files: {}", missing_files.len())?;
+        writeln!(
+            writer,
+            "  Files with no tags or notes: {}",
+            untagged_no_notes.len()
+        )?;
 
         if !notes_only_files.is_empty() {
-            println!(
+            writeln!(
+                writer,
                 "\n ℹ Known files (notes only, no tags): {}",
                 notes_only_files.len()
-            );
+            )?;
             for file in &notes_only_files {
-                println!("  - {}", output::format_path(file, path_format));
+                writeln!(writer, "  - {}", output::format_path(file, path_format))?;
             }
         }
 
-        println!("\nDeleted: {deleted_count}");
-        println!("Skipped: {skipped_count}");
+        writeln!(writer, "\nDeleted: {deleted_count}")?;
+        writeln!(writer, "Skipped: {skipped_count}")?;
     }
 
     // Clean up orphaned notes from deleted missing files
     let mut orphaned_notes = 0;
     for file in &missing_files {
-        if db.delete_note(file)? {
+        if store.delete_note(file)? {
             orphaned_notes += 1;
         }
     }
     if !quiet && orphaned_notes > 0 {
-        println!("Cleaned up {orphaned_notes} orphaned note(s) from deleted files");
+        writeln!(
+            writer,
+            "Cleaned up {orphaned_notes} orphaned note(s) from deleted files"
+        )?;
     }
 
     Ok(())
@@ -121,11 +145,12 @@ pub fn execute(db: &Database, path_format: config::PathFormat, quiet: bool) -> R
 
 /// Process a list of files for cleanup, prompting for each file
 fn process_cleanup_files(
-    db: &Database,
-    files: &[PathBuf],
+    store: &dyn TagStore,
+    files: &[TagrPath],
     description: &str,
     path_format: config::PathFormat,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<(usize, usize)> {
     let mut deleted_count = 0;
     let mut skipped_count = 0;
@@ -134,10 +159,14 @@ fn process_cleanup_files(
 
     for file in files {
         if delete_all {
-            db.remove(file)?;
+            store.remove_file(file)?;
             deleted_count += 1;
             if !quiet {
-                println!("Deleted: {}", output::format_path(file, path_format));
+                writeln!(
+                    writer,
+                    "Deleted: {}",
+                    output::format_path(file, path_format)
+                )?;
             }
             continue;
         }
@@ -148,10 +177,11 @@ fn process_cleanup_files(
         }
 
         if !quiet {
-            println!(
+            writeln!(
+                writer,
                 "\n{description}: {}",
                 output::format_path(file, path_format)
-            );
+            )?;
 
             let options = vec![
                 "Delete this file",
@@ -169,24 +199,40 @@ fn process_cleanup_files(
 
             match selection {
                 0 => {
-                    db.remove(file)?;
+                    store.remove_file(file)?;
                     deleted_count += 1;
-                    println!("✓ Deleted: {}", output::format_path(file, path_format));
+                    writeln!(
+                        writer,
+                        "✓ Deleted: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 1 => {
                     delete_all = true;
-                    db.remove(file)?;
+                    store.remove_file(file)?;
                     deleted_count += 1;
-                    println!("✓ Deleted: {}", output::format_path(file, path_format));
+                    writeln!(
+                        writer,
+                        "✓ Deleted: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 2 => {
                     skipped_count += 1;
-                    println!("⊘ Skipped: {}", output::format_path(file, path_format));
+                    writeln!(
+                        writer,
+                        "⊘ Skipped: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 3 => {
                     skip_all = true;
                     skipped_count += 1;
-                    println!("⊘ Skipped: {}", output::format_path(file, path_format));
+                    writeln!(
+                        writer,
+                        "⊘ Skipped: {}",
+                        output::format_path(file, path_format)
+                    )?;
                 }
                 _ => unreachable!(),
             }

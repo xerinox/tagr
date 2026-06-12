@@ -4,7 +4,8 @@
 //! idiomatic Rust APIs.
 
 use super::error::FilterError;
-use super::types::{Filter, FilterCriteria, FilterStorage};
+use super::types::{RawFilterStorage, SavedFilter, raw_from_saved, saved_from_raw};
+use crate::types::QueryCriteria;
 use std::fs;
 use std::path::PathBuf;
 
@@ -50,24 +51,19 @@ impl FilterManager {
         self.auto_backup = enabled;
     }
 
-    /// Load filters from the storage file
-    ///
-    /// Returns an empty `FilterStorage` if the file doesn't exist.
-    fn load(&self) -> Result<FilterStorage, FilterError> {
+    /// Load raw filters from the storage file.
+    fn load_raw(&self) -> Result<RawFilterStorage, FilterError> {
         if !self.path.exists() {
-            return Ok(FilterStorage::new());
+            return Ok(RawFilterStorage::default());
         }
 
         let contents = fs::read_to_string(&self.path)?;
-        let storage: FilterStorage = toml::from_str(&contents)?;
+        let storage: RawFilterStorage = toml::from_str(&contents)?;
         Ok(storage)
     }
 
-    /// Save filters to the storage file
-    ///
-    /// Creates the parent directory if it doesn't exist.
-    /// Creates a backup if `auto_backup` is enabled.
-    fn save(&self, storage: &FilterStorage) -> Result<(), FilterError> {
+    /// Save raw filters to the storage file.
+    fn save_raw(&self, storage: &RawFilterStorage) -> Result<(), FilterError> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -96,20 +92,23 @@ impl FilterManager {
         &self,
         name: &str,
         description: String,
-        criteria: FilterCriteria,
-    ) -> Result<Filter, FilterError> {
-        let mut storage = self.load()?;
+        criteria: QueryCriteria,
+    ) -> Result<SavedFilter, FilterError> {
+        let mut storage = self.load_raw()?;
 
-        let filter = Filter::new(name.to_string(), description, criteria);
-        filter.validate().map_err(FilterError::InvalidCriteria)?;
+        let saved = SavedFilter::new(name.to_string(), description, criteria);
+        saved.validate().map_err(FilterError::InvalidCriteria)?;
 
-        storage
-            .add(filter.clone())
-            .map_err(|_e| FilterError::AlreadyExists(name.to_string()))?;
+        let raw = raw_from_saved(&saved);
 
-        self.save(&storage)?;
+        if storage.filters.iter().any(|f| f.name == name) {
+            return Err(FilterError::AlreadyExists(name.to_string()));
+        }
 
-        Ok(filter)
+        storage.filters.push(raw);
+        self.save_raw(&storage)?;
+
+        Ok(saved)
     }
 
     /// Get a filter by name
@@ -119,11 +118,13 @@ impl FilterManager {
     /// Returns `FilterError` if:
     /// - The storage file cannot be loaded
     /// - The filter is not found
-    pub fn get(&self, name: &str) -> Result<Filter, FilterError> {
-        let storage = self.load()?;
+    pub fn get(&self, name: &str) -> Result<SavedFilter, FilterError> {
+        let storage = self.load_raw()?;
         storage
-            .get(name)
-            .cloned()
+            .filters
+            .into_iter()
+            .find(|f| f.name == name)
+            .map(saved_from_raw)
             .ok_or_else(|| FilterError::NotFound(name.to_string()))
     }
 
@@ -135,17 +136,19 @@ impl FilterManager {
     /// - The filter is not found
     /// - The filter criteria is invalid
     /// - The storage file cannot be saved
-    pub fn update(&self, filter: Filter) -> Result<(), FilterError> {
-        let mut storage = self.load()?;
+    pub fn update(&self, filter: SavedFilter) -> Result<(), FilterError> {
+        let mut storage = self.load_raw()?;
 
         filter.validate().map_err(FilterError::InvalidCriteria)?;
 
-        storage
-            .update(filter)
-            .map_err(FilterError::InvalidCriteria)?;
+        let raw = raw_from_saved(&filter);
+        if let Some(existing) = storage.filters.iter_mut().find(|f| f.name == filter.name) {
+            *existing = raw;
+        } else {
+            return Err(FilterError::NotFound(filter.name));
+        }
 
-        self.save(&storage)?;
-
+        self.save_raw(&storage)?;
         Ok(())
     }
 
@@ -156,16 +159,19 @@ impl FilterManager {
     /// Returns `FilterError` if:
     /// - The filter is not found
     /// - The storage file cannot be saved
-    pub fn delete(&self, name: &str) -> Result<Filter, FilterError> {
-        let mut storage = self.load()?;
+    pub fn delete(&self, name: &str) -> Result<SavedFilter, FilterError> {
+        let mut storage = self.load_raw()?;
 
-        let filter = storage
-            .remove(name)
+        let pos = storage
+            .filters
+            .iter()
+            .position(|f| f.name == name)
             .ok_or_else(|| FilterError::NotFound(name.to_string()))?;
 
-        self.save(&storage)?;
+        let raw = storage.filters.remove(pos);
+        self.save_raw(&storage)?;
 
-        Ok(filter)
+        Ok(saved_from_raw(raw))
     }
 
     /// Rename a filter
@@ -178,23 +184,24 @@ impl FilterManager {
     /// - A filter with the new name already exists
     /// - The storage file cannot be saved
     pub fn rename(&self, old_name: &str, new_name: String) -> Result<(), FilterError> {
-        let mut storage = self.load()?;
+        let mut storage = self.load_raw()?;
 
         super::types::validate_filter_name(&new_name)
             .map_err(|e| FilterError::InvalidName(new_name.clone(), e))?;
 
-        if storage.contains(&new_name) {
+        if storage.filters.iter().any(|f| f.name == new_name) {
             return Err(FilterError::AlreadyExists(new_name));
         }
 
-        let mut filter = storage
-            .remove(old_name)
+        let filter = storage
+            .filters
+            .iter_mut()
+            .find(|f| f.name == old_name)
             .ok_or_else(|| FilterError::NotFound(old_name.to_string()))?;
 
         filter.name = new_name;
-        storage.filters.push(filter);
 
-        self.save(&storage)?;
+        self.save_raw(&storage)?;
 
         Ok(())
     }
@@ -204,9 +211,9 @@ impl FilterManager {
     /// # Errors
     ///
     /// Returns `FilterError` if the storage file cannot be loaded.
-    pub fn list(&self) -> Result<Vec<Filter>, FilterError> {
-        let storage = self.load()?;
-        Ok(storage.filters)
+    pub fn list(&self) -> Result<Vec<SavedFilter>, FilterError> {
+        let storage = self.load_raw()?;
+        Ok(storage.filters.into_iter().map(saved_from_raw).collect())
     }
 
     /// Record filter usage (increment use count, update `last_used` timestamp)
@@ -217,15 +224,18 @@ impl FilterManager {
     /// - The filter is not found
     /// - The storage file cannot be saved
     pub fn record_use(&self, name: &str) -> Result<(), FilterError> {
-        let mut storage = self.load()?;
+        let mut storage = self.load_raw()?;
 
         let filter = storage
-            .get_mut(name)
+            .filters
+            .iter_mut()
+            .find(|f| f.name == name)
             .ok_or_else(|| FilterError::NotFound(name.to_string()))?;
 
-        filter.record_use();
+        filter.use_count += 1;
+        filter.last_used = chrono::Utc::now();
 
-        self.save(&storage)?;
+        self.save_raw(&storage)?;
 
         Ok(())
     }
@@ -245,7 +255,7 @@ impl FilterManager {
         export_path: &PathBuf,
         filter_names: &[String],
     ) -> Result<(), FilterError> {
-        let storage = self.load()?;
+        let storage = self.load_raw()?;
 
         let filters_to_export = if filter_names.is_empty() {
             storage.filters
@@ -253,14 +263,16 @@ impl FilterManager {
             let mut exported = Vec::new();
             for name in filter_names {
                 let filter = storage
-                    .get(name)
+                    .filters
+                    .iter()
+                    .find(|f| f.name == *name)
                     .ok_or_else(|| FilterError::NotFound(name.clone()))?;
                 exported.push(filter.clone());
             }
             exported
         };
 
-        let export_storage = FilterStorage {
+        let export_storage = RawFilterStorage {
             filters: filters_to_export,
         };
 
@@ -295,20 +307,23 @@ impl FilterManager {
         overwrite: bool,
         skip_existing: bool,
     ) -> Result<(usize, usize), FilterError> {
-        let mut storage = self.load()?;
+        let mut storage = self.load_raw()?;
 
         let contents = fs::read_to_string(import_path)?;
-        let import_storage: FilterStorage = toml::from_str(&contents)?;
+        let import_storage: RawFilterStorage = toml::from_str(&contents)?;
 
         let mut imported = 0;
         let mut skipped = 0;
 
         for filter in import_storage.filters {
-            if storage.contains(&filter.name) {
+            let exists = storage.filters.iter().any(|f| f.name == filter.name);
+            if exists {
                 if overwrite {
-                    storage
-                        .update(filter)
-                        .map_err(FilterError::InvalidCriteria)?;
+                    if let Some(existing) =
+                        storage.filters.iter_mut().find(|f| f.name == filter.name)
+                    {
+                        *existing = filter;
+                    }
                     imported += 1;
                 } else if skip_existing {
                     skipped += 1;
@@ -316,14 +331,12 @@ impl FilterManager {
                     return Err(FilterError::AlreadyExists(filter.name));
                 }
             } else {
-                storage
-                    .add(filter.clone())
-                    .map_err(|_e| FilterError::AlreadyExists(filter.name.clone()))?;
+                storage.filters.push(filter);
                 imported += 1;
             }
         }
 
-        self.save(&storage)?;
+        self.save_raw(&storage)?;
 
         Ok((imported, skipped))
     }
@@ -338,10 +351,18 @@ impl FilterManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{TagExpr, TagName};
     use std::env;
 
     fn temp_path(name: &str) -> PathBuf {
         env::temp_dir().join(format!("tagr_test_{name}.toml"))
+    }
+
+    fn sample_criteria() -> QueryCriteria {
+        QueryCriteria {
+            tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -350,12 +371,7 @@ mod tests {
         let _ = fs::remove_file(&path);
         let manager = FilterManager::without_backup(path.clone());
 
-        let criteria = FilterCriteria {
-            tags: vec!["rust".to_string()],
-            ..Default::default()
-        };
-
-        let result = manager.create("test-filter", "Test".to_string(), criteria);
+        let result = manager.create("test-filter", "Test".to_string(), sample_criteria());
         assert!(result.is_ok());
 
         let loaded = manager.get("test-filter");
@@ -371,12 +387,8 @@ mod tests {
         let _ = fs::remove_file(&path);
         let manager = FilterManager::without_backup(path.clone());
 
-        let criteria = FilterCriteria {
-            tags: vec!["test".to_string()],
-            ..Default::default()
-        };
         manager
-            .create("to-delete", String::new(), criteria)
+            .create("to-delete", String::new(), sample_criteria())
             .unwrap();
 
         let result = manager.delete("to-delete");
@@ -394,11 +406,9 @@ mod tests {
         let _ = fs::remove_file(&path);
         let manager = FilterManager::without_backup(path.clone());
 
-        let criteria = FilterCriteria {
-            tags: vec!["test".to_string()],
-            ..Default::default()
-        };
-        manager.create("old-name", String::new(), criteria).unwrap();
+        manager
+            .create("old-name", String::new(), sample_criteria())
+            .unwrap();
 
         let result = manager.rename("old-name", "new-name".to_string());
         assert!(result.is_ok());
@@ -421,14 +431,12 @@ mod tests {
         let manager = FilterManager::without_backup(storage_path.clone());
         let import_manager = FilterManager::without_backup(import_path.clone());
 
-        let criteria = FilterCriteria {
-            tags: vec!["test".to_string()],
-            ..Default::default()
-        };
         manager
-            .create("filter1", String::new(), criteria.clone())
+            .create("filter1", String::new(), sample_criteria())
             .unwrap();
-        manager.create("filter2", String::new(), criteria).unwrap();
+        manager
+            .create("filter2", String::new(), sample_criteria())
+            .unwrap();
 
         manager.export(&export_path, &[]).unwrap();
 

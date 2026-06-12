@@ -52,7 +52,7 @@ impl FileDetails {
                 time.duration_since(std::time::UNIX_EPOCH).map_or_else(
                     |_| "Unknown".to_string(),
                     |duration| {
-                        let timestamp = duration.as_secs() as i64;
+                        let timestamp = duration.as_secs().cast_signed();
                         let dt = chrono::DateTime::from_timestamp(timestamp, 0)
                             .unwrap_or_else(chrono::Utc::now);
                         dt.format("%Y-%m-%d %H:%M:%S").to_string()
@@ -108,6 +108,7 @@ impl<'a> DetailsModal<'a> {
     /// Format file size with units
     fn format_size(bytes: u64) -> String {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+        #[allow(clippy::cast_precision_loss)] // file sizes don't need exact precision at TB scale
         let mut size = bytes as f64;
         let mut unit_idx = 0;
 

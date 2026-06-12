@@ -1,5 +1,6 @@
 use crate::vtags::cache::MetadataCache;
 use crate::vtags::config::VirtualTagConfig;
+use crate::vtags::git::GitStatusChecker;
 use crate::vtags::types::{
     ExtTypeCategory, PermissionCondition, RangeCondition, SizeCategory, SizeCondition,
     TimeCondition, VirtualTag,
@@ -7,6 +8,7 @@ use crate::vtags::types::{
 use chrono::{DateTime, Datelike, Local, Utc};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -14,6 +16,8 @@ use std::time::{Duration, SystemTime};
 pub struct VirtualTagEvaluator {
     cache: MetadataCache,
     config: VirtualTagConfig,
+    git_checker: Option<GitStatusChecker>,
+    git_init_attempted: bool,
 }
 
 impl VirtualTagEvaluator {
@@ -22,6 +26,8 @@ impl VirtualTagEvaluator {
         Self {
             cache: MetadataCache::new(cache_ttl),
             config,
+            git_checker: None,
+            git_init_attempted: false,
         }
     }
 
@@ -40,7 +46,7 @@ impl VirtualTagEvaluator {
             VirtualTag::Depth(range) => Ok(Self::check_depth(path, range)),
             VirtualTag::Permission(perm) => self.check_permission(path, perm),
             VirtualTag::Lines(range) => self.check_lines(path, range),
-            VirtualTag::Git(_cond) => Ok(false),
+            VirtualTag::Git(cond) => Ok(self.check_git(path, cond)),
         }
     }
 
@@ -109,7 +115,30 @@ impl VirtualTagEvaluator {
     }
 
     fn check_path_pattern(path: &Path, pattern: &glob::Pattern) -> bool {
-        pattern.matches_path(path)
+        // Try matching the full path first (for absolute patterns)
+        if pattern.matches_path(path) {
+            return true;
+        }
+        // Also try matching the path as a string (handles relative glob patterns
+        // against absolute DB paths by matching against the path's string repr)
+        if let Some(s) = path.to_str() {
+            if pattern.matches(s) {
+                return true;
+            }
+            // Try matching against just the relative portion from common prefixes
+            // e.g., pattern "src/**/*.rs" should match "/projects/tagr/src/lib.rs"
+            let pattern_str = pattern.as_str();
+            if let Some(first_segment) = pattern_str.split('/').next() {
+                // Find where the first segment appears in the path
+                if let Some(idx) = s.find(&format!("/{first_segment}/")) {
+                    let relative = &s[idx + 1..];
+                    if pattern.matches(relative) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn check_depth(path: &Path, range: &RangeCondition) -> bool {
@@ -117,6 +146,7 @@ impl VirtualTagEvaluator {
         evaluate_range_condition(depth, range)
     }
 
+    #[cfg(unix)]
     fn check_permission(&mut self, path: &Path, perm: &PermissionCondition) -> io::Result<bool> {
         let metadata = self.cache.get(path)?;
         let mode = metadata.permissions.mode();
@@ -126,6 +156,17 @@ impl VirtualTagEvaluator {
             PermissionCondition::Readable => mode & 0o444 != 0,
             PermissionCondition::Writable => mode & 0o222 != 0,
             PermissionCondition::ReadOnly => mode & 0o222 == 0,
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn check_permission(&mut self, path: &Path, perm: &PermissionCondition) -> io::Result<bool> {
+        let metadata = self.cache.get(path)?;
+        Ok(match perm {
+            PermissionCondition::Readable => !metadata.permissions.readonly(),
+            PermissionCondition::ReadOnly => metadata.permissions.readonly(),
+            // Windows has no Unix-style executable/writable mode bits
+            PermissionCondition::Executable | PermissionCondition::Writable => false,
         })
     }
 
@@ -140,6 +181,27 @@ impl VirtualTagEvaluator {
         let line_count = reader.lines().count() as u64;
 
         Ok(evaluate_range_condition(line_count, range))
+    }
+
+    fn check_git(&mut self, path: &Path, cond: &crate::vtags::types::GitCondition) -> bool {
+        if !self.config.git.enabled {
+            return false;
+        }
+
+        // Lazily initialize the git checker on first use
+        if !self.git_init_attempted {
+            self.git_init_attempted = true;
+            if self.config.git.detect_repo {
+                self.git_checker = GitStatusChecker::discover(path);
+            }
+        }
+
+        let Some(checker) = self.git_checker.as_mut() else {
+            return false;
+        };
+
+        let stale_days = self.config.git.stale_days;
+        checker.matches(path, cond, stale_days)
     }
 
     fn evaluate_size_condition(&self, size: u64, cond: &SizeCondition) -> bool {

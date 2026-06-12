@@ -5,41 +5,95 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 /// Actions that can be triggered by keybinds in browse mode.
+///
+/// Split into two categories:
+/// - **Configurable actions**: User-facing operations (tag management, file ops)
+///   that can be remapped via keybind config.
+/// - **Navigation actions**: Internal UI actions (cursor movement, search input)
+///   that use fixed keybinds and are not user-configurable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowseAction {
-    /// Add tags to selected file(s) - Ctrl+T
+    // === Configurable actions (user-facing, remappable) ===
+    /// Add tags to selected file(s)
     AddTag,
-    /// Remove tags from selected file(s) - Ctrl+R
+    /// Remove tags from selected file(s)
     RemoveTag,
-    /// Edit tags in external editor - Ctrl+E
+    /// Edit tags in external editor
     EditTags,
-
-    /// Open file(s) in default application - Ctrl+O
+    /// Open file(s) in default application
     OpenInDefault,
-    /// Open file(s) in configured editor - Ctrl+V
+    /// Open file(s) in configured editor
     OpenInEditor,
-    /// Copy file path(s) to clipboard - Ctrl+Y
+    /// Copy file path(s) to clipboard
     CopyPath,
-    /// Copy file(s) to directory - Ctrl+P
+    /// Copy file(s) to directory
     CopyFiles,
-    /// Delete file(s) from database - Ctrl+D
+    /// Delete file(s) from database
     DeleteFromDb,
-
-    /// Show detailed file information - Ctrl+L
+    /// Show detailed file information
     ShowDetails,
-
-    /// Edit note for selected file - Ctrl+N
+    /// Edit note for selected file
     EditNote,
-    /// Toggle between file and note preview - Alt+N
+    /// Toggle between file and note preview
     ToggleNotePreview,
-
-    /// Refine search criteria - Ctrl+/
+    /// Refine search criteria
     RefineSearch,
-
-    /// Show help screen - Ctrl+? or F1
+    /// Show help screen
     ShowHelp,
+    /// Show watch rules modal
+    ShowWatchRules,
     /// Cancel current operation
     Cancel,
+
+    // === Navigation actions (fixed keybinds, not user-configurable) ===
+    /// Move cursor up in the active list
+    MoveUp,
+    /// Move cursor down in the active list
+    MoveDown,
+    /// Move cursor up by one page
+    PageUp,
+    /// Move cursor down by one page
+    PageDown,
+    /// Jump to the first item
+    JumpStart,
+    /// Jump to the last item
+    JumpEnd,
+    /// Scroll preview pane up
+    ScrollPreviewUp,
+    /// Scroll preview pane down
+    ScrollPreviewDown,
+    /// Toggle selection on current item (include tag / multi-select file)
+    ToggleSelect,
+    /// Toggle exclusion on current tag
+    ToggleExclude,
+    /// Toggle expand/collapse on a tree node
+    ExpandToggle,
+    /// Move focus to the left pane
+    FocusLeft,
+    /// Move focus to the right pane
+    FocusRight,
+    /// Enter search/filter input mode
+    EnterSearch,
+    /// Exit search mode (keep filter, stop typing)
+    ExitSearch,
+    /// Confirm current selection
+    Confirm,
+    /// Abort and exit
+    Abort,
+    /// Typed character during search
+    CharInput(char),
+    /// Backspace during search
+    Backspace,
+    /// Delete forward during search
+    Delete,
+    /// Move query cursor left
+    QueryCursorLeft,
+    /// Move query cursor right
+    QueryCursorRight,
+    /// Clear the entire query
+    ClearQuery,
+    /// Delete word backwards in query
+    DeleteWord,
 }
 
 /// Error type for parsing action names.
@@ -82,6 +136,31 @@ impl FromStr for BrowseAction {
             "toggle_note_preview" => Ok(Self::ToggleNotePreview),
             "refine_search" => Ok(Self::RefineSearch),
             "show_help" => Ok(Self::ShowHelp),
+            "show_watch_rules" => Ok(Self::ShowWatchRules),
+            "cancel" => Ok(Self::Cancel),
+            "move_up" => Ok(Self::MoveUp),
+            "move_down" => Ok(Self::MoveDown),
+            "page_up" => Ok(Self::PageUp),
+            "page_down" => Ok(Self::PageDown),
+            "jump_start" => Ok(Self::JumpStart),
+            "jump_end" => Ok(Self::JumpEnd),
+            "scroll_preview_up" => Ok(Self::ScrollPreviewUp),
+            "scroll_preview_down" => Ok(Self::ScrollPreviewDown),
+            "toggle_select" => Ok(Self::ToggleSelect),
+            "toggle_exclude" => Ok(Self::ToggleExclude),
+            "expand_toggle" => Ok(Self::ExpandToggle),
+            "focus_left" => Ok(Self::FocusLeft),
+            "focus_right" => Ok(Self::FocusRight),
+            "enter_search" => Ok(Self::EnterSearch),
+            "exit_search" => Ok(Self::ExitSearch),
+            "confirm" => Ok(Self::Confirm),
+            "abort" => Ok(Self::Abort),
+            "backspace" => Ok(Self::Backspace),
+            "delete" => Ok(Self::Delete),
+            "query_cursor_left" => Ok(Self::QueryCursorLeft),
+            "query_cursor_right" => Ok(Self::QueryCursorRight),
+            "clear_query" => Ok(Self::ClearQuery),
+            "delete_word" => Ok(Self::DeleteWord),
             _ => Err(ParseActionError::new(s)),
         }
     }
@@ -101,6 +180,31 @@ pub enum ActionResult {
 }
 
 impl BrowseAction {
+    /// Returns whether this action can be remapped by user keybind configuration.
+    ///
+    /// Navigation and text input actions use fixed keybinds and are not configurable.
+    #[must_use]
+    pub const fn is_configurable(&self) -> bool {
+        matches!(
+            self,
+            Self::AddTag
+                | Self::RemoveTag
+                | Self::EditTags
+                | Self::OpenInDefault
+                | Self::OpenInEditor
+                | Self::CopyPath
+                | Self::CopyFiles
+                | Self::DeleteFromDb
+                | Self::ShowDetails
+                | Self::EditNote
+                | Self::ToggleNotePreview
+                | Self::RefineSearch
+                | Self::ShowHelp
+                | Self::ShowWatchRules
+                | Self::Cancel
+        )
+    }
+
     /// Returns whether this action requires file selection to work.
     #[must_use]
     pub const fn requires_selection(&self) -> bool {
@@ -125,10 +229,12 @@ impl BrowseAction {
         matches!(
             self,
             Self::ShowHelp
+                | Self::ShowWatchRules
                 | Self::Cancel
                 | Self::EditNote
                 | Self::ToggleNotePreview
                 | Self::ShowDetails
+                | Self::RefineSearch
         )
     }
 
@@ -138,7 +244,6 @@ impl BrowseAction {
     /// and all other browse actions.
     #[must_use]
     pub const fn available_in_file_phase(&self) -> bool {
-        // All actions are available in file phase
         true
     }
 
@@ -159,7 +264,32 @@ impl BrowseAction {
             Self::ToggleNotePreview => "Toggle file/note preview",
             Self::RefineSearch => "Refine search criteria",
             Self::ShowHelp => "Show help",
+            Self::ShowWatchRules => "Show watch rules",
             Self::Cancel => "Cancel",
+            Self::MoveUp => "Move up",
+            Self::MoveDown => "Move down",
+            Self::PageUp => "Page up",
+            Self::PageDown => "Page down",
+            Self::JumpStart => "Jump to start",
+            Self::JumpEnd => "Jump to end",
+            Self::ScrollPreviewUp => "Scroll preview up",
+            Self::ScrollPreviewDown => "Scroll preview down",
+            Self::ToggleSelect => "Toggle selection",
+            Self::ToggleExclude => "Toggle exclusion",
+            Self::ExpandToggle => "Expand/collapse",
+            Self::FocusLeft => "Focus left pane",
+            Self::FocusRight => "Focus right pane",
+            Self::EnterSearch => "Enter search mode",
+            Self::ExitSearch => "Exit search mode",
+            Self::Confirm => "Confirm selection",
+            Self::Abort => "Abort",
+            Self::CharInput(_) => "Type character",
+            Self::Backspace => "Backspace",
+            Self::Delete => "Delete forward",
+            Self::QueryCursorLeft => "Move cursor left",
+            Self::QueryCursorRight => "Move cursor right",
+            Self::ClearQuery => "Clear query",
+            Self::DeleteWord => "Delete word",
         }
     }
 
@@ -222,7 +352,7 @@ impl BrowseAction {
         }
     }
 
-    /// Returns the string identifier for this action (for backward compatibility).
+    /// Returns the string identifier for this action.
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -239,7 +369,32 @@ impl BrowseAction {
             Self::ToggleNotePreview => "toggle_note_preview",
             Self::RefineSearch => "refine_search",
             Self::ShowHelp => "show_help",
+            Self::ShowWatchRules => "show_watch_rules",
             Self::Cancel => "cancel",
+            Self::MoveUp => "move_up",
+            Self::MoveDown => "move_down",
+            Self::PageUp => "page_up",
+            Self::PageDown => "page_down",
+            Self::JumpStart => "jump_start",
+            Self::JumpEnd => "jump_end",
+            Self::ScrollPreviewUp => "scroll_preview_up",
+            Self::ScrollPreviewDown => "scroll_preview_down",
+            Self::ToggleSelect => "toggle_select",
+            Self::ToggleExclude => "toggle_exclude",
+            Self::ExpandToggle => "expand_toggle",
+            Self::FocusLeft => "focus_left",
+            Self::FocusRight => "focus_right",
+            Self::EnterSearch => "enter_search",
+            Self::ExitSearch => "exit_search",
+            Self::Confirm => "confirm",
+            Self::Abort => "abort",
+            Self::CharInput(_) => "char_input",
+            Self::Backspace => "backspace",
+            Self::Delete => "delete",
+            Self::QueryCursorLeft => "query_cursor_left",
+            Self::QueryCursorRight => "query_cursor_right",
+            Self::ClearQuery => "clear_query",
+            Self::DeleteWord => "delete_word",
         }
     }
 }

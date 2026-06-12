@@ -47,6 +47,7 @@
 pub mod cache;
 pub mod config;
 pub mod evaluator;
+pub mod git;
 pub mod parser;
 pub mod types;
 

@@ -3,27 +3,35 @@
 //! This library provides functionality for tagging files and performing
 //! efficient searches using an embedded database with reverse indices.
 
-use bincode::{self, Decode, Encode};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use thiserror::Error;
+
+// Re-export the canonical Pair type at crate root for backwards compatibility.
+pub use types::Pair;
 
 pub mod browse;
 pub mod cli;
 pub mod commands;
 pub mod completions;
 pub mod config;
+#[doc(hidden)]
+pub mod daemon;
 pub mod db;
 pub mod discovery;
 pub mod filters;
+pub mod ipc;
 pub mod keybinds;
 pub mod output;
 pub mod patterns;
 pub mod preview;
+pub mod query;
 pub mod schema;
-pub mod search;
+pub mod store;
+pub mod types;
 pub mod ui;
+#[doc(hidden)]
 pub mod vtags;
+#[doc(hidden)]
+pub mod watch;
 
 #[cfg(test)]
 pub mod testing;
@@ -34,9 +42,15 @@ pub enum TagrError {
     /// Database error
     #[error("Database error: {0}")]
     DbError(#[from] db::DbError),
+    /// Store error
+    #[error("Store error: {0}")]
+    StoreError(#[from] store::StoreError),
+    /// Validation error (newtype construction)
+    #[error("Validation error: {0}")]
+    ValidationError(#[from] types::ValidationError),
     /// Search error
     #[error("Search error: {0}")]
-    SearchError(#[from] search::SearchError),
+    SearchError(#[from] query::SearchError),
     /// Browse error
     #[error("Browse error: {0}")]
     BrowseError(String),
@@ -67,26 +81,4 @@ pub enum TagrError {
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),
-}
-
-/// Data struct containing the pairings of file and tags
-#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Pair {
-    pub file: PathBuf,
-    pub tags: Vec<String>,
-}
-
-impl Pair {
-    /// Create a new Pair
-    #[must_use]
-    pub const fn new(file: PathBuf, tags: Vec<String>) -> Self {
-        Self { file, tags }
-    }
-}
-
-impl search::AsFileTagPair for Pair {
-    fn as_pair(&self) -> search::FileTagPair<'_> {
-        let file_str = self.file.to_string_lossy();
-        search::FileTagPair::new(file_str, &self.tags)
-    }
 }

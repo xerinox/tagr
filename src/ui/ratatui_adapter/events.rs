@@ -3,9 +3,7 @@
 //! Handles keyboard and mouse events, mapping them to application actions.
 
 use super::state::{AppState, Mode};
-use crate::filters::TagMode;
 use crate::keybinds::actions::BrowseAction;
-use crate::ui::ratatui_adapter::widgets::FileDetails;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -93,479 +91,136 @@ pub fn key_to_string(key: &KeyEvent) -> Option<String> {
     Some(result)
 }
 
+/// Resolve a key event into a `BrowseAction` based on keybind configuration and app state.
+///
+/// Custom keybinds are checked first. Then default keybinds are resolved based on
+/// the current application context (search active, tag selection phase, focused pane).
+///
+/// Returns `None` if the key has no associated action.
+#[must_use]
+fn resolve_action(
+    key: KeyEvent,
+    custom_binds: &KeybindMap,
+    state: &AppState,
+) -> Option<BrowseAction> {
+    // Custom keybinds take priority
+    if let Some(action_str) = custom_binds.get(&key)
+        && let Ok(action) = action_str.parse::<BrowseAction>()
+    {
+        return Some(action);
+    }
+
+    resolve_default_keybind(key, state)
+}
+
+/// Map default (non-configurable) keybinds to actions based on app context.
+const fn resolve_default_keybind(key: KeyEvent, state: &AppState) -> Option<BrowseAction> {
+    match (key.code, key.modifiers) {
+        // Exit / abort
+        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            if state.search_active {
+                Some(BrowseAction::ExitSearch)
+            } else {
+                Some(BrowseAction::Abort)
+            }
+        }
+        (KeyCode::Char('q'), KeyModifiers::NONE) if !state.search_active => {
+            Some(BrowseAction::Abort)
+        }
+
+        // Confirm / exit search
+        (KeyCode::Enter, _) => {
+            if state.search_active {
+                Some(BrowseAction::ExitSearch)
+            } else {
+                Some(BrowseAction::Confirm)
+            }
+        }
+
+        // Preview scroll
+        (KeyCode::Up, KeyModifiers::SHIFT) => Some(BrowseAction::ScrollPreviewUp),
+        (KeyCode::Down, KeyModifiers::SHIFT) => Some(BrowseAction::ScrollPreviewDown),
+
+        // Navigation (arrow keys + ctrl variants)
+        (KeyCode::Up, KeyModifiers::NONE | KeyModifiers::CONTROL)
+        | (KeyCode::Char('k'), KeyModifiers::CONTROL) => Some(BrowseAction::MoveUp),
+        (KeyCode::Char('k'), KeyModifiers::NONE) if !state.search_active => {
+            Some(BrowseAction::MoveUp)
+        }
+        (KeyCode::Down, KeyModifiers::NONE | KeyModifiers::CONTROL)
+        | (KeyCode::Char('j'), KeyModifiers::CONTROL) => Some(BrowseAction::MoveDown),
+        (KeyCode::Char('j'), KeyModifiers::NONE) if !state.search_active => {
+            Some(BrowseAction::MoveDown)
+        }
+        (KeyCode::PageUp, _) => Some(BrowseAction::PageUp),
+        (KeyCode::PageDown, _) => Some(BrowseAction::PageDown),
+        (KeyCode::Home, _) => Some(BrowseAction::JumpStart),
+        (KeyCode::End, _) => Some(BrowseAction::JumpEnd),
+
+        // Selection toggle
+        (KeyCode::Tab, _) => Some(BrowseAction::ToggleSelect),
+        (KeyCode::BackTab, _) => Some(BrowseAction::ToggleExclude),
+
+        // Tag tree expand/collapse
+        (KeyCode::Char(' '), KeyModifiers::NONE) if state.is_tag_selection_phase() => {
+            Some(BrowseAction::ExpandToggle)
+        }
+
+        // Pane focus (vim-style + arrow keys)
+        (KeyCode::Char('h') | KeyCode::Left, KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            Some(BrowseAction::FocusLeft)
+        }
+        (KeyCode::Char('l') | KeyCode::Right, KeyModifiers::NONE)
+            if state.is_tag_selection_phase() && !state.search_active =>
+        {
+            Some(BrowseAction::FocusRight)
+        }
+
+        // Help
+        (KeyCode::F(1) | KeyCode::Char('?'), _) => Some(BrowseAction::ShowHelp),
+
+        // Watch rules
+        (KeyCode::F(3), _) => Some(BrowseAction::ShowWatchRules),
+
+        // Toggle preview mode
+        (KeyCode::Char('n'), KeyModifiers::ALT) => Some(BrowseAction::ToggleNotePreview),
+
+        // Search mode entry
+        (KeyCode::Char('/'), KeyModifiers::NONE) => Some(BrowseAction::EnterSearch),
+
+        // Search text input (only when search is active)
+        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) if state.search_active => {
+            Some(BrowseAction::CharInput(c))
+        }
+        (KeyCode::Backspace, _) if state.search_active => Some(BrowseAction::Backspace),
+        (KeyCode::Delete, _) if state.search_active => Some(BrowseAction::Delete),
+
+        // Query cursor movement (always available — handles non-search Left/Right too)
+        (KeyCode::Left, _) => Some(BrowseAction::QueryCursorLeft),
+        (KeyCode::Right, _) => Some(BrowseAction::QueryCursorRight),
+
+        // Query editing shortcuts
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) if state.search_active => {
+            Some(BrowseAction::ClearQuery)
+        }
+        (KeyCode::Char('w'), KeyModifiers::CONTROL) if state.search_active => {
+            Some(BrowseAction::DeleteWord)
+        }
+
+        _ => None,
+    }
+}
+
 /// Handle events in normal mode
-#[allow(clippy::too_many_lines)]
 fn handle_normal_mode(
     state: &mut AppState,
     key: KeyEvent,
     custom_binds: &KeybindMap,
 ) -> EventResult {
-    // Check custom keybinds first
-    if let Some(action_str) = custom_binds.get(&key) {
-        // Parse action string to enum
-        let Ok(action) = action_str.parse::<BrowseAction>() else {
-            return EventResult::Ignored; // Unknown action
-        };
-
-        // Check phase and pane availability
-        // In 3-pane view: actions should work when file preview pane has focus
-        // even if technically in "tag selection phase"
-        if state.is_tag_selection_phase() {
-            // Check which pane has focus
-            let file_pane_focused =
-                state.focused_pane == crate::ui::ratatui_adapter::state::FocusPane::FilePreview;
-
-            // Allow action if:
-            // 1. File pane has focus (user is working with files), OR
-            // 2. Action is universally available (help, note editing, etc.)
-            if !file_pane_focused && !action.available_in_tag_phase() {
-                // Tag pane has focus and action is file-specific - ignore
-                return EventResult::Ignored;
-            }
-        }
-
-        // Special case: actions that should be handled inline without exiting
-        if action == BrowseAction::ToggleNotePreview {
-            state.toggle_preview_mode();
-            return EventResult::PreviewChanged;
-        }
-
-        // Special case: ShowDetails - display modal inline
-        if action == BrowseAction::ShowDetails {
-            // Get current file based on phase and focus
-            let file_path = if state.is_tag_selection_phase() {
-                // In 3-pane view, only show details if file preview pane has focus
-                if state.focused_pane == crate::ui::ratatui_adapter::state::FocusPane::FilePreview {
-                    state
-                        .file_preview_items
-                        .get(state.file_preview_cursor)
-                        .map(|item| std::path::PathBuf::from(&item.key))
-                } else {
-                    None // Tag tree has focus, no file to show
-                }
-            } else {
-                // In 2-pane view, get the current selected item
-                state.current_key().map(std::path::PathBuf::from)
-            };
-
-            if let Some(path) = file_path {
-                // Get tags and note from database
-                let tags = state
-                    .database
-                    .as_ref()
-                    .and_then(|db| db.get_tags(&path).ok())
-                    .flatten()
-                    .unwrap_or_default();
-
-                let note = state
-                    .database
-                    .as_ref()
-                    .and_then(|db| db.get_note(&path).ok())
-                    .flatten();
-
-                // Create FileDetails and enter details mode
-                if let Ok(details) = FileDetails::from_path(&path, tags, note) {
-                    state.enter_details(details);
-                }
-            }
-            return EventResult::Continue;
-        }
-
-        // Special case: actions requiring special handling (terminal suspend, etc.)
-        if action.requires_special_handling() {
-            // Signal to caller to handle (e.g., suspend TUI for edit_note)
-            let context = state.selected_keys();
-            return EventResult::Action { action, context };
-        }
-
-        // Actions that require text input open the modal
-        if action.requires_input() {
-            let (title, _placeholder) = action.input_prompt();
-
-            // Capture selected file paths when opening modal
-            let selected_keys = state.selected_keys();
-
-            // Get tags from the captured selected files (via database lookup)
-            let file_tags: Vec<String> = selected_keys
-                .iter()
-                .filter_map(|path| {
-                    use std::path::PathBuf;
-                    let path_buf = PathBuf::from(path);
-                    state
-                        .database
-                        .as_ref()
-                        .and_then(|db| db.get_tags(&path_buf).ok())
-                        .flatten()
-                })
-                .flatten()
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect();
-
-            // For remove_tag: show only tags on the file(s), no exclusions
-            // For add_tag: show all available tags, exclude those already on file(s)
-            let (autocomplete_items, excluded_tags) = match action {
-                BrowseAction::RemoveTag => (file_tags, Vec::new()),
-                BrowseAction::AddTag => (state.available_tags.clone(), file_tags),
-                _ => (Vec::new(), Vec::new()),
-            };
-
-            // Enter text input modal with captured context
-            state.enter_text_input(
-                title,
-                action.as_str().to_string(),
-                autocomplete_items,
-                excluded_tags,
-                true,
-                selected_keys,
-            );
-            return EventResult::Continue;
-        }
-
-        // Actions that require confirmation open the confirm dialog
-        if action.requires_confirmation() {
-            let selected_keys = state.selected_keys();
-            let selected_count = selected_keys.len();
-            if selected_count > 0 {
-                let (title, message) = action.confirmation_prompt();
-                state.enter_confirm(title, message, action.as_str().to_string(), selected_keys);
-                return EventResult::Continue;
-            }
-        }
-
-        // For immediate actions (no input/confirmation), capture context now
-        let context = state.selected_keys();
-        return EventResult::Action { action, context };
-    }
-
-    // Handle standard keybinds
-    match (key.code, key.modifiers) {
-        // Exit (or exit search mode)
-        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-            // If actively typing in search, exit search mode but keep filter
-            if state.search_active {
-                state.search_active = false;
-                state.search_initiated_from = None;
-                return EventResult::Continue;
-            }
-            EventResult::Abort
-        }
-        (KeyCode::Enter, _) => {
-            // If actively typing in search, exit search mode but keep filter
-            if state.search_active {
-                state.search_active = false;
-                state.search_initiated_from = None;
-                return EventResult::Continue;
-            }
-            // In TagSelection phase, Enter behavior depends on focused pane
-            if state.is_tag_selection_phase() {
-                use crate::ui::ratatui_adapter::state::FocusPane;
-                match state.focused_pane {
-                    FocusPane::TagTree => {
-                        // Move focus to file list
-                        state.focused_pane = FocusPane::FilePreview;
-                        return EventResult::Continue;
-                    }
-                    FocusPane::FilePreview => {
-                        // Confirm selection - use multi-select if any, otherwise current file
-                        return EventResult::Confirm;
-                    }
-                }
-            }
-            EventResult::Confirm
-        }
-
-        // Preview scroll (Shift+Up/Down) - must be before general navigation
-        (KeyCode::Up, KeyModifiers::SHIFT) => {
-            state.preview_scroll = state.preview_scroll.saturating_sub(1);
-            EventResult::Continue
-        }
-        (KeyCode::Down, KeyModifiers::SHIFT) => {
-            state.preview_scroll += 1;
-            EventResult::Continue
-        }
-
-        // Navigation - route based on focused pane in TagSelection phase
-        (KeyCode::Up, KeyModifiers::NONE | KeyModifiers::CONTROL)
-        | (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
-            if state.is_tag_selection_phase() {
-                use crate::ui::ratatui_adapter::state::FocusPane;
-                match state.focused_pane {
-                    FocusPane::TagTree => state.tag_tree_move_up(),
-                    FocusPane::FilePreview => state.file_preview_cursor_up(),
-                }
-            } else {
-                state.cursor_up();
-            }
-            EventResult::Continue
-        }
-        (KeyCode::Char('k'), KeyModifiers::NONE) if !state.search_active => {
-            if state.is_tag_selection_phase() {
-                use crate::ui::ratatui_adapter::state::FocusPane;
-                match state.focused_pane {
-                    FocusPane::TagTree => state.tag_tree_move_up(),
-                    FocusPane::FilePreview => state.file_preview_cursor_up(),
-                }
-            } else {
-                state.cursor_up();
-            }
-            EventResult::Continue
-        }
-        (KeyCode::Down, KeyModifiers::NONE | KeyModifiers::CONTROL)
-        | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
-            if state.is_tag_selection_phase() {
-                use crate::ui::ratatui_adapter::state::FocusPane;
-                match state.focused_pane {
-                    FocusPane::TagTree => state.tag_tree_move_down(),
-                    FocusPane::FilePreview => state.file_preview_cursor_down(),
-                }
-            } else {
-                state.cursor_down();
-            }
-            EventResult::Continue
-        }
-        (KeyCode::Char('j'), KeyModifiers::NONE) if !state.search_active => {
-            if state.is_tag_selection_phase() {
-                use crate::ui::ratatui_adapter::state::FocusPane;
-                match state.focused_pane {
-                    FocusPane::TagTree => state.tag_tree_move_down(),
-                    FocusPane::FilePreview => state.file_preview_cursor_down(),
-                }
-            } else {
-                state.cursor_down();
-            }
-            EventResult::Continue
-        }
-        (KeyCode::PageUp, _) => {
-            state.page_up();
-            EventResult::Continue
-        }
-        (KeyCode::PageDown, _) => {
-            state.page_down();
-            EventResult::Continue
-        }
-        (KeyCode::Home, _) => {
-            state.jump_to_start();
-            EventResult::Continue
-        }
-        (KeyCode::End, _) => {
-            state.jump_to_end();
-            EventResult::Continue
-        }
-
-        // Multi-select / Tag tree toggle - route based on focused pane
-        (KeyCode::Tab, _) => {
-            if state.is_tag_selection_phase() {
-                use crate::ui::ratatui_adapter::state::FocusPane;
-                match state.focused_pane {
-                    FocusPane::TagTree => {
-                        // Toggle tag inclusion: parent nodes affect all children (Option A)
-                        if let Some(tree) = state.tag_tree_state.as_ref()
-                            && let Some(current_tag) = tree.current_tag()
-                        {
-                            let children = tree.get_all_descendant_tags(&current_tag);
-
-                            if children.is_empty() {
-                                // Leaf node - toggle just this tag
-                                state.active_filter.toggle_include_tag(current_tag);
-                            } else {
-                                // Parent node - toggle all children + parent if it's actual tag
-                                if tree.current_is_actual_tag() {
-                                    state.active_filter.toggle_include_tag(current_tag);
-                                }
-                                for child in children {
-                                    state.active_filter.toggle_include_tag(child);
-                                }
-                            }
-
-                            // Update tag mode based on number of selected tags
-                            // Multiple tags -> Any (OR), single tag -> All (AND)
-                            state.active_filter.criteria.tag_mode =
-                                if state.active_filter.criteria.tags.len() > 1 {
-                                    TagMode::Any
-                                } else {
-                                    TagMode::All
-                                };
-
-                            // Sync tag tree visual state from active_filter
-                            state.sync_tag_tree_from_filter();
-                            // Update file preview with new filter
-                            state.update_file_preview();
-                        }
-                        state.tag_tree_move_down();
-                    }
-                    FocusPane::FilePreview => {
-                        state.file_preview_toggle_selection();
-                        state.file_preview_cursor_down();
-                    }
-                }
-            } else {
-                state.toggle_selection();
-                state.cursor_down();
-            }
-            EventResult::Continue
-        }
-        (KeyCode::BackTab, _) => {
-            if state.is_tag_selection_phase() {
-                use crate::ui::ratatui_adapter::state::FocusPane;
-                match state.focused_pane {
-                    FocusPane::TagTree => {
-                        // Toggle tag exclusion: parent nodes affect all children (Option A)
-                        if let Some(tree) = state.tag_tree_state.as_ref()
-                            && let Some(current_tag) = tree.current_tag()
-                        {
-                            let children = tree.get_all_descendant_tags(&current_tag);
-
-                            if children.is_empty() {
-                                // Leaf node - toggle just this tag
-                                state.active_filter.toggle_exclude_tag(current_tag);
-                            } else {
-                                // Parent node - toggle all children + parent if it's actual tag
-                                if tree.current_is_actual_tag() {
-                                    state.active_filter.toggle_exclude_tag(current_tag);
-                                }
-                                for child in children {
-                                    state.active_filter.toggle_exclude_tag(child);
-                                }
-                            }
-
-                            // Update tag mode based on number of selected tags
-                            // Multiple tags -> Any (OR), single tag -> All (AND)
-                            state.active_filter.criteria.tag_mode =
-                                if state.active_filter.criteria.tags.len() > 1 {
-                                    TagMode::Any
-                                } else {
-                                    TagMode::All
-                                };
-
-                            // Sync exclusion state
-                            state.sync_tag_tree_exclusions();
-                            // Update file preview with new filter
-                            state.update_file_preview();
-                        }
-                        state.tag_tree_move_down();
-                    }
-                    FocusPane::FilePreview => {
-                        state.file_preview_toggle_selection();
-                        state.file_preview_cursor_down();
-                    }
-                }
-            } else {
-                state.toggle_selection();
-                state.cursor_down();
-            }
-            EventResult::Continue
-        }
-
-        // Tag tree expansion toggle (Space key in TagSelection phase)
-        (KeyCode::Char(' '), KeyModifiers::NONE) if state.is_tag_selection_phase() => {
-            state.tag_tree_toggle_expand();
-            EventResult::Continue
-        }
-
-        // Pane navigation: h/Left moves to previous pane, l/Right moves to next pane
-        (KeyCode::Char('h'), KeyModifiers::NONE)
-            if state.is_tag_selection_phase() && !state.search_active =>
-        {
-            use crate::ui::ratatui_adapter::state::FocusPane;
-            if state.focused_pane == FocusPane::FilePreview {
-                state.focused_pane = FocusPane::TagTree;
-            }
-            EventResult::Continue
-        }
-        (KeyCode::Left, KeyModifiers::NONE)
-            if state.is_tag_selection_phase() && !state.search_active =>
-        {
-            use crate::ui::ratatui_adapter::state::FocusPane;
-            if state.focused_pane == FocusPane::FilePreview {
-                state.focused_pane = FocusPane::TagTree;
-            }
-            EventResult::Continue
-        }
-        (KeyCode::Char('l'), KeyModifiers::NONE)
-            if state.is_tag_selection_phase() && !state.search_active =>
-        {
-            use crate::ui::ratatui_adapter::state::FocusPane;
-            if state.focused_pane == FocusPane::TagTree {
-                state.focused_pane = FocusPane::FilePreview;
-            }
-            EventResult::Continue
-        }
-        (KeyCode::Right, KeyModifiers::NONE)
-            if state.is_tag_selection_phase() && !state.search_active =>
-        {
-            use crate::ui::ratatui_adapter::state::FocusPane;
-            if state.focused_pane == FocusPane::TagTree {
-                state.focused_pane = FocusPane::FilePreview;
-            }
-            EventResult::Continue
-        }
-
-        // Help overlay
-        (KeyCode::F(1) | KeyCode::Char('?'), _) => {
-            state.mode = Mode::Help;
-            EventResult::Continue
-        }
-
-        // Toggle preview mode (Alt+N) - switch between file content and note
-        (KeyCode::Char('n'), KeyModifiers::ALT) => {
-            state.toggle_preview_mode();
-            EventResult::PreviewChanged
-        }
-
-        // Query editing - / activates search mode
-        (KeyCode::Char('/'), KeyModifiers::NONE) => {
-            state.search_active = true;
-            EventResult::Continue
-        }
-        // Regular character input only when search is active
-        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) if state.search_active => {
-            state.query_push(c);
-            EventResult::QueryChanged
-        }
-        (KeyCode::Backspace, _) if state.search_active => {
-            if state.query.is_empty() {
-                EventResult::Ignored
-            } else {
-                state.query_backspace();
-                EventResult::QueryChanged
-            }
-        }
-        (KeyCode::Delete, _) if state.search_active => {
-            if state.query_cursor >= state.query.len() {
-                EventResult::Ignored
-            } else {
-                state.query_delete();
-                EventResult::QueryChanged
-            }
-        }
-        (KeyCode::Left, _) => {
-            state.query_cursor_left();
-            EventResult::Continue
-        }
-        (KeyCode::Right, _) => {
-            state.query_cursor_right();
-            EventResult::Continue
-        }
-        (KeyCode::Char('u'), KeyModifiers::CONTROL) if state.search_active => {
-            state.query_clear();
-            EventResult::QueryChanged
-        }
-        (KeyCode::Char('w'), KeyModifiers::CONTROL) if state.search_active => {
-            // Delete word backwards
-            let trimmed = state.query[..state.query_cursor].trim_end();
-            if let Some(last_space) = trimmed.rfind(' ') {
-                state.query.drain(last_space + 1..state.query_cursor);
-                state.query_cursor = last_space + 1;
-            } else {
-                state.query.drain(..state.query_cursor);
-                state.query_cursor = 0;
-            }
-            EventResult::QueryChanged
-        }
-
-        _ => EventResult::Ignored,
-    }
+    resolve_action(key, custom_binds, state)
+        .map_or(EventResult::Ignored, |action| state.execute_action(action))
 }
 
 /// Handle events in help mode
@@ -585,8 +240,20 @@ fn handle_refine_search_mode(state: &mut AppState, key: KeyEvent) -> EventResult
     if refine_state.in_selection {
         // In sub-selection mode (selecting items from list)
         match (key.code, key.modifiers) {
-            // Exit sub-selection and apply changes
-            (KeyCode::Enter | KeyCode::Esc, _) => {
+            // Esc exits without adding
+            (KeyCode::Esc, _) => {
+                refine_state.exit_selection();
+                EventResult::Continue
+            }
+            // Enter: if query text doesn't match a listed item, add it as custom entry
+            // If it matches an item at cursor, toggle that item
+            (KeyCode::Enter, _) => {
+                if !refine_state.selection_query.is_empty() {
+                    // Add the typed text as a custom entry
+                    refine_state.add_custom_entry();
+                } else if !refine_state.selection_items.is_empty() {
+                    refine_state.toggle_current_selection();
+                }
                 refine_state.exit_selection();
                 EventResult::Continue
             }
@@ -807,6 +474,32 @@ fn handle_details_mode(state: &mut AppState, _key: KeyEvent) -> EventResult {
     EventResult::Continue
 }
 
+/// Handle events in watch rules modal mode
+fn handle_watch_rules_mode(state: &mut AppState, key: KeyEvent) -> EventResult {
+    match key.code {
+        // Scroll support
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(ref mut wrs) = state.watch_rules_state {
+                wrs.scroll_up();
+            }
+            EventResult::Continue
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(ref mut wrs) = state.watch_rules_state {
+                // Estimate visible height from the last render pass
+                let visible = state.visible_height;
+                wrs.scroll_down(visible);
+            }
+            EventResult::Continue
+        }
+        // Any other key closes
+        _ => {
+            state.exit_watch_rules();
+            EventResult::Continue
+        }
+    }
+}
+
 /// Poll for events and handle them
 ///
 /// # Errors
@@ -829,6 +522,7 @@ pub fn poll_and_handle(
             Mode::Input => handle_input_mode(state, key),
             Mode::Confirm => handle_confirm_mode(state, key),
             Mode::Details => handle_details_mode(state, key),
+            Mode::WatchRules => handle_watch_rules_mode(state, key),
         },
         Event::Mouse(mouse) => handle_mouse(state, mouse),
         Event::Resize(_, _) => EventResult::Continue,
@@ -981,5 +675,298 @@ mod tests {
             &binds,
         );
         assert_eq!(result, EventResult::Abort);
+    }
+
+    // === resolve_action / resolve_default_keybind tests ===
+
+    #[test]
+    fn test_resolve_default_navigation_keys() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &state),
+            Some(BrowseAction::MoveUp)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &state),
+            Some(BrowseAction::MoveDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE), &state),
+            Some(BrowseAction::PageUp)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE), &state),
+            Some(BrowseAction::PageDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE), &state),
+            Some(BrowseAction::JumpStart)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), &state),
+            Some(BrowseAction::JumpEnd)
+        );
+    }
+
+    #[test]
+    fn test_resolve_vim_navigation_requires_no_search() {
+        let mut state = make_state();
+
+        // j/k work when search is inactive
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::MoveDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::MoveUp)
+        );
+
+        // j/k become char input when search is active
+        state.search_active = true;
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::CharInput('j'))
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::CharInput('k'))
+        );
+    }
+
+    #[test]
+    fn test_resolve_ctrl_jk_always_navigates() {
+        let mut state = make_state();
+        state.search_active = true;
+
+        // Ctrl+j/k always navigate, even during search
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::MoveDown)
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::MoveUp)
+        );
+    }
+
+    #[test]
+    fn test_resolve_esc_context_dependent() {
+        let mut state = make_state();
+
+        // Esc without search = abort
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &state),
+            Some(BrowseAction::Abort)
+        );
+
+        // Esc during search = exit search
+        state.search_active = true;
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ExitSearch)
+        );
+    }
+
+    #[test]
+    fn test_resolve_enter_context_dependent() {
+        let mut state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state),
+            Some(BrowseAction::Confirm)
+        );
+
+        state.search_active = true;
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ExitSearch)
+        );
+    }
+
+    #[test]
+    fn test_resolve_search_text_input() {
+        let mut state = make_state();
+        state.search_active = true;
+
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::CharInput('a'))
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT),
+                &state
+            ),
+            Some(BrowseAction::CharInput('A'))
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::Backspace)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE), &state),
+            Some(BrowseAction::Delete)
+        );
+    }
+
+    #[test]
+    fn test_resolve_search_editing_shortcuts() {
+        let mut state = make_state();
+        state.search_active = true;
+
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::ClearQuery)
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                &state
+            ),
+            Some(BrowseAction::DeleteWord)
+        );
+    }
+
+    #[test]
+    fn test_resolve_no_text_input_without_search() {
+        let state = make_state();
+
+        // Regular chars produce None when search is inactive (except mapped keys)
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                &state
+            ),
+            None
+        );
+        // Backspace also None without search
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                &state
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_resolve_selection_and_misc() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ToggleSelect)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE), &state),
+            Some(BrowseAction::ToggleExclude)
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::EnterSearch)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE), &state),
+            Some(BrowseAction::ShowHelp)
+        );
+        assert_eq!(
+            resolve_default_keybind(
+                KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+                &state
+            ),
+            Some(BrowseAction::ShowHelp)
+        );
+    }
+
+    #[test]
+    fn test_resolve_preview_scroll() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT), &state),
+            Some(BrowseAction::ScrollPreviewUp)
+        );
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT), &state),
+            Some(BrowseAction::ScrollPreviewDown)
+        );
+    }
+
+    #[test]
+    fn test_resolve_custom_bind_overrides_default() {
+        let state = make_state();
+        let mut binds = KeybindMap::new();
+        // Override Tab (normally ToggleSelect) with add_tag
+        binds.insert(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            "add_tag".to_string(),
+        );
+
+        let result = resolve_action(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &binds,
+            &state,
+        );
+        assert_eq!(result, Some(BrowseAction::AddTag));
+    }
+
+    #[test]
+    fn test_resolve_invalid_custom_bind_falls_through() {
+        let state = make_state();
+        let mut binds = KeybindMap::new();
+        binds.insert(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            "not_a_real_action".to_string(),
+        );
+
+        // Invalid action string falls through to default binding
+        let result = resolve_action(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            &binds,
+            &state,
+        );
+        assert_eq!(result, Some(BrowseAction::ToggleSelect));
+    }
+
+    #[test]
+    fn test_resolve_unbound_key_returns_none() {
+        let state = make_state();
+
+        assert_eq!(
+            resolve_default_keybind(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE), &state),
+            None
+        );
     }
 }

@@ -13,6 +13,8 @@ use std::io::{self, Write};
 use tagr::Pair;
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
+use tagr::store::DirectStore;
+use tagr::types::{TagName, TagrPath};
 use tagr::ui::{DisplayItem, FinderConfig, FinderResult, FuzzyFinder, Result as UiResult};
 
 /// Simple terminal-based finder without fuzzy matching
@@ -227,22 +229,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     db.clear()?;
 
     // Add some sample files with tags
-    db.insert_pair(&Pair {
-        file: "src/main.rs".into(),
-        tags: vec!["rust".into(), "code".into()],
-    })?;
-    db.insert_pair(&Pair {
-        file: "src/lib.rs".into(),
-        tags: vec!["rust".into(), "library".into()],
-    })?;
-    db.insert_pair(&Pair {
-        file: "README.md".into(),
-        tags: vec!["docs".into(), "markdown".into()],
-    })?;
-    db.insert_pair(&Pair {
-        file: "Cargo.toml".into(),
-        tags: vec!["config".into(), "rust".into()],
-    })?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("src/main.rs".to_owned()),
+        vec![TagName::new("rust").unwrap(), TagName::new("code").unwrap()],
+    ))?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("src/lib.rs".to_owned()),
+        vec![
+            TagName::new("rust").unwrap(),
+            TagName::new("library").unwrap(),
+        ],
+    ))?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("README.md".to_owned()),
+        vec![
+            TagName::new("docs").unwrap(),
+            TagName::new("markdown").unwrap(),
+        ],
+    ))?;
+    db.insert_pair(&Pair::new(
+        TagrPath::from_string("Cargo.toml".to_owned()),
+        vec![
+            TagName::new("config").unwrap(),
+            TagName::new("rust").unwrap(),
+        ],
+    ))?;
 
     println!("Choose a finder implementation:");
     println!("1. SimpleFinder (basic numbered list)");
@@ -255,7 +266,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create browse session
     let config = BrowseConfig::default();
-    let session = BrowseSession::new(&db, config)?;
+    let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), config)?;
 
     // Run with chosen finder
     let result = match choice.trim() {
@@ -286,7 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Selected tags: {:?}", result.selected_tags);
             println!("Selected {} files:", result.selected_files.len());
             for file in result.selected_files {
-                println!("  - {}", file.display());
+                println!("  - {file}");
             }
         }
         None => {

@@ -24,7 +24,7 @@ impl FilePreviewProvider {
     /// * `config` - Preview configuration
     #[must_use]
     pub fn new(config: PreviewConfig) -> Self {
-        Self::with_cache_config(config, Duration::from_secs(300), 1000)
+        Self::with_cache_config(config, Duration::from_mins(5), 1000)
     }
 
     /// Create a new file preview provider with custom cache configuration

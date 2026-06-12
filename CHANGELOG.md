@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.1] - 2026-06-12
+
 ### Added
+
+- **Architecture Rewrite (v1.0.0)** — 6-phase migration to layered architecture
+  - **Layer 0: Core Types** (`types/`) — `TagName`, `TagrPath`, `FilterName`, `Pair`, `QueryCriteria` newtypes with validation
+  - **Layer 1: TagStore Trait** (`store/`) — unified storage interface with `DirectStore` (sled), `DaemonStore` (IPC), `MockStore` (tests)
+  - **Layer 2: Query Pipeline** (`query/`) — unified search via `QueryCriteria`, replacing `SearchParams` + `FilterCriteria` duality
+  - **Layer 3: Browse** — `BrowseSession` now owns `Arc<dyn TagStore>` instead of `&Database`
+  - **Layer 4: Commands** — all CLI commands use `&dyn TagStore` for backend-agnostic operation
+  - **Layer 5: TUI/Daemon** — top-level consumers of the layered API
 - **Smart Tag Completion Sorting** - Hierarchical tag completer with relevance ranking
   - Exact matches shown first (rank 0)
   - Prefix matches next (rank 1)  
@@ -19,15 +29,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Example: `lang:rust` appears before `project:rust-tools` when searching "rust"
 
 ### Changed
+
 - **Tag Completion Algorithm** - `complete_tags()` now uses `HierarchicalTagCompleter`
   - Previously: Simple prefix/contains filter with no relevance ranking
   - Now: Multi-tiered ranking with hierarchy awareness and edit distance scoring
+
+### Removed
+
+- **Dead code cleanup** — removed unused `IpcRequest`/`IpcResponse`/`NoteEntry` enums (superseded by wire types), deprecated `PreviewContent::to_display_string()`, dead re-export alias
+- **Clippy cleanup** — resolved all 126 clippy pedantic/nursery warnings across 32 files
+- Deleted `src/datasource.rs` (replaced by `store/` trait) and `src/search/` (replaced by `query/`)
 
 ## [0.10.0] - 2026-01-16
 
 ### Added
 
 #### Shell Completions (Complete)
+
 - **Static Completions** - Generate shell scripts for bash, zsh, fish, PowerShell, elvish
   - `tagr completions <shell>` - Generate completion script
   - ValueHint annotations for file/directory arguments
@@ -47,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enables smart cache invalidation
 
 #### File Notes (Complete)
+
 - **Markdown Notes for Files** - Attach rich text documentation to any file
   - Free-form markdown content with timestamps
   - Simple append-style workflow with chronological context
@@ -84,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Stored in `~/.config/tagr/config.toml`
 
 ### Changed
+
 - **Simplified TUI Architecture** - Major refactor for clarity
   - Removed `BrowsePhase` enum entirely (TagSelection vs FileSelection)
   - Always show 3-pane layout (tags | files | preview)
@@ -97,6 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Note preview shows markdown with timestamp highlighting
 
 ### Fixed
+
 - **Tag Tree Filtering** - Synchronized multi-pane filtering
   - Fuzzy search now filters both tags AND files simultaneously
   - Query filters tag tree by tag name substring matching
@@ -118,6 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Accurate CLI command representation in status bar
 
 ### Testing
+
 - 368 library tests passing (+14 from v0.9.0)
 - 43 integration tests passing (+6 from v0.9.0)
 - Comprehensive note functionality coverage:
@@ -133,6 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Tag Hierarchies and Aliases (Complete)
+
 - **Hierarchical Tags** - Organize tags with parent:child relationships using `:` delimiter
   - Example: `lang:rust:async` creates three-level hierarchy
   - Search expansion: searching `lang:rust` automatically includes `lang:rust:async`
@@ -243,6 +266,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 #### Ratatui TUI Migration (Complete)
+
 - **Replaced skim with ratatui + nucleo** - Complete TUI overhaul
   - Removed `skim` dependency entirely
   - Added `nucleo` for fast fuzzy matching (10-100x faster for large lists)
@@ -279,6 +303,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Preview Pane Feature (Phase 4 Complete)
+
 - **Interactive File Preview** - View file content in fuzzy finder before selecting
   - Real-time preview while navigating through files
   - Automatic text file detection with UTF-8 validation
@@ -318,6 +343,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Easy to add new preview providers
 
 #### Virtual Tags Feature (Complete)
+
 - **Dynamic Metadata Queries** - Query files by filesystem metadata without database storage
   - Time-based queries: modified, created, accessed timestamps
   - Size-based queries: size categories (tiny/small/medium/large/huge), ranges, specific sizes
@@ -398,6 +424,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Performance characteristics
 
 #### Saved Filters Feature (Complete)
+
 - **Filter Management CLI** - Complete command-line interface for filter operations
   - `tagr filter create <name>` - Create new filter with tags, patterns, exclusions
   - `tagr filter list` / `ls` - List all saved filters with descriptions
@@ -434,6 +461,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Warning when saving browse filter with no criteria
 
 #### Saved Filters and Bookmarks (Foundation)
+
 - **Filter Storage Infrastructure** - Core types and operations for saved search filters
 - `FilterManager` API - Idiomatic Rust interface for filter management
 - `FilterCriteria` - Stores search parameters (tags, patterns, modes, exclusions, regex flags)
@@ -449,6 +477,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 10 unit tests covering all CRUD operations and edge cases
 
 #### Interactive Browse Mode
+
 - Two-stage fuzzy finder for tag and file selection
 - Multi-select support via TAB key for both tags and files
 - Inline tag display: files shown with their tags (`file.txt [tag1, tag2]`)
@@ -461,6 +490,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keyboard-driven interface for efficient navigation
 
 #### Cleanup Feature
+
 - `cleanup` command to maintain database integrity
 - Detection of missing files (in database but not on filesystem)
 - Detection of untagged files (files with no tags)
@@ -471,6 +501,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Summary report showing total issues found and actions taken
 
 #### Database Management
+
 - Multiple database support
 - `db add <name> <path>` - Add new database
 - `db list` - List all configured databases
@@ -481,6 +512,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform-specific default paths (Linux, macOS, Windows)
 
 #### Library Interface
+
 - `lib.rs` exposing all modules for use as a library
 - Public API for database operations
 - Public API for interactive search/browse
@@ -489,6 +521,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 #### Performance Improvements - Multi-Tree Architecture
+
 - **100-1000x faster tag queries** using reverse indexing
 - Migrated from single sled tree to multiple trees:
   - `files` tree: file → tags mapping
@@ -500,6 +533,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Helper methods: `add_to_tag_index()`, `remove_from_tag_index()`
 
 #### Database API Enhancements
+
 - `insert_pair()` now maintains reverse index automatically
 - `remove()` cleans up reverse index entries
 - Added `find_by_all_tags()` - AND query (files with all specified tags)
@@ -511,12 +545,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-flush on drop for data durability
 
 #### CLI Improvements
+
 - Browse mode is now the default command
 - Short aliases for common commands (e.g., `b` for browse, `c` for cleanup)
 - Better error messages and user feedback
 - Quiet mode (`-q`) for suppressing informational output
 
 ### Fixed
+
 - Proper UTF-8 path handling with error messages
 - Automatic cleanup of reverse index when updating file tags
 - Removal of empty tag entries from reverse index
@@ -563,12 +599,14 @@ Operations:
 ### Trade-offs
 
 **Advantages**:
+
 - ✅ Much faster queries (O(1) vs O(n))
 - ✅ Scalable (performance independent of total files)
 - ✅ Tag listing is instant
 - ✅ Efficient complex queries (AND/OR operations)
 
 **Storage**:
+
 - ~50% more storage (files tree + tags tree)
 - Negligible for most use cases
 - ~1.5 MB for 10,000 files vs ~1 MB
@@ -598,6 +636,7 @@ for item in old_db.iter() {
 ## Dependencies
 
 ### Added
+
 - `chrono = "0.4"` - Date/time handling for filter timestamps
 - `nucleo = "0.5"` - Fast fuzzy matching engine
 - `ratatui = "0.30"` - Terminal UI framework
@@ -611,6 +650,7 @@ for item in old_db.iter() {
 ## Documentation
 
 ### New Documentation Files (Consolidated into README.md)
+
 - Interactive browse mode usage
 - Cleanup feature documentation
 - Database wrapper API guide
@@ -628,6 +668,7 @@ None at this time.
 ## Future Enhancements
 
 ### Potential Improvements
+
 - Tag statistics - Show file count per tag inline
 - Recent selections - Remember last used tags
 - Custom search queries - Complex tag expressions (e.g., `(rust AND web) OR python`)
@@ -677,4 +718,4 @@ This project evolved through several key phases:
 ## Support
 
 For issues, questions, or contributions, please visit the repository:
-https://github.com/xerinox/tagr
+<https://github.com/xerinox/tagr>

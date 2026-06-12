@@ -13,6 +13,8 @@ use std::path::PathBuf;
 use tagr::Pair;
 use tagr::browse::{BrowseConfig, BrowseController, BrowseSession};
 use tagr::db::Database;
+use tagr::store::DirectStore;
+use tagr::types::{TagName, TagrPath};
 use tagr::ui::ratatui_adapter::RatatuiFinder;
 
 /// Create sample files in a temporary directory
@@ -64,7 +66,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create temporary directory for sample files
     let temp_dir = PathBuf::from("example_browse_demo_files");
     let files = create_sample_files(&temp_dir)?;
-    println!("Created {} sample files in {:?}", files.len(), temp_dir);
+    println!(
+        "Created {} sample files in {}",
+        files.len(),
+        temp_dir.display()
+    );
 
     // Create and populate database
     let db = Database::open("example_browse_demo_db")?;
@@ -84,10 +90,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (filename, tags) in tags_map {
         let file_path = temp_dir.join(filename);
-        db.insert_pair(&Pair {
-            file: file_path,
-            tags: tags.iter().map(|s| (*s).to_string()).collect(),
-        })?;
+        let tagr_path = TagrPath::new(&file_path).expect("valid UTF-8 path");
+        let tag_names: Vec<TagName> = tags
+            .iter()
+            .map(|s| TagName::new(*s).expect("valid tag name"))
+            .collect();
+        db.insert_pair(&Pair::new(tagr_path, tag_names))?;
     }
 
     println!("Tagged {} files in database", files.len());
@@ -117,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create browse session with default configuration
     let config = BrowseConfig::default();
-    let session = BrowseSession::new(&db, config)?;
+    let session = BrowseSession::new(std::sync::Arc::new(DirectStore::new(db)), config)?;
 
     // Create finder and controller
     let finder = RatatuiFinder::new();
@@ -132,9 +140,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let has_files = !result.selected_files.is_empty();
             for file in result.selected_files {
-                let exists = file.exists();
+                let exists = file.as_path().exists();
                 let status = if exists { "✓" } else { "✗" };
-                println!("  {} {}", status, file.display());
+                println!("  {status} {file}");
             }
 
             if has_files {

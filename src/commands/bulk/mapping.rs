@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 
 use colored::Colorize;
@@ -5,7 +6,9 @@ use dialoguer::Confirm;
 
 use super::batch::{BatchFormat, format_mismatch_hint_parsed};
 use super::core::{BulkOpSummary, SkipReason};
-use crate::{Pair, TagrError, db::Database};
+use crate::TagrError;
+use crate::store::TagStore;
+use crate::types::TagName;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -22,12 +25,13 @@ pub struct TagMapping {
 /// or when mapping records are invalid (empty fields, wrong column count).
 #[allow(clippy::too_many_lines)]
 pub fn bulk_map_tags(
-    db: &Database,
+    store: &dyn TagStore,
     input_path: &Path,
     format: BatchFormat,
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let content = std::fs::read_to_string(input_path).map_err(|e| {
         TagrError::InvalidInput(format!("Failed to read {}: {}", input_path.display(), e))
@@ -39,20 +43,30 @@ pub fn bulk_map_tags(
     };
     if mappings.is_empty() {
         if !quiet {
-            println!("No valid tag mappings found in input.");
+            writeln!(writer, "No valid tag mappings found in input.")?;
         }
         return Ok(());
     }
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!("Would apply {} tag mapping(s):", mappings.len());
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(writer, "Would apply {} tag mapping(s):", mappings.len())?;
         for (i, m) in mappings.iter().enumerate().take(15) {
-            println!("  {}. '{}' → '{}'", i + 1, m.from.cyan(), m.to.green());
+            writeln!(
+                writer,
+                "  {}. '{}' → '{}'",
+                i + 1,
+                m.from.cyan(),
+                m.to.green()
+            )?;
         }
         if mappings.len() > 15 {
-            println!("  ... and {} more", mappings.len() - 15);
+            writeln!(writer, "  ... and {} more", mappings.len() - 15)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !yes {
@@ -66,7 +80,7 @@ pub fn bulk_map_tags(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -75,31 +89,34 @@ pub fn bulk_map_tags(
         if mapping.from == mapping.to {
             summary.add_skip();
             if !quiet {
-                println!("⊘ Skipped (identical): '{}'", mapping.from);
+                writeln!(writer, "⊘ Skipped (identical): '{}'", mapping.from)?;
             }
             continue;
         }
-        let files = db.find_by_tag(&mapping.from)?;
+        let from_tag = TagName::new(&mapping.from)?;
+        let files = store.find_by_tag(&from_tag)?;
         if files.is_empty() {
             summary.add_skip();
             if !quiet {
-                println!("⊘ Skipped (not found): '{}'", mapping.from);
+                writeln!(writer, "⊘ Skipped (not found): '{}'", mapping.from)?;
             }
             continue;
         }
         for file in files {
-            let Some(mut tags) = db.get_tags(&file)? else {
+            let Some(tags) = store.get_tags(&file)? else {
                 let _ = SkipReason::Other;
                 summary.add_skip();
                 continue;
             };
-            if !tags.iter().any(|t| t == &mapping.from) {
+            let tags_str: Vec<String> = tags.iter().map(|t| t.as_str().to_string()).collect();
+            if !tags_str.iter().any(|t| t == &mapping.from) {
                 summary.add_skip();
                 continue;
             }
-            let target_exists = tags.iter().any(|t| t == &mapping.to);
+            let target_exists = tags_str.iter().any(|t| t == &mapping.to);
+            let mut new_tag_strs = tags_str;
             let mut changed = false;
-            for t in &mut tags {
+            for t in &mut new_tag_strs {
                 if t == &mapping.from {
                     if target_exists {
                         *t = String::new();
@@ -113,37 +130,30 @@ pub fn bulk_map_tags(
                 summary.add_skip();
                 continue;
             }
-            let new_tags: Vec<String> = tags
+            let new_tags: Vec<TagName> = new_tag_strs
                 .into_iter()
                 .filter(|t| !t.is_empty())
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
-                .collect();
-            let pair = Pair {
-                file: file.clone(),
-                tags: new_tags,
-            };
-            match db.insert_pair(&pair) {
+                .map(|t| TagName::new(&t))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            match store.insert(&file, new_tags) {
                 Ok(()) => {
                     summary.add_success();
                     if !quiet {
-                        println!(
+                        writeln!(
+                            writer,
                             "✓ '{}' → '{}' in {}",
-                            mapping.from,
-                            mapping.to,
-                            file.display()
-                        );
+                            mapping.from, mapping.to, file
+                        )?;
                     }
                 }
                 Err(e) => {
-                    summary.add_error(format!("{}: {}", file.display(), e));
+                    summary.add_error(format!("{file}: {e}"));
                     if !quiet {
                         eprintln!(
                             "✗ Failed '{}' → '{}' in {}: {}",
-                            mapping.from,
-                            mapping.to,
-                            file.display(),
-                            e
+                            mapping.from, mapping.to, file, e
                         );
                     }
                 }
@@ -151,7 +161,7 @@ pub fn bulk_map_tags(
         }
     }
     if !quiet {
-        summary.print("Map Tags");
+        summary.print("Map Tags", writer)?;
     }
     Ok(())
 }

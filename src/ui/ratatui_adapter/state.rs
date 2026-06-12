@@ -2,17 +2,35 @@
 //!
 //! Manages all mutable state for the fuzzy finder interface,
 //! including items, selection, query, and UI mode.
-use crate::filters::TagMode;
+use crate::keybinds::actions::BrowseAction;
+use crate::ui::ratatui_adapter::events::EventResult;
 
-use crate::browse::ActiveFilter;
+use crate::config::PreviewConfig;
+use crate::types::{QueryCriteria, TagName};
 use crate::ui::output::MessageLevel;
+use crate::ui::ratatui_adapter::widgets::watch_rules_modal::DaemonInfo;
 use crate::ui::ratatui_adapter::widgets::{
     ConfirmDialogState, FileDetails, KeyHint, RefineSearchState, TagTreeState, TextInputState,
+    WatchRulesState,
 };
-use crate::ui::traits::PreviewConfig;
 use crate::ui::types::DisplayItem;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+/// Direction for cursor movement.
+#[derive(Clone, Copy)]
+enum Direction {
+    Up,
+    Down,
+}
+
+/// Tag filter operation type.
+#[derive(Clone, Copy)]
+enum TagFilterOp {
+    Include,
+    Exclude,
+}
 
 /// Current mode of the TUI application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -30,6 +48,8 @@ pub enum Mode {
     RefineSearch,
     /// File details modal is visible
     Details,
+    /// Watch rules modal is visible
+    WatchRules,
 }
 
 /// Which pane has focus during `TagSelection` phase
@@ -50,6 +70,16 @@ pub enum PreviewMode {
     File,
     /// Show note content preview
     Note,
+}
+
+/// Whether the TUI is backed by a direct sled store or the IPC daemon
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StoreMode {
+    /// Direct sled database access (single-process)
+    #[default]
+    Local,
+    /// IPC-backed access through the running daemon
+    Daemon,
 }
 
 /// A status message with timestamp for TTL-based expiry
@@ -82,7 +112,6 @@ impl StatusMessage {
 }
 
 /// Application state for the fuzzy finder
-#[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct AppState {
     /// All items available for selection
@@ -130,7 +159,7 @@ pub struct AppState {
     /// Tag schema for canonicalization (used in CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries
-    pub database: Option<std::sync::Arc<crate::db::Database>>,
+    pub database: Option<std::sync::Arc<dyn crate::store::TagStore>>,
     /// Which pane has focus (during `TagSelection` phase)
     pub focused_pane: FocusPane,
     /// File preview items (live query results)
@@ -148,7 +177,7 @@ pub struct AppState {
     /// Whether user is actively typing in search field (vs browsing filtered results)
     pub search_active: bool,
     /// Unified filter state (single source of truth for all filter criteria)
-    pub active_filter: ActiveFilter,
+    pub active_filter: QueryCriteria,
     /// The prompt to display in the search bar
     pub prompt: String,
     /// Static key hints for the help bar
@@ -159,6 +188,12 @@ pub struct AppState {
     pub preview_mode: PreviewMode,
     /// File details for the details modal
     pub file_details: Option<FileDetails>,
+    /// Pre-loaded note cache to avoid per-file IPC round-trips
+    pub note_cache: HashMap<PathBuf, crate::types::NoteRecord>,
+    /// Whether the session is backed by the daemon or a direct store
+    pub store_mode: StoreMode,
+    /// State for the watch rules modal (populated on demand)
+    pub watch_rules_state: Option<WatchRulesState>,
 }
 
 impl AppState {
@@ -168,7 +203,7 @@ impl AppState {
         items: Vec<DisplayItem>,
         multi_select: bool,
         tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
-        database: Option<std::sync::Arc<crate::db::Database>>,
+        database: Option<std::sync::Arc<dyn crate::store::TagStore>>,
         prompt: String,
         hints: Vec<KeyHint>,
         preview_config: Option<PreviewConfig>,
@@ -210,13 +245,43 @@ impl AppState {
             file_preview_selected: HashSet::new(),
             search_initiated_from: None,
             search_active: false,
-            active_filter: ActiveFilter::new(),
+            active_filter: QueryCriteria::default(),
             prompt,
             hints,
             preview_config,
             preview_mode: PreviewMode::File,
             file_details: None,
+            note_cache: HashMap::new(),
+            store_mode: StoreMode::default(),
+            watch_rules_state: None,
         }
+    }
+
+    /// Populate the note cache from the data source (single bulk fetch).
+    pub fn load_note_cache(&mut self) {
+        if let Some(ds) = &self.database
+            && let Ok(notes) = ds.list_all_notes()
+        {
+            self.note_cache.clear();
+            for (tagrpath, record) in notes {
+                let path = PathBuf::from(tagrpath.as_str());
+                // Also insert canonical form so lookups never need a syscall
+                if let Ok(canonical) = path.canonicalize()
+                    && canonical != path
+                {
+                    self.note_cache.insert(canonical, record.clone());
+                }
+                self.note_cache.insert(path, record);
+            }
+        }
+    }
+
+    /// Look up a cached note by path. Both raw and canonical forms are
+    /// pre-indexed at load time, so this is a pure `HashMap` lookup with
+    /// no filesystem syscalls.
+    #[must_use]
+    pub fn cached_note(&self, path: &std::path::Path) -> Option<&crate::types::NoteRecord> {
+        self.note_cache.get(path)
     }
 
     /// Move cursor up
@@ -316,7 +381,11 @@ impl AppState {
                 }
                 FocusPane::TagTree => {
                     // Return selected tags (for other operations)
-                    let tree_selections = self.tag_tree_selected_tags();
+                    let tree_selections: Vec<String> = self
+                        .tag_tree_selected_tags()
+                        .into_iter()
+                        .map(TagName::into_inner)
+                        .collect();
                     if !tree_selections.is_empty() {
                         return tree_selections;
                     }
@@ -649,6 +718,28 @@ impl AppState {
         self.file_details.as_ref()
     }
 
+    /// Enter watch rules modal — loads rules and probes daemon status
+    pub fn enter_watch_rules(&mut self) {
+        let rules = crate::watch::WatchConfig::load()
+            .map(|c| c.rules)
+            .unwrap_or_default();
+        let daemon_info = DaemonInfo::probe(self.store_mode);
+        self.watch_rules_state = Some(WatchRulesState::new(rules, daemon_info));
+        self.mode = Mode::WatchRules;
+    }
+
+    /// Exit watch rules modal
+    pub fn exit_watch_rules(&mut self) {
+        self.mode = Mode::Normal;
+        self.watch_rules_state = None;
+    }
+
+    /// Get immutable reference to watch rules state
+    #[must_use]
+    pub const fn watch_rules_state(&self) -> Option<&WatchRulesState> {
+        self.watch_rules_state.as_ref()
+    }
+
     // ============================================================================
     // Tag Tree Navigation Methods (TagSelection phase)
     // ============================================================================
@@ -675,7 +766,7 @@ impl AppState {
     /// In direct file selection mode, these are the tags selected in the tag tree
     /// that were used to filter the files shown in the file preview pane.
     #[must_use]
-    pub fn get_filtering_tags(&self) -> Vec<String> {
+    pub fn get_filtering_tags(&self) -> Vec<TagName> {
         self.tag_tree_selected_tags()
     }
 
@@ -733,9 +824,10 @@ impl AppState {
         let canonical_tags: Vec<String> = selected_tags
             .iter()
             .map(|tag| {
-                self.tag_schema
-                    .as_ref()
-                    .map_or_else(|| tag.clone(), |schema| schema.canonicalize(tag))
+                self.tag_schema.as_ref().map_or_else(
+                    || tag.as_str().to_owned(),
+                    |schema| schema.canonicalize(tag.as_str()),
+                )
             })
             .collect();
         let expanded_tags: Vec<String> = if let Some(ref schema) = self.tag_schema {
@@ -753,13 +845,14 @@ impl AppState {
         // Check if notes-only virtual tag is selected
         let has_notes_only = selected_tags
             .iter()
-            .any(|tag| tag == crate::browse::models::NOTES_ONLY_TAG);
+            .any(|tag| tag.as_str() == crate::browse::models::NOTES_ONLY_TAG);
 
         if has_notes_only {
             // Add files with notes but no tags
-            if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(db) {
+            if let Ok(notes_only_files) = crate::browse::query::get_notes_only_files(db.as_ref()) {
                 for item in notes_only_files {
-                    if let Some(path_str) = item.as_file_path().and_then(|p| p.to_str()) {
+                    if let Some(path_str) = item.as_file_path().map(crate::types::TagrPath::as_str)
+                    {
                         file_set.insert(path_str.to_string());
                     }
                 }
@@ -773,29 +866,31 @@ impl AppState {
             .collect();
 
         for tag in &regular_tags {
-            if let Ok(files) = db.find_by_tag(tag) {
+            if let Ok(tn) = crate::types::TagName::new(tag.as_str())
+                && let Ok(files) = db.find_by_tag(&tn)
+            {
                 for file in files {
-                    if let Some(file_str) = file.to_str() {
-                        file_set.insert(file_str.to_string());
-                    }
+                    file_set.insert(file.as_str().to_string());
                 }
             }
         }
 
         // Apply exclusion filter if any tags are excluded
-        if !self.active_filter.criteria.excludes.is_empty() {
+        let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
+        if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
-                // Get tags for this file
-                if let Ok(Some(file_tags)) = db.get_tags(std::path::Path::new(file_path)) {
-                    // Check if file has any excluded tags
-                    let has_excluded = file_tags
-                        .iter()
-                        .any(|tag| self.active_filter.criteria.excludes.contains(tag));
-                    !has_excluded
-                } else {
-                    // Files without tags pass through
-                    true
-                }
+                crate::types::TagrPath::new(file_path)
+                    .ok()
+                    .is_none_or(|tp| {
+                        if let Ok(Some(file_tags)) = db.get_tags(&tp) {
+                            let has_excluded = file_tags.iter().any(|tag| {
+                                excluded_set.iter().any(|ex| ex.as_str() == tag.as_str())
+                            });
+                            !has_excluded
+                        } else {
+                            true
+                        }
+                    })
             });
         }
 
@@ -814,18 +909,7 @@ impl AppState {
         self.file_preview_items = files
             .iter()
             .map(|path| {
-                // Check if file has a note
-                let has_note = self
-                    .database
-                    .as_ref()
-                    .and_then(|db| {
-                        std::path::Path::new(path)
-                            .canonicalize()
-                            .ok()
-                            .and_then(|canonical| db.get_note(&canonical).ok().flatten())
-                    })
-                    .is_some();
-
+                let has_note = self.cached_note(std::path::Path::new(path)).is_some();
                 let mut item = DisplayItem::new(path.clone(), path.clone(), path.clone());
                 item.metadata.has_note = has_note;
                 item
@@ -918,61 +1002,91 @@ impl AppState {
 
     /// Get selected tags from tag tree
     #[must_use]
-    pub fn tag_tree_selected_tags(&self) -> Vec<String> {
+    pub fn tag_tree_selected_tags(&self) -> Vec<TagName> {
         self.tag_tree_state
             .as_ref()
             .map_or_else(Vec::new, TagTreeState::selected_tag_paths)
     }
 
-    /// Sync tag tree `excluded_tags` from `ActiveFilter`
-    ///
-    /// Should be called whenever `active_filter` changes to keep UI in sync.
+    /// Sync tag tree `excluded_tags` directly from `QueryCriteria`
     pub fn sync_tag_tree_exclusions(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
             tree.excluded_tags = self
                 .active_filter
-                .criteria
-                .excludes
-                .iter()
+                .flat_exclude_tags()
+                .unwrap_or_default()
+                .into_iter()
                 .cloned()
                 .collect();
         }
     }
 
     /// Sync tag tree state from `active_filter` (both selected and excluded tags)
-    ///
-    /// This makes `active_filter` the single source of truth for tag filtering state.
-    /// Should be called whenever `active_filter` changes.
     pub fn sync_tag_tree_from_filter(&mut self) {
         if let Some(ref mut tree) = self.tag_tree_state {
-            tree.selected_tags = self.active_filter.criteria.tags.iter().cloned().collect();
+            tree.selected_tags = self
+                .active_filter
+                .flat_include_tags()
+                .unwrap_or_default()
+                .into_iter()
+                .cloned()
+                .collect();
             tree.excluded_tags = self
                 .active_filter
-                .criteria
-                .excludes
-                .iter()
+                .flat_exclude_tags()
+                .unwrap_or_default()
+                .into_iter()
                 .cloned()
                 .collect();
         }
     }
 
     /// Sync `active_filter` from tag tree state (reverse of `sync_tag_tree_from_filter`)
-    ///
-    /// This makes the tag tree the source of truth and updates `active_filter` to match.
-    /// Should be called when tag tree is initialized or manually modified.
     pub fn sync_filter_from_tag_tree(&mut self) {
         if let Some(ref tree) = self.tag_tree_state {
-            // Update include tags from tag tree selections
-            self.active_filter.criteria.tags = tree.selected_tags.iter().cloned().collect();
-            // Update exclude tags from tag tree exclusions
-            self.active_filter.criteria.excludes = tree.excluded_tags.iter().cloned().collect();
+            use crate::types::TagExpr;
 
-            // Set tag mode: Any (OR) when multiple tags selected, All (AND) for single tag
-            // This matches tagr's CLI default behavior (multiple -t flags use OR logic)
-            self.active_filter.criteria.tag_mode = if self.active_filter.criteria.tags.len() > 1 {
-                TagMode::Any
-            } else {
-                TagMode::All
+            let mut include_exprs: Vec<TagExpr> = tree
+                .selected_tags
+                .iter()
+                .cloned()
+                .map(TagExpr::Tag)
+                .collect();
+
+            let exclude_exprs: Vec<TagExpr> = tree
+                .excluded_tags
+                .iter()
+                .cloned()
+                .map(|t| TagExpr::Not(Box::new(TagExpr::Tag(t))))
+                .collect();
+
+            include_exprs.extend(exclude_exprs);
+
+            self.active_filter.tag_expr = match include_exprs.len() {
+                0 => None,
+                1 => include_exprs.into_iter().next(),
+                _ => {
+                    let use_any = matches!(&self.active_filter.tag_expr, Some(TagExpr::Or(_)));
+                    if use_any && tree.selected_tags.len() > 1 {
+                        let includes: Vec<_> = tree
+                            .selected_tags
+                            .iter()
+                            .cloned()
+                            .map(TagExpr::Tag)
+                            .collect();
+                        let excludes: Vec<_> = tree
+                            .excluded_tags
+                            .iter()
+                            .cloned()
+                            .map(|t| TagExpr::Not(Box::new(TagExpr::Tag(t))))
+                            .collect();
+                        let mut combined = vec![TagExpr::Or(includes)];
+                        combined.extend(excludes);
+                        Some(TagExpr::And(combined))
+                    } else {
+                        Some(TagExpr::And(include_exprs))
+                    }
+                }
             };
         }
     }
@@ -990,19 +1104,20 @@ impl AppState {
             return Some("tagr browse".to_string());
         }
 
-        // Use active_filter's Display impl to generate the base command
-        let mut cmd = format!("{}", self.active_filter);
+        // Use QueryCriteria's to_cli_string() for the base command
+        let mut cmd = self.active_filter.to_cli_string();
 
-        // Canonicalize tags for file count calculation
+        // Extract flat include tags for file count calculation
         let canonical_tags: Vec<String> = self
             .active_filter
-            .criteria
-            .tags
-            .iter()
+            .flat_include_tags()
+            .unwrap_or_default()
+            .into_iter()
             .map(|tag| {
-                self.tag_schema
-                    .as_ref()
-                    .map_or_else(|| tag.clone(), |schema| schema.canonicalize(tag))
+                self.tag_schema.as_ref().map_or_else(
+                    || tag.as_str().to_owned(),
+                    |schema| schema.canonicalize(tag.as_str()),
+                )
             })
             .collect();
 
@@ -1040,26 +1155,31 @@ impl AppState {
         let mut file_set = std::collections::HashSet::new();
 
         for tag in &expanded_tags {
-            if let Ok(files) = db.find_by_tag(tag) {
+            if let Ok(tn) = crate::types::TagName::new(tag.as_str())
+                && let Ok(files) = db.find_by_tag(&tn)
+            {
                 for file in files {
-                    if let Some(file_str) = file.to_str() {
-                        file_set.insert(file_str.to_string());
-                    }
+                    file_set.insert(file.as_str().to_string());
                 }
             }
         }
 
         // Apply exclusion filter if any tags are excluded
-        if !self.active_filter.criteria.excludes.is_empty() {
+        let excluded_set = self.active_filter.flat_exclude_tags().unwrap_or_default();
+        if !excluded_set.is_empty() {
             file_set.retain(|file_path| {
-                if let Ok(Some(file_tags)) = db.get_tags(std::path::Path::new(file_path)) {
-                    let has_excluded = file_tags
-                        .iter()
-                        .any(|tag| self.active_filter.criteria.excludes.contains(tag));
-                    !has_excluded
-                } else {
-                    true
-                }
+                crate::types::TagrPath::new(file_path)
+                    .ok()
+                    .is_none_or(|tp| {
+                        if let Ok(Some(file_tags)) = db.get_tags(&tp) {
+                            let has_excluded = file_tags.iter().any(|tag| {
+                                excluded_set.iter().any(|ex| ex.as_str() == tag.as_str())
+                            });
+                            !has_excluded
+                        } else {
+                            true
+                        }
+                    })
             });
         }
 
@@ -1108,6 +1228,374 @@ impl AppState {
                     tree.select_tag(&item.key);
                 }
             }
+        }
+    }
+
+    /// Execute a resolved `BrowseAction`, producing an `EventResult`.
+    ///
+    /// This is the single entry point for all action execution in normal mode.
+    /// Navigation, selection, search input, and configurable actions all flow
+    /// through this method.
+    #[allow(clippy::too_many_lines)]
+    pub fn execute_action(&mut self, action: BrowseAction) -> EventResult {
+        // Phase-gate configurable actions in tag selection phase
+        if action.is_configurable() && self.is_tag_selection_phase() {
+            let file_pane_focused = self.focused_pane == FocusPane::FilePreview;
+            if !file_pane_focused && !action.available_in_tag_phase() {
+                return EventResult::Ignored;
+            }
+        }
+
+        match action {
+            // === Configurable actions ===
+            BrowseAction::ToggleNotePreview => {
+                self.toggle_preview_mode();
+                EventResult::PreviewChanged
+            }
+            BrowseAction::ShowDetails => self.execute_show_details(),
+            BrowseAction::ShowHelp => {
+                self.mode = Mode::Help;
+                EventResult::Continue
+            }
+            BrowseAction::ShowWatchRules => {
+                self.enter_watch_rules();
+                EventResult::Continue
+            }
+            ref a if a.requires_special_handling() => {
+                let context = self.selected_keys();
+                EventResult::Action { action, context }
+            }
+            ref a if a.requires_input() => self.execute_input_action(a),
+            ref a if a.requires_confirmation() => self.execute_confirm_action(a),
+            // Immediate configurable actions (open, copy, etc.) and
+            // fallback for configurable actions already handled by requires_* guards above.
+            BrowseAction::Cancel
+            | BrowseAction::EditTags
+            | BrowseAction::OpenInDefault
+            | BrowseAction::OpenInEditor
+            | BrowseAction::CopyPath
+            | BrowseAction::CopyFiles
+            | BrowseAction::AddTag
+            | BrowseAction::RemoveTag
+            | BrowseAction::DeleteFromDb
+            | BrowseAction::EditNote
+            | BrowseAction::RefineSearch => {
+                let context = self.selected_keys();
+                EventResult::Action { action, context }
+            }
+
+            // === Navigation ===
+            BrowseAction::MoveUp => {
+                self.execute_move_in_active_pane(Direction::Up);
+                EventResult::Continue
+            }
+            BrowseAction::MoveDown => {
+                self.execute_move_in_active_pane(Direction::Down);
+                EventResult::Continue
+            }
+            BrowseAction::PageUp => {
+                self.page_up();
+                EventResult::Continue
+            }
+            BrowseAction::PageDown => {
+                self.page_down();
+                EventResult::Continue
+            }
+            BrowseAction::JumpStart => {
+                self.jump_to_start();
+                EventResult::Continue
+            }
+            BrowseAction::JumpEnd => {
+                self.jump_to_end();
+                EventResult::Continue
+            }
+            BrowseAction::ScrollPreviewUp => {
+                self.preview_scroll = self.preview_scroll.saturating_sub(1);
+                EventResult::Continue
+            }
+            BrowseAction::ScrollPreviewDown => {
+                self.preview_scroll += 1;
+                EventResult::Continue
+            }
+
+            // === Selection ===
+            BrowseAction::ToggleSelect => self.execute_toggle_select(),
+            BrowseAction::ToggleExclude => self.execute_toggle_exclude(),
+            BrowseAction::ExpandToggle => {
+                self.tag_tree_toggle_expand();
+                EventResult::Continue
+            }
+
+            // === Pane focus ===
+            BrowseAction::FocusLeft => {
+                if self.focused_pane == FocusPane::FilePreview {
+                    self.focused_pane = FocusPane::TagTree;
+                }
+                EventResult::Continue
+            }
+            BrowseAction::FocusRight => {
+                if self.focused_pane == FocusPane::TagTree {
+                    self.focused_pane = FocusPane::FilePreview;
+                }
+                EventResult::Continue
+            }
+            BrowseAction::Confirm => {
+                if self.is_tag_selection_phase() && self.focused_pane == FocusPane::TagTree {
+                    self.focused_pane = FocusPane::FilePreview;
+                    EventResult::Continue
+                } else {
+                    EventResult::Confirm
+                }
+            }
+            BrowseAction::Abort => EventResult::Abort,
+
+            // === Search ===
+            BrowseAction::EnterSearch => {
+                self.search_active = true;
+                EventResult::Continue
+            }
+            BrowseAction::ExitSearch => {
+                self.search_active = false;
+                self.search_initiated_from = None;
+                EventResult::Continue
+            }
+            BrowseAction::CharInput(c) => {
+                self.query_push(c);
+                EventResult::QueryChanged
+            }
+            BrowseAction::Backspace => {
+                if self.query.is_empty() {
+                    EventResult::Ignored
+                } else {
+                    self.query_backspace();
+                    EventResult::QueryChanged
+                }
+            }
+            BrowseAction::Delete => {
+                if self.query_cursor >= self.query.len() {
+                    EventResult::Ignored
+                } else {
+                    self.query_delete();
+                    EventResult::QueryChanged
+                }
+            }
+            BrowseAction::QueryCursorLeft => {
+                self.query_cursor_left();
+                EventResult::Continue
+            }
+            BrowseAction::QueryCursorRight => {
+                self.query_cursor_right();
+                EventResult::Continue
+            }
+            BrowseAction::ClearQuery => {
+                self.query_clear();
+                EventResult::QueryChanged
+            }
+            BrowseAction::DeleteWord => {
+                self.execute_delete_word();
+                EventResult::QueryChanged
+            }
+        }
+    }
+
+    /// Execute navigation in the currently focused pane.
+    fn execute_move_in_active_pane(&mut self, direction: Direction) {
+        if self.is_tag_selection_phase() {
+            match self.focused_pane {
+                FocusPane::TagTree => match direction {
+                    Direction::Up => self.tag_tree_move_up(),
+                    Direction::Down => self.tag_tree_move_down(),
+                },
+                FocusPane::FilePreview => match direction {
+                    Direction::Up => self.file_preview_cursor_up(),
+                    Direction::Down => self.file_preview_cursor_down(),
+                },
+            }
+        } else {
+            match direction {
+                Direction::Up => self.cursor_up(),
+                Direction::Down => self.cursor_down(),
+            }
+        }
+    }
+
+    /// Show file details modal for the currently focused file.
+    fn execute_show_details(&mut self) -> EventResult {
+        let file_path = if self.is_tag_selection_phase() {
+            if self.focused_pane == FocusPane::FilePreview {
+                self.file_preview_items
+                    .get(self.file_preview_cursor)
+                    .map(|item| std::path::PathBuf::from(&item.key))
+            } else {
+                None
+            }
+        } else {
+            self.current_key().map(std::path::PathBuf::from)
+        };
+
+        if let Some(path) = file_path {
+            let tags: Vec<String> = crate::types::TagrPath::new(&path)
+                .ok()
+                .and_then(|tp| {
+                    self.database
+                        .as_ref()
+                        .and_then(|db| db.get_tags(&tp).ok())
+                        .flatten()
+                        .map(|tv| tv.into_iter().map(|t| t.to_string()).collect())
+                })
+                .unwrap_or_default();
+
+            let note = self.cached_note(&path).cloned();
+
+            if let Ok(details) = FileDetails::from_path(&path, tags, note) {
+                self.enter_details(details);
+            }
+        }
+        EventResult::Continue
+    }
+
+    /// Open text input modal for actions that require input (`add_tag`, `remove_tag`).
+    fn execute_input_action(&mut self, action: &BrowseAction) -> EventResult {
+        let (title, _placeholder) = action.input_prompt();
+        let selected_keys = self.selected_keys();
+
+        let file_tags: Vec<String> = selected_keys
+            .iter()
+            .filter_map(|path| {
+                let tp = crate::types::TagrPath::new(path).ok()?;
+                self.database
+                    .as_ref()
+                    .and_then(|db| db.get_tags(&tp).ok())
+                    .flatten()
+                    .map(|tags| tags.into_iter().map(|t| t.to_string()).collect::<Vec<_>>())
+            })
+            .flatten()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let (autocomplete_items, excluded_tags) = match action {
+            BrowseAction::RemoveTag => (file_tags, Vec::new()),
+            BrowseAction::AddTag => (self.available_tags.clone(), file_tags),
+            _ => (Vec::new(), Vec::new()),
+        };
+
+        self.enter_text_input(
+            title,
+            action.as_str().to_string(),
+            autocomplete_items,
+            excluded_tags,
+            true,
+            selected_keys,
+        );
+        EventResult::Continue
+    }
+
+    /// Open confirmation dialog for actions that require confirmation (delete).
+    fn execute_confirm_action(&mut self, action: &BrowseAction) -> EventResult {
+        let selected_keys = self.selected_keys();
+        if selected_keys.is_empty() {
+            return EventResult::Ignored;
+        }
+        let (title, message) = action.confirmation_prompt();
+        self.enter_confirm(title, message, action.as_str().to_string(), selected_keys);
+        EventResult::Continue
+    }
+
+    /// Toggle tag inclusion in the active filter, handling parent/child propagation.
+    fn execute_toggle_select(&mut self) -> EventResult {
+        if self.is_tag_selection_phase() {
+            match self.focused_pane {
+                FocusPane::TagTree => {
+                    self.toggle_tag_filter(TagFilterOp::Include);
+                    self.sync_tag_tree_from_filter();
+                    self.update_file_preview();
+                    self.tag_tree_move_down();
+                }
+                FocusPane::FilePreview => {
+                    self.file_preview_toggle_selection();
+                    self.file_preview_cursor_down();
+                }
+            }
+        } else {
+            self.toggle_selection();
+            self.cursor_down();
+        }
+        EventResult::Continue
+    }
+
+    /// Toggle tag exclusion in the active filter, handling parent/child propagation.
+    fn execute_toggle_exclude(&mut self) -> EventResult {
+        if self.is_tag_selection_phase() {
+            match self.focused_pane {
+                FocusPane::TagTree => {
+                    self.toggle_tag_filter(TagFilterOp::Exclude);
+                    self.sync_tag_tree_exclusions();
+                    self.update_file_preview();
+                    self.tag_tree_move_down();
+                }
+                FocusPane::FilePreview => {
+                    self.file_preview_toggle_selection();
+                    self.file_preview_cursor_down();
+                }
+            }
+        } else {
+            self.toggle_selection();
+            self.cursor_down();
+        }
+        EventResult::Continue
+    }
+
+    /// Apply a tag filter operation (include/exclude) to the current tag tree node,
+    /// propagating to all descendant tags for parent nodes.
+    fn toggle_tag_filter(&mut self, op: TagFilterOp) {
+        let (current_tag, children, is_actual) = {
+            let Some(tree) = self.tag_tree_state.as_ref() else {
+                return;
+            };
+            let Some(tag) = tree.current_tag() else {
+                return;
+            };
+            let children = tree.get_all_descendant_tags(&tag);
+            let is_actual = tree.current_is_actual_tag();
+            (tag, children, is_actual)
+        };
+
+        // Convert string tag to TagName; skip if invalid (e.g. pseudo-tags)
+        let apply_toggle = |filter: &mut QueryCriteria, tag_str: &str| {
+            if let Ok(tag_name) = crate::types::TagName::new(tag_str) {
+                match op {
+                    TagFilterOp::Include => {
+                        filter.toggle_include_tag(tag_name);
+                    }
+                    TagFilterOp::Exclude => {
+                        filter.toggle_exclude_tag(&tag_name);
+                    }
+                }
+            }
+        };
+
+        if children.is_empty() {
+            apply_toggle(&mut self.active_filter, &current_tag);
+        } else {
+            if is_actual {
+                apply_toggle(&mut self.active_filter, &current_tag);
+            }
+            for child in &children {
+                apply_toggle(&mut self.active_filter, child.as_str());
+            }
+        }
+    }
+
+    /// Delete the word before the cursor in the search query.
+    fn execute_delete_word(&mut self) {
+        let trimmed = self.query[..self.query_cursor].trim_end();
+        if let Some(last_space) = trimmed.rfind(' ') {
+            self.query.drain(last_space + 1..self.query_cursor);
+            self.query_cursor = last_space + 1;
+        } else {
+            self.query.drain(..self.query_cursor);
+            self.query_cursor = 0;
         }
     }
 }
@@ -1240,5 +1728,313 @@ mod tests {
         let mut keys = state.selected_keys();
         keys.sort();
         assert_eq!(keys, vec!["item0", "item2"]);
+    }
+
+    // === execute_action tests ===
+
+    fn make_state_with_multi(count: usize) -> AppState {
+        AppState::new(
+            make_items(count),
+            true,
+            None,
+            None,
+            "> ".to_string(),
+            vec![],
+            None,
+        )
+    }
+
+    #[test]
+    fn test_execute_move_up_down() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(state.cursor, 0);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::MoveDown),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 1);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::MoveUp),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn test_execute_page_navigation() {
+        let mut state = make_state_with_multi(50);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::PageDown),
+            EventResult::Continue
+        );
+        assert!(state.cursor > 0);
+
+        let after_page_down = state.cursor;
+        assert_eq!(
+            state.execute_action(BrowseAction::PageUp),
+            EventResult::Continue
+        );
+        assert!(state.cursor < after_page_down);
+    }
+
+    #[test]
+    fn test_execute_jump_start_end() {
+        let mut state = make_state_with_multi(10);
+        state.cursor = 5;
+
+        assert_eq!(
+            state.execute_action(BrowseAction::JumpEnd),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 9);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::JumpStart),
+            EventResult::Continue
+        );
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn test_execute_preview_scroll() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(state.preview_scroll, 0);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ScrollPreviewDown),
+            EventResult::Continue
+        );
+        assert_eq!(state.preview_scroll, 1);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ScrollPreviewUp),
+            EventResult::Continue
+        );
+        assert_eq!(state.preview_scroll, 0);
+
+        // Saturating sub — doesn't underflow
+        assert_eq!(
+            state.execute_action(BrowseAction::ScrollPreviewUp),
+            EventResult::Continue
+        );
+        assert_eq!(state.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_execute_toggle_select() {
+        let mut state = make_state_with_multi(5);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ToggleSelect),
+            EventResult::Continue
+        );
+        assert!(state.is_selected(0));
+
+        // Moves cursor down after toggle
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn test_execute_enter_exit_search() {
+        let mut state = make_state_with_multi(5);
+        assert!(!state.search_active);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::EnterSearch),
+            EventResult::Continue
+        );
+        assert!(state.search_active);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ExitSearch),
+            EventResult::Continue
+        );
+        assert!(!state.search_active);
+    }
+
+    #[test]
+    fn test_execute_char_input() {
+        let mut state = make_state_with_multi(5);
+        state.search_active = true;
+
+        assert_eq!(
+            state.execute_action(BrowseAction::CharInput('r')),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "r");
+
+        assert_eq!(
+            state.execute_action(BrowseAction::CharInput('s')),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "rs");
+    }
+
+    #[test]
+    fn test_execute_backspace_delete() {
+        let mut state = make_state_with_multi(5);
+        state.query_push('a');
+        state.query_push('b');
+        state.query_push('c');
+
+        assert_eq!(
+            state.execute_action(BrowseAction::Backspace),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "ab");
+
+        // Delete at end = Ignored
+        assert_eq!(
+            state.execute_action(BrowseAction::Delete),
+            EventResult::Ignored
+        );
+
+        // Move cursor left, then delete works
+        state.query_cursor_left();
+        assert_eq!(
+            state.execute_action(BrowseAction::Delete),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "a");
+
+        // Backspace on empty = Ignored
+        state.query_clear();
+        assert_eq!(
+            state.execute_action(BrowseAction::Backspace),
+            EventResult::Ignored
+        );
+    }
+
+    #[test]
+    fn test_execute_clear_query() {
+        let mut state = make_state_with_multi(5);
+        state.query_push('t');
+        state.query_push('e');
+        state.query_push('s');
+        state.query_push('t');
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ClearQuery),
+            EventResult::QueryChanged
+        );
+        assert!(state.query.is_empty());
+        assert_eq!(state.query_cursor, 0);
+    }
+
+    #[test]
+    fn test_execute_delete_word() {
+        let mut state = make_state_with_multi(5);
+        // Type "hello world"
+        for c in "hello world".chars() {
+            state.query_push(c);
+        }
+
+        assert_eq!(
+            state.execute_action(BrowseAction::DeleteWord),
+            EventResult::QueryChanged
+        );
+        assert_eq!(state.query, "hello ");
+    }
+
+    #[test]
+    fn test_execute_query_cursor_movement() {
+        let mut state = make_state_with_multi(5);
+        state.query_push('a');
+        state.query_push('b');
+        assert_eq!(state.query_cursor, 2);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::QueryCursorLeft),
+            EventResult::Continue
+        );
+        assert_eq!(state.query_cursor, 1);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::QueryCursorRight),
+            EventResult::Continue
+        );
+        assert_eq!(state.query_cursor, 2);
+    }
+
+    #[test]
+    fn test_execute_abort() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(
+            state.execute_action(BrowseAction::Abort),
+            EventResult::Abort
+        );
+    }
+
+    #[test]
+    fn test_execute_confirm_non_tag_phase() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(
+            state.execute_action(BrowseAction::Confirm),
+            EventResult::Confirm
+        );
+    }
+
+    #[test]
+    fn test_execute_show_help() {
+        let mut state = make_state_with_multi(5);
+        assert_eq!(state.mode, Mode::Normal);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ShowHelp),
+            EventResult::Continue
+        );
+        assert_eq!(state.mode, Mode::Help);
+    }
+
+    #[test]
+    fn test_execute_toggle_note_preview() {
+        let mut state = make_state_with_multi(5);
+
+        assert_eq!(
+            state.execute_action(BrowseAction::ToggleNotePreview),
+            EventResult::PreviewChanged
+        );
+    }
+
+    #[test]
+    fn test_execute_special_handling_action() {
+        let mut state = make_state_with_multi(5);
+
+        let result = state.execute_action(BrowseAction::OpenInEditor);
+        assert_eq!(
+            result,
+            EventResult::Action {
+                action: BrowseAction::OpenInEditor,
+                context: vec!["item0".to_string()]
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_input_action() {
+        let mut state = make_state_with_multi(5);
+
+        let result = state.execute_action(BrowseAction::AddTag);
+        assert_eq!(result, EventResult::Continue);
+        assert_eq!(state.mode, Mode::Input);
+        assert!(state.text_input_state().is_some());
+    }
+
+    #[test]
+    fn test_execute_focus_pane_non_tag_phase() {
+        let mut state = make_state_with_multi(5);
+
+        // FocusLeft/Right are no-ops outside tag selection phase
+        assert_eq!(
+            state.execute_action(BrowseAction::FocusLeft),
+            EventResult::Continue
+        );
+        assert_eq!(
+            state.execute_action(BrowseAction::FocusRight),
+            EventResult::Continue
+        );
     }
 }

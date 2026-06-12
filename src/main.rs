@@ -42,175 +42,190 @@
 //! On first run, tagr will prompt for initial setup. Configuration is stored in
 //! the user's config directory (`~/.config/tagr/config.toml` on Linux).
 
+use std::io::IsTerminal;
+
 use clap::CommandFactory;
 use tagr::{
     TagrError,
-    cli::{AliasCommands, Cli, Commands, ConfigCommands, DbCommands, SearchParams},
+    cli::{Cli, Commands, ConfigCommands, DbCommands},
     commands, config,
     db::Database,
+    store::{DirectStore, StoreError},
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
 
+#[allow(dead_code)]
 fn required_arg(name: &'static str) -> TagrError {
     TagrError::InvalidInput(format!("Missing required argument '{name}'"))
 }
 
 /// Handle the db command - manage multiple databases
-#[allow(clippy::too_many_lines)]
-fn handle_db_command(
+fn handle_db_command(config: config::TagrConfig, command: &DbCommands, quiet: bool) -> Result<()> {
+    match command {
+        DbCommands::Add { name, path } => handle_db_add(config, name, path, quiet),
+        DbCommands::List => handle_db_list(&config, quiet),
+        DbCommands::Remove { name, delete_files } => {
+            handle_db_remove(config, name, *delete_files, quiet)
+        }
+        DbCommands::SetDefault { name } => handle_db_set_default(config, name, quiet),
+    }
+}
+
+fn handle_db_add(
     mut config: config::TagrConfig,
-    command: &DbCommands,
+    name: &str,
+    path: &std::path::Path,
     quiet: bool,
 ) -> Result<()> {
-    match command {
-        DbCommands::Add { name, path } => {
-            if config.get_database(name).is_some() {
-                if !quiet {
-                    eprintln!("Error: Database '{name}' already exists");
-                }
-                return Err(TagrError::InvalidInput(format!(
-                    "Database '{name}' already exists"
-                )));
-            }
-
-            let resolved_path = if path.components().count() == 1 {
-                let data_dir = dirs::data_local_dir().ok_or_else(|| {
-                    TagrError::InvalidInput("Could not determine data directory".into())
-                })?;
-                data_dir.join("tagr").join(path)
-            } else {
-                path.clone()
-            };
-
-            config.add_database(name.clone(), resolved_path.clone())?;
-
-            if !resolved_path.exists() {
-                std::fs::create_dir_all(&resolved_path)?;
-            }
-
-            if !quiet {
-                println!("Database '{name}' added at {}", resolved_path.display());
-            }
-
-            if config.databases.len() == 1 {
-                config.set_default_database(name.clone())?;
-                if !quiet {
-                    println!("Set '{name}' as default database");
-                }
-            }
-
-            // Invalidate completion cache since database list changed
-            #[cfg(feature = "dynamic-completions")]
-            tagr::completions::invalidate_database_cache();
+    if config.get_database(name).is_some() {
+        if !quiet {
+            eprintln!("Error: Database '{name}' already exists");
         }
-        DbCommands::List => {
-            if config.databases.is_empty() {
-                if !quiet {
-                    println!("No databases configured.");
-                    println!("Add one with: tagr db add <name> <path>");
-                }
-                return Ok(());
+        return Err(TagrError::InvalidInput(format!(
+            "Database '{name}' already exists"
+        )));
+    }
+
+    let resolved_path = if path.components().count() == 1 {
+        let data_dir = dirs::data_local_dir()
+            .ok_or_else(|| TagrError::InvalidInput("Could not determine data directory".into()))?;
+        data_dir.join("tagr").join(path)
+    } else {
+        path.to_path_buf()
+    };
+
+    config.add_database(name.to_string(), resolved_path.clone())?;
+
+    if !resolved_path.exists() {
+        std::fs::create_dir_all(&resolved_path)?;
+    }
+
+    if !quiet {
+        println!("Database '{name}' added at {}", resolved_path.display());
+    }
+
+    if config.databases.len() == 1 {
+        config.set_default_database(name.to_string())?;
+        if !quiet {
+            println!("Set '{name}' as default database");
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::unnecessary_wraps)] // consistent return type with other db handlers
+fn handle_db_list(config: &config::TagrConfig, quiet: bool) -> Result<()> {
+    if config.databases.is_empty() {
+        if !quiet {
+            println!("No databases configured.");
+            println!("Add one with: tagr db add <name> <path>");
+        }
+        return Ok(());
+    }
+
+    if !quiet {
+        println!("Configured databases:");
+    }
+
+    let default_db = config.get_default_database();
+    let mut db_names: Vec<_> = config.list_databases();
+    db_names.sort_unstable();
+
+    for name in db_names {
+        if let Some(path) = config.get_database(name) {
+            let is_default = default_db == Some(name);
+            let marker = if is_default { " (default)" } else { "" };
+
+            if quiet {
+                let prefix = if is_default { "* " } else { "" };
+                println!("{prefix}{name}");
+            } else {
+                println!("  {} -> {}{}", name, path.display(), marker);
             }
+        }
+    }
+    Ok(())
+}
 
-            if !quiet {
-                println!("Configured databases:");
-            }
+fn handle_db_remove(
+    mut config: config::TagrConfig,
+    name: &str,
+    delete_files: bool,
+    quiet: bool,
+) -> Result<()> {
+    if config.get_database(name).is_none() {
+        if !quiet {
+            eprintln!("Error: Database '{name}' does not exist");
+        }
+        return Err(TagrError::InvalidInput(format!(
+            "Database '{name}' does not exist"
+        )));
+    }
 
-            let default_db = config.get_default_database();
-            let mut db_names: Vec<_> = config.list_databases();
-            db_names.sort();
+    let is_default = config.get_default_database() == Some(name);
+    if is_default && !quiet {
+        println!("Warning: Removing the default database. You'll need to set a new default.");
+    }
 
-            for name in db_names {
-                if let Some(path) = config.get_database(name) {
-                    let is_default = default_db == Some(name);
-                    let marker = if is_default { " (default)" } else { "" };
+    let removed_path = config.remove_database(name)?;
 
-                    if quiet {
-                        println!("{name}");
-                    } else {
-                        println!("  {} -> {}{}", name, path.display(), marker);
+    if let Some(path) = removed_path {
+        if !quiet {
+            println!("Database '{name}' removed from configuration");
+        }
+
+        if delete_files {
+            if path.exists() {
+                match std::fs::remove_dir_all(&path) {
+                    Ok(()) => {
+                        if !quiet {
+                            println!("Database files deleted from {}", path.display());
+                        }
+                    }
+                    Err(e) => {
+                        if !quiet {
+                            eprintln!("Warning: Failed to delete database files: {e}");
+                        }
                     }
                 }
-            }
-        }
-        DbCommands::Remove { name, delete_files } => {
-            if config.get_database(name).is_none() {
-                if !quiet {
-                    eprintln!("Error: Database '{name}' does not exist");
-                }
-                return Err(TagrError::InvalidInput(format!(
-                    "Database '{name}' does not exist"
-                )));
-            }
-
-            let is_default = config.get_default_database() == Some(name);
-            if is_default && !quiet {
+            } else if !quiet {
                 println!(
-                    "Warning: Removing the default database. You'll need to set a new default."
+                    "Database files at {} do not exist (already deleted)",
+                    path.display()
                 );
             }
-
-            let removed_path = config.remove_database(name)?;
-
-            if let Some(path) = removed_path {
-                if !quiet {
-                    println!("Database '{name}' removed from configuration");
-                }
-
-                if *delete_files {
-                    if path.exists() {
-                        match std::fs::remove_dir_all(&path) {
-                            Ok(()) => {
-                                if !quiet {
-                                    println!("Database files deleted from {}", path.display());
-                                }
-                            }
-                            Err(e) => {
-                                if !quiet {
-                                    eprintln!("Warning: Failed to delete database files: {e}");
-                                }
-                            }
-                        }
-                    } else if !quiet {
-                        println!(
-                            "Database files at {} do not exist (already deleted)",
-                            path.display()
-                        );
-                    }
-                } else if !quiet {
-                    println!(
-                        "Note: Database files at {} were NOT deleted",
-                        path.display()
-                    );
-                }
-            }
-
-            if is_default {
-                config.default_database = None;
-                config.save()?;
-            }
-
-            // Invalidate completion cache since database list changed
-            #[cfg(feature = "dynamic-completions")]
-            tagr::completions::invalidate_database_cache();
+        } else if !quiet {
+            println!(
+                "Note: Database files at {} were NOT deleted",
+                path.display()
+            );
         }
-        DbCommands::SetDefault { name } => {
-            if config.get_database(name).is_none() {
-                if !quiet {
-                    eprintln!("Error: Database '{name}' does not exist");
-                }
-                return Err(TagrError::InvalidInput(format!(
-                    "Database '{name}' does not exist"
-                )));
-            }
+    }
 
-            config.set_default_database(name.clone())?;
+    if is_default {
+        config.default_database = None;
+        config.save()?;
+    }
 
-            if !quiet {
-                println!("Set '{name}' as default database");
-            }
+    Ok(())
+}
+
+fn handle_db_set_default(mut config: config::TagrConfig, name: &str, quiet: bool) -> Result<()> {
+    if config.get_database(name).is_none() {
+        if !quiet {
+            eprintln!("Error: Database '{name}' does not exist");
         }
+        return Err(TagrError::InvalidInput(format!(
+            "Database '{name}' does not exist"
+        )));
+    }
+
+    config.set_default_database(name.to_string())?;
+
+    if !quiet {
+        println!("Set '{name}' as default database");
     }
     Ok(())
 }
@@ -228,6 +243,7 @@ fn handle_db_command(
 ///
 /// Returns `TagrError` if the configuration key is invalid, value parsing fails,
 /// or configuration save fails.
+#[allow(clippy::too_many_lines)]
 fn handle_config_command(
     mut config: config::TagrConfig,
     command: &ConfigCommands,
@@ -262,9 +278,10 @@ fn handle_config_command(
                     let new_value = match value.to_lowercase().as_str() {
                         "absolute" | "abs" => config::PathFormat::Absolute,
                         "relative" | "rel" => config::PathFormat::Relative,
+                        "basename" | "base" => config::PathFormat::Basename,
                         _ => {
                             return Err(TagrError::InvalidInput(format!(
-                                "Invalid value for path_format: '{value}'. Use 'absolute' or 'relative'"
+                                "Invalid value for path_format: '{value}'. Use 'absolute', 'relative', or 'basename'"
                             )));
                         }
                     };
@@ -289,6 +306,7 @@ fn handle_config_command(
                 let value = match config.path_format {
                     config::PathFormat::Absolute => "absolute",
                     config::PathFormat::Relative => "relative",
+                    config::PathFormat::Basename => "basename",
                 };
                 println!("{value}");
             }
@@ -298,6 +316,42 @@ fn handle_config_command(
                 )));
             }
         },
+        ConfigCommands::Reset { key } => {
+            let defaults = config::TagrConfig::default();
+            match key.as_str() {
+                "quiet" => {
+                    config.quiet = defaults.quiet;
+                    config.save()?;
+                    if !quiet {
+                        println!("Reset quiet = {}", defaults.quiet);
+                    }
+                }
+                "path_format" | "path-format" => {
+                    config.path_format = defaults.path_format;
+                    config.save()?;
+                    if !quiet {
+                        println!("Reset path_format = {:?}", defaults.path_format);
+                    }
+                }
+                _ => {
+                    return Err(TagrError::InvalidInput(format!(
+                        "Unknown configuration key: '{key}'. Available keys: quiet, path_format"
+                    )));
+                }
+            }
+        }
+        ConfigCommands::List => {
+            let path_format = match config.path_format {
+                config::PathFormat::Absolute => "absolute",
+                config::PathFormat::Relative => "relative",
+                config::PathFormat::Basename => "basename",
+            };
+            println!("quiet = {}", config.quiet);
+            println!("path_format = {path_format}");
+            if let Some(ref db) = config.default_database {
+                println!("default_database = {db}");
+            }
+        }
     }
     Ok(())
 }
@@ -312,7 +366,15 @@ fn handle_config_command(
 /// Returns `TagrError` if configuration loading fails, database initialization fails,
 /// or any command handler returns an error.
 #[allow(clippy::too_many_lines)]
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn run() -> Result<()> {
     // Handle shell completion before anything else (when feature is enabled)
     #[cfg(feature = "dynamic-completions")]
     tagr::completions::init_dynamic_completions(Cli::command);
@@ -321,7 +383,7 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse_args();
 
-    let quiet = cli.quiet || config.quiet;
+    let quiet = cli.quiet || config.quiet || !std::io::stdout().is_terminal();
 
     let command = cli.get_command();
 
@@ -336,6 +398,81 @@ fn main() -> Result<()> {
         handle_db_command(config, command, quiet)?;
     } else if let Commands::Config { command } = &command {
         handle_config_command(config, command, quiet)?;
+    } else if let Commands::Filter {
+        command: filter_cmd,
+    } = &command
+    {
+        commands::filter::execute(filter_cmd, quiet)?;
+        // Best-effort notify daemon to reload config (filters changed)
+        notify_daemon_reload();
+    } else if let Commands::Alias { command: alias_cmd } = &command {
+        use tagr::cli::AliasCommands;
+        // SetCanonical needs DB access — route through normal store path
+        if matches!(alias_cmd, AliasCommands::SetCanonical { .. }) {
+            dispatch_alias_set_canonical(&command, &config, quiet)?;
+        } else {
+            let mut stdout = std::io::stdout();
+            commands::alias(alias_cmd, None, &mut stdout)
+                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            // Best-effort notify daemon to reload schema
+            notify_daemon_reload();
+        }
+    } else if let Commands::Watch { command: watch_cmd } = &command {
+        use commands::watch::{WatchCommands, WatchStartArgs};
+
+        // Internal daemon bootstrap: `tagr watch start --daemon [--daemonize]`
+        if let WatchCommands::Start(WatchStartArgs {
+            daemon: true,
+            daemonize,
+        }) = watch_cmd
+        {
+            #[cfg(unix)]
+            if *daemonize {
+                tagr::daemon::fallback::daemonize_self()
+                    .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            }
+
+            let db_name = command.get_db()
+                .or_else(|| config.get_default_database().map(ToString::to_string))
+                .ok_or_else(|| TagrError::InvalidInput(
+                    "Daemon requires a default database. Set one with: tagr db add <name> <path>".into(),
+                ))?;
+            let db_path = config.get_database(&db_name).ok_or_else(|| {
+                TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
+            })?;
+            let db = Database::open(db_path)?;
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                .init();
+            tagr::daemon::core::run(&db).map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+        } else {
+            let mut stdout = std::io::stdout();
+            match watch_cmd {
+                WatchCommands::Add(add_args) => {
+                    commands::watch::watch_add(add_args, &config, quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Remove { index } => {
+                    commands::watch::watch_remove(*index, quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::List => {
+                    commands::watch::watch_list(&mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Status => {
+                    commands::watch::watch_status(&mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Start(_) => {
+                    commands::watch::watch_start(&config, quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+                WatchCommands::Stop => {
+                    commands::watch::watch_stop(quiet, &mut stdout)
+                        .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+                }
+            }
+        }
     } else {
         let db_name = command
             .get_db()
@@ -348,347 +485,221 @@ fn main() -> Result<()> {
             TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
         })?;
 
-        let db = Database::open(db_path)?;
-
         // Determine path format: CLI override > config default
-        let path_format = if let Some(cli_format) = cli.get_path_format() {
-            match cli_format {
-                tagr::cli::PathFormat::Absolute => config::PathFormat::Absolute,
-                tagr::cli::PathFormat::Relative => config::PathFormat::Relative,
-            }
-        } else {
-            config.path_format
-        };
+        let path_format = cli.get_path_format().unwrap_or(config.path_format);
 
-        match &command {
-            Commands::Browse { filter_args, .. } => {
-                let ctx = command
-                    .get_browse_context()
-                    .ok_or_else(|| required_arg("browse context"))?;
-
-                let save_filter = filter_args
-                    .save_filter
-                    .as_ref()
-                    .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
-
-                commands::browse(
-                    &db,
-                    ctx.search_params,
-                    filter_args.filter.as_deref(),
-                    save_filter,
-                    ctx.execute_cmd,
-                    Some(&ctx.preview_overrides),
+        // Try to open the DB directly first — this is the fast path and works
+        // even when the daemon is running (sled allows a second reader only if
+        // the lock is available).  If the DB lock is held (daemon has it open),
+        // the open will fail with DatabaseLocked; in that case we fall back to
+        // forwarding the command over IPC.
+        match DirectStore::open(db_path) {
+            Ok(store) => {
+                let mut stdout = std::io::stdout();
+                commands::dispatch_command(
+                    &command,
+                    std::sync::Arc::new(store),
+                    &config,
                     path_format,
                     quiet,
+                    &mut stdout,
                 )?;
             }
-            Commands::Tag { .. } => {
-                let ctx = command
-                    .get_tag_context()
-                    .ok_or_else(|| required_arg("tag context"))?;
-                commands::tag(&db, ctx.file, &ctx.tags, ctx.no_canonicalize, quiet)?;
-            }
-            Commands::Search {
-                filter_args,
-                criteria,
-                ..
-            } => {
-                use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+            Err(StoreError::DatabaseLocked) => {
+                // DB is locked — forward to daemon if it is reachable.
+                let rt = tokio::runtime::Runtime::new().map_err(TagrError::IoError)?;
+                let daemon_running = rt
+                    .block_on(async {
+                        use tagr::daemon::DaemonManager;
+                        tagr::daemon::PlatformDaemonManager.is_running().await
+                    })
+                    .unwrap_or(false);
 
-                let params = command.get_search_params().ok_or_else(|| {
-                    TagrError::InvalidInput("Failed to parse search parameters".into())
-                })?;
-
-                let save_filter = filter_args
-                    .save_filter
-                    .as_ref()
-                    .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
-
-                // Determine if user explicitly provided mode flags
-                let has_explicit_tag_mode = criteria.any_tag || criteria.all_tags;
-                let has_explicit_file_mode = criteria.any_file || criteria.all_files;
-                let has_explicit_virtual_mode = criteria.any_virtual || criteria.all_virtual;
-
-                commands::search(
-                    &db,
-                    params,
-                    FilterConfig {
-                        apply: filter_args.filter.as_deref(),
-                        save: save_filter,
-                    },
-                    ExplicitFlags {
-                        tag_mode: has_explicit_tag_mode,
-                        file_mode: has_explicit_file_mode,
-                        virtual_mode: has_explicit_virtual_mode,
-                    },
-                    OutputConfig {
-                        format: path_format,
-                        quiet,
-                    },
-                )?;
-            }
-            Commands::Untag { .. } => {
-                let ctx = command
-                    .get_untag_context()
-                    .ok_or_else(|| required_arg("untag context"))?;
-                commands::tag::untag(&db, ctx.file, &ctx.tags, ctx.all, quiet)?;
-            }
-            Commands::Tags { command, .. } => {
-                commands::tags(&db, command, quiet)?;
-            }
-            Commands::Bulk { command, .. } => {
-                use tagr::cli::BulkCommands;
-
-                match command {
-                    BulkCommands::Tag {
-                        criteria,
-                        add_tags,
-                        conditions,
-                        dry_run,
-                        yes,
-                    } => {
-                        let params = SearchParams::from(criteria);
-                        commands::bulk::bulk_tag(
-                            &db, params, add_tags, conditions, *dry_run, *yes, quiet,
-                        )?;
-                    }
-                    BulkCommands::Untag {
-                        criteria,
-                        remove_tags,
-                        all,
-                        conditions,
-                        dry_run,
-                        yes,
-                    } => {
-                        let params = SearchParams::from(criteria);
-                        commands::bulk::bulk_untag(
-                            &db,
-                            params,
-                            remove_tags,
-                            *all,
-                            conditions,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::RenameTag {
-                        old_tag,
-                        new_tag,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::rename_tag(&db, old_tag, new_tag, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::MergeTags {
-                        source_tags,
-                        target_tag,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::merge_tags(
-                            &db,
-                            source_tags,
-                            target_tag,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::CopyTags {
-                        source,
-                        criteria,
-                        specific_tags,
-                        exclude,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::CopyTagsConfig;
-
-                        let params = SearchParams::from(criteria);
-                        let specific = if specific_tags.is_empty() {
-                            None
-                        } else {
-                            Some(specific_tags.as_slice())
-                        };
-
-                        commands::bulk::copy_tags(
-                            &db,
-                            source,
-                            params,
-                            CopyTagsConfig {
-                                specific_tags: specific,
-                                exclude_tags: exclude,
-                                dry_run: *dry_run,
-                                yes: *yes,
-                                quiet,
-                            },
-                        )?;
-                    }
-                    BulkCommands::FromFile {
-                        input,
-                        format,
-                        delimiter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::BatchFormat;
-
-                        let fmt = match format {
-                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
-                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
-                        };
-                        commands::bulk::batch_from_file(&db, input, fmt, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::MapTags {
-                        input,
-                        format,
-                        delimiter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::BatchFormat;
-                        let fmt = match format {
-                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
-                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
-                        };
-                        commands::bulk::bulk_map_tags(&db, input, fmt, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::DeleteFiles {
-                        input,
-                        format,
-                        delimiter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use tagr::commands::bulk::BatchFormat;
-                        let fmt = match format {
-                            tagr::cli::BatchFormatArg::Text => BatchFormat::PlainText,
-                            tagr::cli::BatchFormatArg::Csv => BatchFormat::Csv(*delimiter),
-                            tagr::cli::BatchFormatArg::Json => BatchFormat::Json,
-                        };
-                        commands::bulk::bulk_delete_files(&db, input, fmt, *dry_run, *yes, quiet)?;
-                    }
-                    BulkCommands::PropagateByDir {
-                        root,
-                        mappings,
-                        hierarchy,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::propagate_by_directory(
-                            &db,
-                            root.as_deref(),
-                            mappings,
-                            *hierarchy,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::PropagateByExt {
-                        mappings,
-                        no_defaults,
-                        dry_run,
-                        yes,
-                    } => {
-                        commands::bulk::propagate_by_extension(
-                            &db,
-                            mappings,
-                            *no_defaults,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
-                    }
-                    BulkCommands::Transform {
-                        transformation,
-                        param,
-                        replacement,
-                        filter,
-                        dry_run,
-                        yes,
-                    } => {
-                        use commands::bulk::TagTransformation;
-                        use tagr::cli::TransformationType;
-
-                        let required_param = |name: &'static str| -> Result<String> {
-                            param.clone().ok_or_else(|| required_arg(name))
-                        };
-
-                        let trans = match transformation {
-                            TransformationType::Lowercase => TagTransformation::Lowercase,
-                            TransformationType::Uppercase => TagTransformation::Uppercase,
-                            TransformationType::KebabCase => TagTransformation::KebabCase,
-                            TransformationType::SnakeCase => TagTransformation::SnakeCase,
-                            TransformationType::CamelCase => TagTransformation::CamelCase,
-                            TransformationType::PascalCase => TagTransformation::PascalCase,
-                            TransformationType::AddPrefix => {
-                                TagTransformation::AddPrefix(required_param("param")?)
+                if !daemon_running {
+                    // Daemon not running but DB appears locked — likely a stale advisory
+                    // lock from a crashed or ungracefully killed daemon. On Linux, flock
+                    // advisory locks are released immediately when the holding process
+                    // exits, but a brief retry loop handles edge cases such as zombie
+                    // processes that haven't been reaped yet.
+                    for _ in 0..5u8 {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        match DirectStore::open(db_path) {
+                            Ok(store) => {
+                                let mut stdout = std::io::stdout();
+                                return commands::dispatch_command(
+                                    &command,
+                                    std::sync::Arc::new(store),
+                                    &config,
+                                    path_format,
+                                    quiet,
+                                    &mut stdout,
+                                );
                             }
-                            TransformationType::AddSuffix => {
-                                TagTransformation::AddSuffix(required_param("param")?)
-                            }
-                            TransformationType::RemovePrefix => {
-                                TagTransformation::RemovePrefix(required_param("param")?)
-                            }
-                            TransformationType::RemoveSuffix => {
-                                TagTransformation::RemoveSuffix(required_param("param")?)
-                            }
-                            TransformationType::RegexReplace => TagTransformation::RegexReplace {
-                                pattern: required_param("param")?,
-                                replacement: replacement
-                                    .clone()
-                                    .ok_or_else(|| required_arg("replacement"))?,
-                            },
-                        };
-
-                        let filter_tags = if filter.is_empty() {
-                            None
-                        } else {
-                            Some(filter.as_slice())
-                        };
-
-                        commands::bulk::transform_tags(
-                            &db,
-                            &trans,
-                            filter_tags,
-                            *dry_run,
-                            *yes,
-                            quiet,
-                        )?;
+                            Err(StoreError::DatabaseLocked) => {}
+                            Err(other) => return Err(store_error_to_tagr(other)),
+                        }
                     }
+                    return Err(TagrError::InvalidInput(
+                        "Database is locked and the daemon is not responding. \
+                         Try `tagr watch --stop` then retry."
+                            .into(),
+                    ));
                 }
+
+                // Forward command to daemon via typed IPC and render locally.
+                dispatch_via_ipc(&rt, &command, path_format, quiet)?;
             }
-            Commands::Cleanup { .. } => {
-                commands::cleanup(&db, path_format, quiet)?;
-            }
-            Commands::List { variant, .. } => {
-                commands::list(&db, *variant, path_format, quiet)?;
-            }
-            Commands::Note { command, .. } => {
-                command.execute(&db, &config, path_format)?;
-            }
-            Commands::Filter { command } => {
-                // Filter management doesn't need database access
-                commands::filter(command, quiet)?;
-            }
-            Commands::Alias { command } => {
-                // Pass database to set-canonical command, None to others
-                let db_ref = match command {
-                    AliasCommands::SetCanonical { .. } => Some(&db),
-                    _ => None,
-                };
-                commands::alias(command, db_ref)
-                    .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
-            }
-            Commands::Db { .. } | Commands::Config { .. } | Commands::Completions { .. } => {
-                unreachable!()
-            }
+            Err(other) => return Err(store_error_to_tagr(other)),
         }
     }
 
     Ok(())
+}
+
+/// Best-effort notification to daemon to reload config/schema/filters.
+/// Silently ignores connection errors (daemon may not be running).
+fn notify_daemon_reload() {
+    // Try to connect and send a Ping (lightweight check that daemon is alive).
+    // A full ReloadConfig message would be better, but for now we rely on the
+    // daemon re-reading config on next relevant operation.
+    // TODO: Add Request::ReloadConfig to wire protocol for explicit reload.
+    let Ok(rt) = tokio::runtime::Runtime::new() else {
+        return;
+    };
+    rt.block_on(async {
+        use tagr::daemon::DaemonManager;
+        // If daemon is running, it will pick up config changes on next request.
+        // For now this is a no-op placeholder until ReloadConfig is added.
+        let _ = tagr::daemon::PlatformDaemonManager.is_running().await;
+    });
+}
+
+/// Handle `alias set-canonical` which needs DB access.
+/// Uses the same DirectStore/IPC fallback as other DB commands.
+fn dispatch_alias_set_canonical(
+    command: &tagr::cli::Commands,
+    config: &config::TagrConfig,
+    _quiet: bool,
+) -> Result<()> {
+    let Commands::Alias { command: alias_cmd } = command else {
+        return Ok(());
+    };
+
+    let db_name = command
+        .get_db()
+        .or_else(|| config.get_default_database().map(ToString::to_string))
+        .ok_or_else(|| {
+            TagrError::InvalidInput(
+                "No default database set. Use 'tagr db add <name> <path>' to create one.".into(),
+            )
+        })?;
+
+    let db_path = config.get_database(&db_name).ok_or_else(|| {
+        TagrError::InvalidInput(format!("Database '{db_name}' not found in configuration"))
+    })?;
+
+    match DirectStore::open(db_path) {
+        Ok(store) => {
+            let mut stdout = std::io::stdout();
+            commands::alias(alias_cmd, Some(&store), &mut stdout)
+                .map_err(|e| TagrError::InvalidInput(e.to_string()))?;
+            notify_daemon_reload();
+            Ok(())
+        }
+        Err(StoreError::DatabaseLocked) => {
+            // For set-canonical in daemon mode, we need store access via IPC.
+            // For now, inform the user to stop the daemon first.
+            Err(TagrError::InvalidInput(
+                "alias set-canonical requires direct DB access. Stop the daemon first: `tagr watch stop`".into(),
+            ))
+        }
+        Err(other) => Err(store_error_to_tagr(other)),
+    }
+}
+
+/// Map a [`StoreError`] to [`TagrError`] for the main entry point.
+///
+/// Temporary bridge — will be removed when commands accept `&dyn TagStore`
+/// and return `StoreError` directly (Phase 5.2+).
+fn store_error_to_tagr(err: StoreError) -> TagrError {
+    match err {
+        StoreError::DatabaseLocked => {
+            TagrError::InvalidInput("Database is locked by another process.".into())
+        }
+        StoreError::IoFailed { context, source } => {
+            TagrError::InvalidInput(format!("{context}: {source}"))
+        }
+        other => TagrError::InvalidInput(other.to_string()),
+    }
+}
+
+/// Forward a command to the daemon via `DaemonStore` (IPC-backed `TagStore`).
+fn dispatch_via_ipc(
+    _rt: &tokio::runtime::Runtime,
+    command: &tagr::cli::Commands,
+    path_format: config::PathFormat,
+    quiet: bool,
+) -> Result<()> {
+    use tagr::cli::Commands;
+
+    // Commands that benefit from full dispatch_command (warnings, formatting, interactivity)
+    // are routed through DaemonStore which implements TagStore via IPC.
+    match command {
+        Commands::Search { .. }
+        | Commands::List { .. }
+        | Commands::File { .. }
+        | Commands::Cleanup { .. }
+        | Commands::Tags { .. }
+        | Commands::Note { .. }
+        | Commands::Bulk { .. }
+        | Commands::Tag { .. }
+        | Commands::Untag { .. } => {
+            let store = tagr::store::DaemonStore::connect().map_err(|e| {
+                TagrError::InvalidInput(format!("Failed to connect to daemon: {e}"))
+            })?;
+            let config = tagr::config::TagrConfig::load().unwrap_or_default();
+            let mut stdout = std::io::stdout();
+            return commands::dispatch_command(
+                command,
+                std::sync::Arc::new(store),
+                &config,
+                path_format,
+                quiet,
+                &mut stdout,
+            );
+        }
+        _ => {}
+    }
+
+    // Only Browse reaches here — it has its own DaemonStore setup
+    if let Commands::Browse { filter_args, .. } = command {
+        let ctx = command.get_browse_context().ok_or_else(|| {
+            TagrError::InvalidInput("Failed to extract browse context from command".into())
+        })?;
+
+        let store = tagr::store::DaemonStore::connect()
+            .map_err(|e| TagrError::InvalidInput(format!("Failed to connect to daemon: {e}")))?;
+
+        let save_filter = filter_args
+            .save_filter
+            .as_ref()
+            .map(|name| (name.as_str(), filter_args.filter_desc.as_deref()));
+
+        return commands::browse::execute(
+            std::sync::Arc::new(store),
+            ctx.search_criteria,
+            filter_args.filter.as_deref(),
+            save_filter,
+            ctx.execute_cmd,
+            ctx.selected_output.as_ref(),
+            Some(&ctx.preview_overrides),
+            &path_format,
+            quiet,
+            tagr::ui::ratatui_adapter::StoreMode::Daemon,
+        );
+    }
+
+    Err(TagrError::InvalidInput(
+        "This command is not supported while the daemon is running".into(),
+    ))
 }

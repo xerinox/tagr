@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::io::Write;
 
 use colored::Colorize;
 use dialoguer::Confirm;
@@ -7,8 +7,9 @@ use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use regex::Regex;
 
 use super::core::BulkOpSummary;
-use crate::db::Database;
-use crate::{Pair, TagrError};
+use crate::TagrError;
+use crate::store::TagStore;
+use crate::types::{TagName, TagrPath};
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -33,7 +34,7 @@ pub enum TagTransformation {
 
 impl TagTransformation {
     /// Apply transformation to a tag
-    fn apply(&self, tag: &str) -> Result<String> {
+    pub(crate) fn apply(&self, tag: &str) -> Result<String> {
         Ok(match self {
             Self::Lowercase => tag.to_lowercase(),
             Self::Uppercase => tag.to_uppercase(),
@@ -74,17 +75,18 @@ impl TagTransformation {
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::missing_panics_doc)]
 pub fn transform_tags(
-    db: &Database,
+    store: &dyn TagStore,
     transformation: &TagTransformation,
     filter_tags: Option<&[String]>,
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
-    let all_pairs = db.list_all()?;
+    let all_pairs = store.list_all()?;
     let mut all_tags: HashSet<String> = HashSet::new();
     for pair in &all_pairs {
-        all_tags.extend(pair.tags.iter().cloned());
+        all_tags.extend(pair.tags.iter().map(|t| t.as_str().to_string()));
     }
 
     let tags_to_transform: Vec<String> = if let Some(filter) = filter_tags {
@@ -98,7 +100,7 @@ pub fn transform_tags(
 
     if tags_to_transform.is_empty() {
         if !quiet {
-            println!("No tags found to transform.");
+            writeln!(writer, "No tags found to transform.")?;
         }
         return Ok(());
     }
@@ -128,43 +130,56 @@ pub fn transform_tags(
 
     if tag_mapping.is_empty() {
         if !quiet {
-            println!("No transformations to apply (all tags unchanged).");
+            writeln!(writer, "No transformations to apply (all tags unchanged).")?;
         }
         return Ok(());
     }
 
     if !conflicts.is_empty() && !quiet {
-        println!("{}", "Warning: Tag collisions detected:".yellow().bold());
+        writeln!(
+            writer,
+            "{}",
+            "Warning: Tag collisions detected:".yellow().bold()
+        )?;
         for (new_tag, old_tags) in &conflicts {
-            println!("  {} ← {}", new_tag.cyan(), old_tags.join(", "));
+            writeln!(writer, "  {} ← {}", new_tag.cyan(), old_tags.join(", "))?;
         }
-        println!();
+        writeln!(writer)?;
     }
 
-    let mut affected_files: HashSet<PathBuf> = HashSet::new();
+    let mut affected_files: HashSet<TagrPath> = HashSet::new();
     for pair in &all_pairs {
-        if pair.tags.iter().any(|t| tag_mapping.contains_key(t)) {
+        if pair
+            .tags
+            .iter()
+            .any(|t| tag_mapping.contains_key(t.as_str()))
+        {
             affected_files.insert(pair.file.clone());
         }
     }
 
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would transform {} tag(s) affecting {} file(s)",
             tag_mapping.len(),
             affected_files.len()
-        );
-        println!("\n{}", "Tag transformations:".bold());
+        )?;
+        writeln!(writer, "\n{}", "Tag transformations:".bold())?;
         let mut mappings: Vec<_> = tag_mapping.iter().collect();
         mappings.sort_by_key(|(old, _)| old.as_str());
         for (i, (old_tag, new_tag)) in mappings.iter().enumerate().take(20) {
-            println!("  {}. {} → {}", i + 1, old_tag, new_tag.cyan());
+            writeln!(writer, "  {}. {} → {}", i + 1, old_tag, new_tag.cyan())?;
         }
         if tag_mapping.len() > 20 {
-            println!("  ... and {} more", tag_mapping.len() - 20);
+            writeln!(writer, "  ... and {} more", tag_mapping.len() - 20)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
 
@@ -179,7 +194,7 @@ pub fn transform_tags(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -187,43 +202,48 @@ pub fn transform_tags(
     let mut summary = BulkOpSummary::new();
 
     for pair in all_pairs {
-        let has_affected_tags = pair.tags.iter().any(|t| tag_mapping.contains_key(t));
+        let has_affected_tags = pair
+            .tags
+            .iter()
+            .any(|t| tag_mapping.contains_key(t.as_str()));
         if !has_affected_tags {
             continue;
         }
 
-        let new_tags: Vec<String> = pair
+        let new_tags: Vec<TagName> = pair
             .tags
             .iter()
-            .map(|t| tag_mapping.get(t).cloned().unwrap_or_else(|| t.clone()))
-            .collect::<HashSet<_>>() // Deduplicate in case of merges
+            .map(|t| {
+                tag_mapping
+                    .get(t.as_str())
+                    .map_or_else(|| Ok(t.clone()), TagName::new)
+            })
+            .collect::<std::result::Result<HashSet<_>, _>>()? // Deduplicate in case of merges
             .into_iter()
             .collect();
 
-        let new_pair = Pair {
-            file: pair.file.clone(),
-            tags: new_tags,
-        };
-
-        match db.insert_pair(&new_pair) {
+        match store.insert(&pair.file, new_tags) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Transformed tags in: {}", pair.file.display());
+                    writeln!(writer, "✓ Transformed tags in: {}", pair.file)?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", pair.file.display(), e));
+                summary.add_error(format!("{}: {}", pair.file, e));
                 if !quiet {
-                    eprintln!("✗ Failed to transform {}: {}", pair.file.display(), e);
+                    eprintln!("✗ Failed to transform {}: {}", pair.file, e);
                 }
             }
         }
     }
 
     if !quiet {
-        summary.print("Transform Tags");
+        summary.print("Transform Tags", writer)?;
     }
+
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
 
     Ok(())
 }

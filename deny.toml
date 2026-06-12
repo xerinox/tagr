@@ -6,9 +6,10 @@ version = 2
 ignore = [
     "RUSTSEC-2025-0057",  # fxhash unmaintained (via sled)
     "RUSTSEC-2024-0384",  # instant unmaintained (via sled)
-    "RUSTSEC-2025-0120",  # json5 unmaintained (via config)
     "RUSTSEC-2024-0320",  # yaml-rust unmaintained (via syntect)
     "RUSTSEC-2025-0141",  # bincode unmaintained (via syntect)
+    "RUSTSEC-2023-0089",  # atomic-polyfill unmaintained (via postcard -> heapless)
+    "RUSTSEC-2025-0069",  # daemonize unmaintained (used directly on unix)
 ]
 
 [licenses]
@@ -24,6 +25,8 @@ allow = [
     "BSL-1.0",
     "MPL-2.0",
     "Unicode-3.0",
+    "0BSD",
+    "CC0-1.0",
 ]
 
 [bans]

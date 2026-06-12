@@ -1,12 +1,14 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::Path;
 
 use colored::Colorize;
 use dialoguer::Confirm;
 
 use super::core::BulkOpSummary;
 use crate::TagrError;
-use crate::db::Database;
+use crate::store::TagStore;
+use crate::types::{TagName, TagrPath};
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -56,7 +58,7 @@ static DEFAULT_EXT_MAPPINGS: &[(&str, &[&str])] = &[
 ];
 
 /// Parse a directory-to-tag mapping string in "dir:tag" format
-fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
+pub(super) fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
     let (dir, tag) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!("Invalid mapping format '{s}'. Expected 'dir:tag'"))
     })?;
@@ -64,7 +66,7 @@ fn parse_dir_mapping(s: &str) -> Result<(String, String)> {
 }
 
 /// Parse an extension-to-tags mapping string in "ext:tag1,tag2" format
-fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
+pub(super) fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
     let (ext, tags_str) = s.split_once(':').ok_or_else(|| {
         TagrError::InvalidInput(format!(
             "Invalid mapping format '{s}'. Expected 'ext:tag1,tag2'"
@@ -97,13 +99,14 @@ fn parse_ext_mapping(s: &str) -> Result<(String, Vec<String>)> {
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn propagate_by_directory(
-    db: &Database,
+    store: &dyn TagStore,
     root: Option<&Path>,
     custom_mappings: &[String],
     hierarchy: bool,
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     // Parse custom mappings
     let custom_map: HashMap<String, String> = custom_mappings
@@ -111,14 +114,15 @@ pub fn propagate_by_directory(
         .map(|s| parse_dir_mapping(s))
         .collect::<Result<HashMap<_, _>>>()?;
 
-    // Get all files from database
-    let all_files: Vec<PathBuf> = db.list_all()?.into_iter().map(|p| p.file).collect();
+    // Get all files from store
+    let all_pairs = store.list_all()?;
+    let all_files: Vec<TagrPath> = all_pairs.into_iter().map(|p| p.file).collect();
 
     // Filter by root if specified
-    let files: Vec<PathBuf> = if let Some(root_path) = root {
+    let files: Vec<TagrPath> = if let Some(root_path) = root {
         all_files
             .into_iter()
-            .filter(|f| f.starts_with(root_path))
+            .filter(|f| f.as_path().starts_with(root_path))
             .collect()
     } else {
         all_files
@@ -126,44 +130,37 @@ pub fn propagate_by_directory(
 
     if files.is_empty() {
         if !quiet {
-            println!("No files found in database.");
+            writeln!(writer, "No files found in database.")?;
         }
         return Ok(());
     }
 
     // Build file -> tags mapping
-    let mut file_tags: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    let mut file_tags: HashMap<TagrPath, Vec<String>> = HashMap::new();
 
     for file in &files {
         let mut tags_to_add = Vec::new();
+        let path = file.as_path();
 
         if hierarchy {
-            // Add tags from all parent directories
-            let mut current = file.parent();
+            let mut current = path.parent();
             while let Some(dir) = current {
                 if let Some(dir_name) = dir.file_name().and_then(|n| n.to_str()) {
-                    // Check custom mappings first
                     if let Some(tag) = custom_map.get(dir_name) {
                         tags_to_add.push(tag.clone());
                     } else {
-                        // Use directory name as tag
                         tags_to_add.push(dir_name.to_string());
                     }
                 }
                 current = dir.parent();
             }
-        } else {
-            // Only add tag from immediate parent directory
-            if let Some(parent) = file.parent()
-                && let Some(dir_name) = parent.file_name().and_then(|n| n.to_str())
-            {
-                // Check custom mappings first
-                if let Some(tag) = custom_map.get(dir_name) {
-                    tags_to_add.push(tag.clone());
-                } else {
-                    // Use directory name as tag
-                    tags_to_add.push(dir_name.to_string());
-                }
+        } else if let Some(parent) = path.parent()
+            && let Some(dir_name) = parent.file_name().and_then(|n| n.to_str())
+        {
+            if let Some(tag) = custom_map.get(dir_name) {
+                tags_to_add.push(tag.clone());
+            } else {
+                tags_to_add.push(dir_name.to_string());
             }
         }
 
@@ -174,30 +171,36 @@ pub fn propagate_by_directory(
 
     if file_tags.is_empty() {
         if !quiet {
-            println!("No tags to apply.");
+            writeln!(writer, "No tags to apply.")?;
         }
         return Ok(());
     }
 
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would apply directory-based tags to {} file(s)",
             file_tags.len()
-        );
-        println!("\n{}", "Sample changes (up to 10):".bold());
+        )?;
+        writeln!(writer, "\n{}", "Sample changes (up to 10):".bold())?;
         for (i, (file, tags)) in file_tags.iter().enumerate().take(10) {
-            println!(
+            writeln!(
+                writer,
                 "  {}. {} → [{}]",
                 i + 1,
-                file.display(),
+                file,
                 tags.join(", ").cyan()
-            );
+            )?;
         }
         if file_tags.len() > 10 {
-            println!("  ... and {} more", file_tags.len() - 10);
+            writeln!(writer, "  ... and {} more", file_tags.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
 
@@ -208,7 +211,7 @@ pub fn propagate_by_directory(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -216,25 +219,39 @@ pub fn propagate_by_directory(
     let mut summary = BulkOpSummary::new();
 
     for (file, tags) in &file_tags {
-        match db.add_tags(file, tags.clone()) {
+        let tag_names: Vec<TagName> = match tags
+            .iter()
+            .map(TagName::new)
+            .collect::<std::result::Result<Vec<_>, _>>()
+        {
+            Ok(names) => names,
+            Err(e) => {
+                summary.add_error(format!("{file}: {e}"));
+                continue;
+            }
+        };
+        match store.add_tags(file, tag_names) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Tagged {}: [{}]", file.display(), tags.join(", "));
+                    writeln!(writer, "✓ Tagged {file}: [{}]", tags.join(", "))?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to tag {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to tag {file}: {e}");
                 }
             }
         }
     }
 
     if !quiet {
-        summary.print("Propagate by Directory");
+        summary.print("Propagate by Directory", writer)?;
     }
+
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
 
     Ok(())
 }
@@ -253,13 +270,15 @@ pub fn propagate_by_directory(
 /// Returns database errors during file queries and updates, and `TagrError::InvalidInput`
 /// for invalid mapping formats.
 #[allow(clippy::fn_params_excessive_bools)]
+#[allow(clippy::too_many_lines)] // cohesive: builds ext map, scans files, applies tags
 pub fn propagate_by_extension(
-    db: &Database,
+    store: &dyn TagStore,
     custom_mappings: &[String],
     no_defaults: bool,
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     // Build extension map
     let mut ext_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -287,14 +306,16 @@ pub fn propagate_by_extension(
         ));
     }
 
-    // Get all files from database
-    let all_files: Vec<PathBuf> = db.list_all()?.into_iter().map(|p| p.file).collect();
+    // Get all files from store
+    let all_pairs = store.list_all()?;
+    let all_files: Vec<TagrPath> = all_pairs.into_iter().map(|p| p.file).collect();
 
     // Build file -> tags mapping
-    let mut file_tags: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    let mut file_tags: HashMap<TagrPath, Vec<String>> = HashMap::new();
 
     for file in &all_files {
-        if let Some(ext_os) = file.extension()
+        let path = file.as_path();
+        if let Some(ext_os) = path.extension()
             && let Some(ext_str) = ext_os.to_str()
         {
             let ext_lower = ext_str.to_lowercase();
@@ -306,30 +327,36 @@ pub fn propagate_by_extension(
 
     if file_tags.is_empty() {
         if !quiet {
-            println!("No files match any extension mappings.");
+            writeln!(writer, "No files match any extension mappings.")?;
         }
         return Ok(());
     }
 
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!(
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(
+            writer,
             "Would apply extension-based tags to {} file(s)",
             file_tags.len()
-        );
-        println!("\n{}", "Sample changes (up to 10):".bold());
+        )?;
+        writeln!(writer, "\n{}", "Sample changes (up to 10):".bold())?;
         for (i, (file, tags)) in file_tags.iter().enumerate().take(10) {
-            println!(
+            writeln!(
+                writer,
                 "  {}. {} → [{}]",
                 i + 1,
-                file.display(),
+                file,
                 tags.join(", ").cyan()
-            );
+            )?;
         }
         if file_tags.len() > 10 {
-            println!("  ... and {} more", file_tags.len() - 10);
+            writeln!(writer, "  ... and {} more", file_tags.len() - 10)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
 
@@ -340,7 +367,7 @@ pub fn propagate_by_extension(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
@@ -348,25 +375,39 @@ pub fn propagate_by_extension(
     let mut summary = BulkOpSummary::new();
 
     for (file, tags) in &file_tags {
-        match db.add_tags(file, tags.clone()) {
+        let tag_names: Vec<TagName> = match tags
+            .iter()
+            .map(TagName::new)
+            .collect::<std::result::Result<Vec<_>, _>>()
+        {
+            Ok(names) => names,
+            Err(e) => {
+                summary.add_error(format!("{file}: {e}"));
+                continue;
+            }
+        };
+        match store.add_tags(file, tag_names) {
             Ok(()) => {
                 summary.add_success();
                 if !quiet {
-                    println!("✓ Tagged {}: [{}]", file.display(), tags.join(", "));
+                    writeln!(writer, "✓ Tagged {file}: [{}]", tags.join(", "))?;
                 }
             }
             Err(e) => {
-                summary.add_error(format!("{}: {}", file.display(), e));
+                summary.add_error(format!("{file}: {e}"));
                 if !quiet {
-                    eprintln!("✗ Failed to tag {}: {}", file.display(), e);
+                    eprintln!("✗ Failed to tag {file}: {e}");
                 }
             }
         }
     }
 
     if !quiet {
-        summary.print("Propagate by Extension");
+        summary.print("Propagate by Extension", writer)?;
     }
+
+    #[cfg(feature = "dynamic-completions")]
+    crate::completions::invalidate_cache(store);
 
     Ok(())
 }

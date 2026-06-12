@@ -1,7 +1,9 @@
 //! Note management commands
 
 use crate::config::TagrConfig;
-use crate::db::{Database, NoteRecord};
+use crate::store::TagStore;
+use crate::types::NoteRecord;
+use crate::types::TagrPath;
 use crate::{config, output};
 use clap::{Args, Subcommand, ValueEnum};
 use std::io::Write;
@@ -135,23 +137,29 @@ impl NoteSubcommand {
     /// Returns error if the operation fails
     pub fn execute(
         &self,
-        db: &Database,
+        store: &dyn TagStore,
         config: &TagrConfig,
         path_format: config::PathFormat,
+        writer: &mut impl Write,
     ) -> Result<(), NoteError> {
         match self {
-            Self::Edit(args) => execute_edit(args, db, config),
-            Self::Add(args) => execute_add(args, db, path_format),
-            Self::Show(args) => execute_show(args, db, path_format),
-            Self::Delete(args) => execute_delete(args, db, path_format),
-            Self::List(args) => execute_list(args, db, path_format),
-            Self::Search(args) => execute_search(args, db, path_format),
+            Self::Edit(args) => execute_edit(args, store, config, writer),
+            Self::Add(args) => execute_add(args, store, path_format, writer),
+            Self::Show(args) => execute_show(args, store, path_format, writer),
+            Self::Delete(args) => execute_delete(args, store, path_format, writer),
+            Self::List(args) => execute_list(args, store, path_format, writer),
+            Self::Search(args) => execute_search(args, store, path_format, writer),
         }
     }
 }
 
 /// Edit notes for files
-fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(), NoteError> {
+fn execute_edit(
+    args: &EditArgs,
+    store: &dyn TagStore,
+    config: &TagrConfig,
+    writer: &mut impl Write,
+) -> Result<(), NoteError> {
     let editor = args
         .editor
         .clone()
@@ -165,7 +173,10 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             ))
         })?;
 
-        let existing_note = db.get_note(&canonical_path)?;
+        let tagr_path =
+            TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
+
+        let existing_note = store.get_note(&tagr_path)?;
         let initial_content = existing_note.as_ref().map_or_else(
             || config.notes.default_template.clone(),
             |n| n.content.clone(),
@@ -188,7 +199,6 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
         let updated_content = std::fs::read_to_string(&temp_path)?;
         std::fs::remove_file(&temp_path)?;
 
-        // Warn if note exceeds configured size limit
         if config
             .notes
             .exceeds_size_limit(updated_content.len() as u64)
@@ -207,8 +217,8 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
             NoteRecord::new(updated_content)
         };
 
-        db.set_note(&canonical_path, &note)?;
-        println!("✓ Updated note for {}", file.display());
+        store.set_note(&tagr_path, &note)?;
+        writeln!(writer, "✓ Updated note for {}", file.display())?;
     }
 
     Ok(())
@@ -217,8 +227,9 @@ fn execute_edit(args: &EditArgs, db: &Database, config: &TagrConfig) -> Result<(
 /// Add a timestamped entry to a note (append mode)
 fn execute_add(
     args: &AddArgs,
-    db: &Database,
+    store: &dyn TagStore,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     let canonical_path = args.file.canonicalize().map_err(|e| {
         NoteError::Io(std::io::Error::new(
@@ -227,25 +238,29 @@ fn execute_add(
         ))
     })?;
 
-    let existing_content = db
-        .get_note(&canonical_path)?
+    let tagr_path =
+        TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
+
+    let existing_content = store
+        .get_note(&tagr_path)?
         .map(|n| n.content)
         .unwrap_or_default();
 
     let updated_content = append_note_entry(&existing_content, &args.content);
 
-    let note = if let Some(mut existing) = db.get_note(&canonical_path)? {
+    let note = if let Some(mut existing) = store.get_note(&tagr_path)? {
         existing.update_content(updated_content);
         existing
     } else {
         NoteRecord::new(updated_content)
     };
 
-    db.set_note(&canonical_path, &note)?;
-    println!(
+    store.set_note(&tagr_path, &note)?;
+    writeln!(
+        writer,
         "✓ Added note entry to {}",
         output::format_path(&canonical_path, path_format)
-    );
+    )?;
 
     Ok(())
 }
@@ -253,8 +268,9 @@ fn execute_add(
 /// Show notes for files
 fn execute_show(
     args: &ShowArgs,
-    db: &Database,
+    store: &dyn TagStore,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     for file in &args.files {
         let canonical_path = file.canonicalize().map_err(|e| {
@@ -264,21 +280,33 @@ fn execute_show(
             ))
         })?;
 
-        let note = db.get_note(&canonical_path)?;
+        let tagr_path =
+            TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
+
+        let note = store.get_note(&tagr_path)?;
 
         if let Some(note) = note {
             match args.format {
                 OutputFormat::Text => {
                     if args.verbose {
-                        println!(
+                        writeln!(
+                            writer,
                             "File: {}",
                             output::format_path(&canonical_path, path_format)
-                        );
-                        println!("Created: {}", format_timestamp(note.metadata.created_at));
-                        println!("Updated: {}", format_timestamp(note.metadata.updated_at));
-                        println!("\n{}", note.content);
+                        )?;
+                        writeln!(
+                            writer,
+                            "Created: {}",
+                            format_timestamp(note.metadata.created_at)
+                        )?;
+                        writeln!(
+                            writer,
+                            "Updated: {}",
+                            format_timestamp(note.metadata.updated_at)
+                        )?;
+                        writeln!(writer, "\n{}", note.content)?;
                     } else {
-                        println!("{}", note.content);
+                        writeln!(writer, "{}", note.content)?;
                     }
                 }
                 OutputFormat::Json => {
@@ -290,10 +318,14 @@ fn execute_show(
                             "updated_at": note.metadata.updated_at,
                         },
                     });
-                    println!("{}", serde_json::to_string_pretty(&json)?);
+                    writeln!(writer, "{}", serde_json::to_string_pretty(&json)?)?;
                 }
                 OutputFormat::Quiet => {
-                    println!("{}", output::format_path(&canonical_path, path_format));
+                    writeln!(
+                        writer,
+                        "{}",
+                        output::format_path(&canonical_path, path_format)
+                    )?;
                 }
             }
         } else {
@@ -310,8 +342,9 @@ fn execute_show(
 /// Delete notes from files
 fn execute_delete(
     args: &DeleteArgs,
-    db: &Database,
+    store: &dyn TagStore,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
     let mut files_to_delete = Vec::new();
 
@@ -323,20 +356,27 @@ fn execute_delete(
             ))
         })?;
 
-        if db.get_note(&canonical_path)?.is_some() {
-            files_to_delete.push(canonical_path);
+        let tagr_path =
+            TagrPath::new(&canonical_path).map_err(|e| NoteError::PathError(e.to_string()))?;
+
+        if store.get_note(&tagr_path)?.is_some() {
+            files_to_delete.push(tagr_path);
         }
     }
 
     if files_to_delete.is_empty() {
-        println!("No notes to delete");
+        writeln!(writer, "No notes to delete")?;
         return Ok(());
     }
 
     if args.dry_run {
-        println!("Would delete notes for {} file(s):", files_to_delete.len());
+        writeln!(
+            writer,
+            "Would delete notes for {} file(s):",
+            files_to_delete.len()
+        )?;
         for file in &files_to_delete {
-            println!("  - {}", output::format_path(file, path_format));
+            writeln!(writer, "  - {}", output::format_path(file, path_format))?;
         }
         return Ok(());
     }
@@ -349,37 +389,39 @@ fn execute_delete(
         std::io::stdin().read_line(&mut input)?;
 
         if !input.trim().eq_ignore_ascii_case("y") {
-            println!("Cancelled");
+            writeln!(writer, "Cancelled")?;
             return Ok(());
         }
     }
 
     let mut deleted = 0;
     for file in &files_to_delete {
-        if db.delete_note(file)? {
+        if store.delete_note(file)? {
             deleted += 1;
-            println!(
+            writeln!(
+                writer,
                 "✓ Deleted note for {}",
                 output::format_path(file, path_format)
-            );
+            )?;
         }
     }
 
-    println!("Deleted {deleted} note(s)");
+    writeln!(writer, "Deleted {deleted} note(s)")?;
     Ok(())
 }
 
 /// List all files with notes
 fn execute_list(
     args: &ListArgs,
-    db: &Database,
+    store: &dyn TagStore,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
-    let all_notes = db.list_all_notes()?;
+    let all_notes = store.list_all_notes()?;
 
     if all_notes.is_empty() {
         if args.format != OutputFormat::Quiet {
-            println!("No notes found");
+            writeln!(writer, "No notes found")?;
         }
         return Ok(());
     }
@@ -387,17 +429,18 @@ fn execute_list(
     match args.format {
         OutputFormat::Text => {
             if args.verbose {
-                println!("Files with notes ({}):", all_notes.len());
+                writeln!(writer, "Files with notes ({}):", all_notes.len())?;
                 for (path, note) in &all_notes {
-                    println!(
+                    writeln!(
+                        writer,
                         "  {} [updated: {}]",
                         output::format_path(path, path_format),
                         format_timestamp(note.metadata.updated_at)
-                    );
+                    )?;
                 }
             } else {
                 for (path, _) in &all_notes {
-                    println!("{}", output::format_path(path, path_format));
+                    writeln!(writer, "{}", output::format_path(path, path_format))?;
                 }
             }
         }
@@ -412,11 +455,11 @@ fn execute_list(
                     })
                 })
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
+            writeln!(writer, "{}", serde_json::to_string_pretty(&json)?)?;
         }
         OutputFormat::Quiet => {
             for (path, _) in &all_notes {
-                println!("{}", output::format_path(path, path_format));
+                writeln!(writer, "{}", output::format_path(path, path_format))?;
             }
         }
     }
@@ -427,10 +470,11 @@ fn execute_list(
 /// Search notes by content
 fn execute_search(
     args: &SearchArgs,
-    db: &Database,
+    store: &dyn TagStore,
     path_format: config::PathFormat,
+    writer: &mut impl Write,
 ) -> Result<(), NoteError> {
-    let results = db.search_notes(&args.query)?;
+    let results = store.search_notes(&args.query)?;
 
     if results.is_empty() {
         if args.format != OutputFormat::Quiet {
@@ -442,10 +486,10 @@ fn execute_search(
     match args.format {
         OutputFormat::Text => {
             for (path, note) in &results {
-                println!("{}", output::format_path(path, path_format));
+                writeln!(writer, "{}", output::format_path(path, path_format))?;
                 if args.show_content {
                     let snippet = create_snippet(&note.content, &args.query, 100);
-                    println!("  {snippet}");
+                    writeln!(writer, "  {snippet}")?;
                 }
             }
         }
@@ -468,11 +512,11 @@ fn execute_search(
                     obj
                 })
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
+            writeln!(writer, "{}", serde_json::to_string_pretty(&json)?)?;
         }
         OutputFormat::Quiet => {
             for (path, _) in &results {
-                println!("{}", output::format_path(path, path_format));
+                writeln!(writer, "{}", output::format_path(path, path_format))?;
             }
         }
     }
@@ -483,6 +527,9 @@ fn execute_search(
 // ==================== Helpers ====================
 
 /// Create a temporary file for note editing
+///
+/// # Errors
+/// Returns [`NoteError`] if the temporary file cannot be written.
 pub fn create_temp_note_file(content: &str) -> Result<PathBuf, NoteError> {
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!("tagr_note_{}.md", std::process::id()));
@@ -559,6 +606,9 @@ fn create_snippet(content: &str, query: &str, max_length: usize) -> String {
 
 #[derive(Debug, thiserror::Error)]
 pub enum NoteError {
+    #[error("Store error: {0}")]
+    Store(#[from] crate::store::StoreError),
+
     #[error("Database error: {0}")]
     Database(#[from] crate::db::DbError),
 
@@ -573,6 +623,9 @@ pub enum NoteError {
 
     #[error("Note not found: {0}")]
     NotFound(String),
+
+    #[error("Invalid path: {0}")]
+    PathError(String),
 }
 
 #[cfg(test)]

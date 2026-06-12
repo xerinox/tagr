@@ -31,6 +31,12 @@ pub struct TimeConfig {
 pub struct GitConfig {
     pub enabled: bool,
     pub detect_repo: bool,
+    #[serde(default = "default_stale_days")]
+    pub stale_days: u32,
+}
+
+const fn default_stale_days() -> u32 {
+    90
 }
 
 impl Default for VirtualTagConfig {
@@ -113,6 +119,7 @@ impl Default for VirtualTagConfig {
             git: GitConfig {
                 enabled: true,
                 detect_repo: true,
+                stale_days: default_stale_days(),
             },
         }
     }

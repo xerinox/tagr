@@ -60,6 +60,7 @@
 //!     search_criteria: None,
 //!     tag_schema: None,
 //!     database: None,
+//!     store_mode: tagr::ui::ratatui_adapter::StoreMode::Local,
 //! };
 //!
 //! let finder = RatatuiFinder::new();
@@ -162,11 +163,10 @@ pub mod ratatui_adapter;
 #[cfg(test)]
 pub mod mock;
 
+pub use crate::config::PreviewConfig;
 pub use error::{Result, UiError};
 pub use input::{DialoguerInput, InputError, UserInput};
 pub use output::{MessageLevel, OutputWriter, StatusBarWriter, StdoutWriter};
 pub use ratatui_adapter::{RatatuiFinder, RatatuiPreviewProvider};
-pub use traits::{
-    FinderConfig, FuzzyFinder, PreviewConfig, PreviewProvider, PreviewText, RefineSearchCriteria,
-};
+pub use traits::{FinderConfig, FuzzyFinder, PreviewProvider, PreviewText};
 pub use types::{DisplayItem, FinderResult, ItemMetadata, PreviewPosition, RefinedSearchCriteria};

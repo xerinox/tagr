@@ -6,25 +6,18 @@ use crate::{
         session::{BrowseConfig, BrowseSession, HelpText, PhaseSettings},
         ui::BrowseController,
     },
-    cli::{PreviewOverrides, SearchParams},
+    cli::PreviewOverrides,
     config::{self, PreviewConfig},
-    db::Database,
-    filters::{FilterCriteria, FilterManager},
+    filters::FilterManager,
     keybinds::config::KeybindConfig,
     output,
-    ui::ratatui_adapter::RatatuiFinder,
+    store::TagStore,
+    types::QueryCriteria,
+    ui::ratatui_adapter::StoreMode,
+    ui::{PreviewPosition, ratatui_adapter::RatatuiFinder},
 };
 
 type Result<T> = std::result::Result<T, TagrError>;
-
-impl From<config::PathFormat> for crate::browse::session::PathFormat {
-    fn from(format: config::PathFormat) -> Self {
-        match format {
-            config::PathFormat::Absolute => Self::Absolute,
-            config::PathFormat::Relative => Self::Relative,
-        }
-    }
-}
 
 /// Execute the browse command
 ///
@@ -32,26 +25,43 @@ impl From<config::PathFormat> for crate::browse::session::PathFormat {
 /// Returns an error if database operations fail or if the browse operation encounters issues
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn execute(
-    db: &Database,
-    mut search_params: Option<SearchParams>,
+    store: std::sync::Arc<dyn TagStore>,
+    mut search_criteria: Option<QueryCriteria>,
     filter_name: Option<&str>,
     save_filter: Option<(&str, Option<&str>)>,
     execute_cmd: Option<String>,
+    selected_output: Option<&std::path::PathBuf>,
     preview_overrides: Option<&PreviewOverrides>,
-    path_format: config::PathFormat,
+    path_format: &config::PathFormat,
     quiet: bool,
+    store_mode: StoreMode,
 ) -> Result<()> {
     if let Some(name) = filter_name {
         let filter_path = crate::filters::get_filter_path()?;
         let manager = FilterManager::new(filter_path);
         let filter = manager.get(name)?;
 
-        let filter_params = SearchParams::from(&filter.criteria);
+        let filter_criteria = filter.criteria;
 
-        if let Some(ref mut params) = search_params {
-            params.merge(&filter_params);
+        if let Some(ref mut criteria) = search_criteria {
+            // Merge: combine tag expressions
+            if criteria.tag_expr.is_none() {
+                criteria.tag_expr = filter_criteria.tag_expr;
+            }
+            for fp in &filter_criteria.file_patterns {
+                if !criteria.file_patterns.contains(fp) {
+                    criteria.file_patterns.push(fp.clone());
+                }
+            }
+            for vt in &filter_criteria.virtual_tags {
+                if !criteria.virtual_tags.contains(vt) {
+                    criteria.virtual_tags.push(vt.clone());
+                }
+            }
+            criteria.regex_tags = criteria.regex_tags || filter_criteria.regex_tags;
+            criteria.regex_files = criteria.regex_files || filter_criteria.regex_files;
         } else {
-            search_params = Some(filter_params);
+            search_criteria = Some(filter_criteria);
         }
 
         manager.record_use(name)?;
@@ -65,10 +75,18 @@ pub fn execute(
         None
     } else {
         let mut config = PreviewConfig::default();
-        if let Some(overrides) = &preview_overrides
-            && let Some(lines) = overrides.preview_lines
-        {
-            config.max_lines = lines;
+        if let Some(overrides) = &preview_overrides {
+            if let Some(ref pos) = overrides.preview_position {
+                match pos.to_lowercase().as_str() {
+                    "right" => config.position = PreviewPosition::Right,
+                    "bottom" | "down" => config.position = PreviewPosition::Bottom,
+                    "top" | "up" => config.position = PreviewPosition::Top,
+                    _ => {}
+                }
+            }
+            if let Some(width) = overrides.preview_width {
+                config.width_percent = width;
+            }
         }
         Some(config)
     };
@@ -104,16 +122,17 @@ pub fn execute(
     };
 
     let config = BrowseConfig {
-        initial_search: search_params.clone(),
-        path_format: path_format.into(),
+        initial_search: search_criteria.clone(),
+        path_format: *path_format,
         tag_phase_settings,
         file_phase_settings,
+        store_mode,
     };
 
     let session =
-        BrowseSession::new(db, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
+        BrowseSession::new(store, config).map_err(|e| TagrError::BrowseError(e.to_string()))?;
 
-    let finder = RatatuiFinder::with_styled_preview(100); // Max 100 lines of syntax-highlighted preview
+    let finder = RatatuiFinder::with_styled_preview();
 
     let controller = BrowseController::new(session, finder);
 
@@ -129,11 +148,29 @@ pub fn execute(
             }
 
             for file in &result.selected_files {
-                let formatted_path = output::format_path(file, path_format);
+                let formatted_path = output::format_path(file, *path_format);
                 if quiet {
                     println!("{formatted_path}");
                 } else {
                     println!("  - {formatted_path}");
+                }
+            }
+
+            if let Some(ref out_path) = selected_output {
+                let mut out_file = std::fs::File::create(out_path).map_err(|e| {
+                    TagrError::BrowseError(format!(
+                        "Failed to create selected output file '{}': {}",
+                        out_path.display(),
+                        e
+                    ))
+                })?;
+                for file in &result.selected_files {
+                    use std::io::Write;
+                    writeln!(out_file, "{}", file.as_str()).map_err(|e| {
+                        TagrError::BrowseError(format!(
+                            "Failed to write to selected output file: {e}"
+                        ))
+                    })?;
                 }
             }
 
@@ -145,10 +182,9 @@ pub fn execute(
             }
 
             if let Some((name, desc)) = save_filter {
-                if let Some(params) = search_params {
+                if let Some(criteria) = search_criteria {
                     let filter_path = crate::filters::get_filter_path()?;
                     let manager = FilterManager::new(filter_path);
-                    let criteria = FilterCriteria::from(params);
                     let description = desc.unwrap_or("Saved browse filter");
 
                     manager.create(name, description.to_string(), criteria)?;

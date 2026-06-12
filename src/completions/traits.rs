@@ -1,7 +1,7 @@
 //! Abstraction layer for completion APIs
 //!
-//! Wraps clap_complete types to isolate upstream API changes.
-//! If clap_complete changes its API, only this module needs updating.
+//! Wraps `clap_complete` types to isolate upstream API changes.
+//! If `clap_complete` changes its API, only this module needs updating.
 
 use std::ffi::OsStr;
 
@@ -49,12 +49,12 @@ pub trait StaticCandidates {
 // Adapter implementations that convert to/from clap_complete types
 #[cfg(feature = "dynamic-completions")]
 mod adapters {
-    use super::*;
+    use super::{Candidate, DynamicCompleter, OsStr};
     use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 
     impl From<Candidate> for CompletionCandidate {
         fn from(c: Candidate) -> Self {
-            let mut candidate = CompletionCandidate::new(c.value);
+            let mut candidate = Self::new(c.value);
             if let Some(help) = c.help {
                 candidate = candidate.help(Some(help.into()));
             }
@@ -66,12 +66,12 @@ mod adapters {
         fn from(c: CompletionCandidate) -> Self {
             Self {
                 value: c.get_value().to_string_lossy().to_string(),
-                help: c.get_help().map(|h| h.to_string()),
+                help: c.get_help().map(std::string::ToString::to_string),
             }
         }
     }
 
-    /// Convert a DynamicCompleter into clap's ArgValueCompleter
+    /// Convert a `DynamicCompleter` into clap's `ArgValueCompleter`
     pub fn to_arg_completer<C: DynamicCompleter + 'static>(completer: C) -> ArgValueCompleter {
         ArgValueCompleter::new(move |current: &OsStr| {
             completer

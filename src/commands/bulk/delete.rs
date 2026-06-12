@@ -1,10 +1,13 @@
 use colored::Colorize;
 use dialoguer::Confirm;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::batch::{BatchFormat, format_mismatch_hint_parsed};
 use super::core::{BulkOpSummary, SkipReason};
-use crate::{TagrError, db::Database};
+use crate::TagrError;
+use crate::store::TagStore;
+use crate::types::TagrPath;
 
 type Result<T> = std::result::Result<T, TagrError>;
 
@@ -14,12 +17,13 @@ type Result<T> = std::result::Result<T, TagrError>;
 /// Returns `TagrError::InvalidInput` if the input cannot be read or parsed,
 /// or if records are malformed (e.g., empty path fields).
 pub fn bulk_delete_files(
-    db: &Database,
+    store: &dyn TagStore,
     input_path: &Path,
     format: BatchFormat,
     dry_run: bool,
     yes: bool,
     quiet: bool,
+    writer: &mut impl Write,
 ) -> Result<()> {
     let content = std::fs::read_to_string(input_path).map_err(|e| {
         TagrError::InvalidInput(format!("Failed to read {}: {}", input_path.display(), e))
@@ -31,22 +35,26 @@ pub fn bulk_delete_files(
     };
     if files.is_empty() {
         if !quiet {
-            println!("No file paths found in input.");
+            writeln!(writer, "No file paths found in input.")?;
         }
         return Ok(());
     }
     let set: std::collections::HashSet<_> = files.into_iter().collect();
     files = set.into_iter().collect();
     if dry_run {
-        println!("{}", "=== Dry Run Mode ===".yellow().bold());
-        println!("Would delete {} file(s) from database", files.len());
+        writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+        writeln!(writer, "Would delete {} file(s) from database", files.len())?;
         for (i, f) in files.iter().enumerate().take(15) {
-            println!("  {}. {}", i + 1, f.display());
+            writeln!(writer, "  {}. {}", i + 1, f.display())?;
         }
         if files.len() > 15 {
-            println!("  ... and {} more", files.len() - 15);
+            writeln!(writer, "  ... and {} more", files.len() - 15)?;
         }
-        println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+        writeln!(
+            writer,
+            "\n{}",
+            "Run without --dry-run to apply changes.".yellow()
+        )?;
         return Ok(());
     }
     if !yes {
@@ -56,24 +64,25 @@ pub fn bulk_delete_files(
             .interact()
             .map_err(|e| TagrError::InvalidInput(format!("Failed to get confirmation: {e}")))?;
         if !confirmed {
-            println!("Operation cancelled.");
+            writeln!(writer, "Operation cancelled.")?;
             return Ok(());
         }
     }
     let mut summary = BulkOpSummary::new();
     for file in files {
-        match db.remove(&file) {
+        let file_path = TagrPath::new(&file)?;
+        match store.remove_file(&file_path) {
             Ok(existed) => {
                 if existed {
                     summary.add_success();
                     if !quiet {
-                        println!("✓ Deleted: {}", file.display());
+                        writeln!(writer, "✓ Deleted: {}", file.display())?;
                     }
                 } else {
                     let _ = SkipReason::Other;
                     summary.add_skip();
                     if !quiet {
-                        println!("⊘ Skipped (not in db): {}", file.display());
+                        writeln!(writer, "⊘ Skipped (not in db): {}", file.display())?;
                     }
                 }
             }
@@ -86,7 +95,7 @@ pub fn bulk_delete_files(
         }
     }
     if !quiet {
-        summary.print("Delete Files");
+        summary.print("Delete Files", writer)?;
     }
     Ok(())
 }

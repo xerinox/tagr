@@ -13,6 +13,7 @@ mod search_bar;
 mod status_bar;
 mod tag_tree;
 mod text_input;
+pub(crate) mod watch_rules_modal;
 
 pub use confirm_dialog::{ConfirmDialog, ConfirmDialogState};
 pub use details_modal::{DetailsModal, FileDetails};
@@ -25,3 +26,4 @@ pub use search_bar::SearchBar;
 pub use status_bar::StatusBar;
 pub use tag_tree::{TagTree, TagTreeNode, TagTreeState, tag_tree_with_border};
 pub use text_input::{TextInputModal, TextInputState};
+pub use watch_rules_modal::{WatchRulesModal, WatchRulesState};

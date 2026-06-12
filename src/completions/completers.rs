@@ -130,9 +130,8 @@ impl DynamicCompleter for AliasCompleter {
         let current = current.to_string_lossy();
         let current_lower = current.to_lowercase();
 
-        let schema = match crate::schema::load_default_schema() {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
+        let Ok(schema) = crate::schema::load_default_schema() else {
+            return Vec::new();
         };
 
         let aliases = schema.list_aliases();
@@ -144,7 +143,7 @@ impl DynamicCompleter for AliasCompleter {
                 alias_lower.starts_with(&current_lower)
             })
             .take(50)
-            .map(|(alias, canonical)| Candidate::new(&alias).with_help(format!("→ {}", canonical)))
+            .map(|(alias, canonical)| Candidate::new(&alias).with_help(format!("→ {canonical}")))
             .collect()
     }
 }
@@ -177,7 +176,7 @@ impl DynamicCompleter for HierarchicalTagCompleter {
 
             for tag in &tags {
                 if let Some(colon_pos) = tag.find(':') {
-                    let prefix = &tag[..colon_pos + 1]; // Include colon
+                    let prefix = &tag[..=colon_pos]; // Include colon
                     if seen_prefixes.insert(prefix.to_string()) {
                         roots.push(prefix.to_string());
                     }
@@ -226,7 +225,7 @@ impl DynamicCompleter for HierarchicalTagCompleter {
                     } else if child_lower.contains(&suffix_lower) {
                         // Contains match - rank by Levenshtein distance
                         let distance = strsim::levenshtein(&child_lower, &suffix_lower);
-                        2 + distance.min(255) as u8
+                        2 + u8::try_from(distance).unwrap_or(255)
                     } else {
                         return None;
                     };
@@ -259,7 +258,7 @@ impl DynamicCompleter for HierarchicalTagCompleter {
                 } else if tag_lower.contains(&current_lower) {
                     // Contains match - rank by Levenshtein distance
                     let distance = strsim::levenshtein(&tag_lower, &current_lower);
-                    2 + distance.min(255) as u8
+                    2 + u8::try_from(distance).unwrap_or(255)
                 } else {
                     return None;
                 };

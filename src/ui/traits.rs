@@ -1,41 +1,11 @@
 //! Core traits for UI abstraction layer
 
 use super::error::Result;
-use super::types::{DisplayItem, FinderResult, PreviewPosition};
-
-/// Search criteria for refine search feature
-#[derive(Debug, Clone, Default)]
-pub struct RefineSearchCriteria {
-    /// Tags to include in search
-    pub include_tags: Vec<String>,
-    /// Tags to exclude from search
-    pub exclude_tags: Vec<String>,
-    /// File patterns to match
-    pub file_patterns: Vec<String>,
-    /// Virtual tag patterns
-    pub virtual_tags: Vec<String>,
-}
-
-impl RefineSearchCriteria {
-    /// Create new search criteria
-    #[must_use]
-    pub const fn new(
-        include_tags: Vec<String>,
-        exclude_tags: Vec<String>,
-        file_patterns: Vec<String>,
-        virtual_tags: Vec<String>,
-    ) -> Self {
-        Self {
-            include_tags,
-            exclude_tags,
-            file_patterns,
-            virtual_tags,
-        }
-    }
-}
+use super::types::{DisplayItem, FinderResult, RefinedSearchCriteria};
+use crate::config::PreviewConfig;
 
 /// Configuration for fuzzy finder
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FinderConfig {
     /// Items to display in the finder
     pub items: Vec<DisplayItem>,
@@ -52,11 +22,31 @@ pub struct FinderConfig {
     /// Available tags from database (for refine search)
     pub available_tags: Vec<String>,
     /// Current search criteria for refine search
-    pub search_criteria: Option<RefineSearchCriteria>,
+    pub search_criteria: Option<RefinedSearchCriteria>,
     /// Tag schema for canonicalization (used for CLI preview)
     pub tag_schema: Option<std::sync::Arc<crate::schema::TagSchema>>,
     /// Database reference for live file count queries (used in tag selection phase)
-    pub database: Option<std::sync::Arc<crate::db::Database>>,
+    pub database: Option<std::sync::Arc<dyn crate::store::TagStore>>,
+    /// Whether the session is backed by the daemon or a direct store
+    pub store_mode: crate::ui::ratatui_adapter::StoreMode,
+}
+
+impl std::fmt::Debug for FinderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FinderConfig")
+            .field("items", &self.items)
+            .field("multi_select", &self.multi_select)
+            .field("prompt", &self.prompt)
+            .field("ansi", &self.ansi)
+            .field("preview_config", &self.preview_config)
+            .field("bind", &self.bind)
+            .field("available_tags", &self.available_tags)
+            .field("search_criteria", &self.search_criteria)
+            .field("tag_schema", &self.tag_schema)
+            .field("database", &self.database.as_ref().map(|_| "..."))
+            .field("store_mode", &self.store_mode)
+            .finish()
+    }
 }
 
 impl FinderConfig {
@@ -74,6 +64,7 @@ impl FinderConfig {
             search_criteria: None,
             tag_schema: None,
             database: None,
+            store_mode: crate::ui::ratatui_adapter::StoreMode::Local,
         }
     }
 
@@ -86,7 +77,7 @@ impl FinderConfig {
 
     /// Set current search criteria for refine search
     #[must_use]
-    pub fn with_search_criteria(mut self, criteria: RefineSearchCriteria) -> Self {
+    pub fn with_search_criteria(mut self, criteria: RefinedSearchCriteria) -> Self {
         self.search_criteria = Some(criteria);
         self
     }
@@ -128,56 +119,16 @@ impl FinderConfig {
 
     /// Set database for live file count queries
     #[must_use]
-    pub fn with_database(mut self, db: Option<std::sync::Arc<crate::db::Database>>) -> Self {
+    pub fn with_database(mut self, db: Option<std::sync::Arc<dyn crate::store::TagStore>>) -> Self {
         self.database = db;
         self
     }
-}
 
-/// Configuration for preview pane
-#[derive(Debug, Clone)]
-pub struct PreviewConfig {
-    /// Enable preview
-    pub enabled: bool,
-    /// Maximum file size to preview (bytes)
-    pub max_file_size: u64,
-    /// Maximum lines to display
-    pub max_lines: usize,
-    /// Enable syntax highlighting
-    pub syntax_highlighting: bool,
-    /// Show line numbers
-    pub show_line_numbers: bool,
-    /// Position of preview pane
-    pub position: PreviewPosition,
-    /// Width percentage (0-100)
-    pub width_percent: u8,
-}
-
-impl Default for PreviewConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_file_size: 5_242_880, // 5MB
-            max_lines: 50,
-            syntax_highlighting: true,
-            show_line_numbers: true,
-            position: PreviewPosition::Right,
-            width_percent: 50,
-        }
-    }
-}
-
-impl From<crate::config::PreviewConfig> for PreviewConfig {
-    fn from(cfg: crate::config::PreviewConfig) -> Self {
-        Self {
-            enabled: cfg.enabled,
-            max_file_size: cfg.max_file_size,
-            max_lines: cfg.max_lines,
-            syntax_highlighting: cfg.syntax_highlighting,
-            show_line_numbers: cfg.show_line_numbers,
-            position: cfg.position,
-            width_percent: cfg.width_percent,
-        }
+    /// Set the store mode (local vs daemon)
+    #[must_use]
+    pub const fn with_store_mode(mut self, mode: crate::ui::ratatui_adapter::StoreMode) -> Self {
+        self.store_mode = mode;
+        self
     }
 }
 

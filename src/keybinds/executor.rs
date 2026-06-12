@@ -5,9 +5,10 @@
 
 use crate::browse::{actions, models::ActionOutcome};
 use crate::commands::note::create_temp_note_file;
-use crate::db::Database;
 use crate::keybinds::prompts::{PromptError, prompt_for_confirmation, prompt_for_input};
 use crate::keybinds::{ActionResult, BrowseAction};
+use crate::store::TagStore;
+use crate::types::TagrPath;
 use std::path::PathBuf;
 
 /// Context provided to action executors.
@@ -16,8 +17,8 @@ pub struct ActionContext<'a> {
     pub selected_files: &'a [PathBuf],
     /// The file under cursor (if any)
     pub current_file: Option<&'a PathBuf>,
-    /// Database reference
-    pub db: &'a Database,
+    /// Data source reference
+    pub ds: &'a dyn TagStore,
 }
 
 /// Executes actions triggered by keybinds.
@@ -60,26 +61,9 @@ impl ActionExecutor {
             BrowseAction::ShowDetails => Self::execute_show_details(context),
             BrowseAction::EditNote => Self::execute_edit_note(context),
             BrowseAction::ToggleNotePreview => Self::execute_toggle_note_preview(context),
-            BrowseAction::RefineSearch => Ok(ActionResult::Continue), // Handled in TUI
             BrowseAction::ShowHelp => Self::execute_show_help(context),
-            _ => Ok(ActionResult::Continue),
+            _ => Ok(ActionResult::Continue), // RefineSearch, ShowWatchRules handled in TUI
         }
-    }
-
-    fn selected_or_current_files(context: &ActionContext) -> Vec<PathBuf> {
-        if context.selected_files.is_empty() {
-            context.current_file.into_iter().cloned().collect()
-        } else {
-            context.selected_files.to_vec()
-        }
-    }
-
-    fn require_selected_files(context: &ActionContext) -> Result<Vec<PathBuf>, ExecutorError> {
-        let files = Self::selected_or_current_files(context);
-        if files.is_empty() {
-            return Err(ExecutorError::NoSelection);
-        }
-        Ok(files)
     }
 
     /// Execute the `AddTag` action.
@@ -90,11 +74,14 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No tags entered".to_string()));
         }
 
-        let new_tags: Vec<String> = input.split_whitespace().map(ToString::to_string).collect();
+        let new_tags: Vec<crate::types::TagName> = input
+            .split_whitespace()
+            .filter_map(|s| crate::types::TagName::new(s).ok())
+            .collect();
 
-        let files = Self::selected_or_current_files(context);
+        let files = Self::require_selected_files(context)?;
 
-        let outcome = actions::execute_add_tag(context.db, &files, &new_tags)?;
+        let outcome = actions::execute_add_tag(context.ds, &files, &new_tags)?;
 
         Ok(outcome.into())
     }
@@ -104,9 +91,9 @@ impl ActionExecutor {
         let files = Self::require_selected_files(context)?;
 
         let mut all_tags = std::collections::HashSet::new();
-        for file_path in &files {
-            if let Some(tags) = context.db.get_tags(file_path)? {
-                all_tags.extend(tags);
+        for file in &files {
+            if let Some(tags) = context.ds.get_tags(file)? {
+                all_tags.extend(tags.into_iter().map(|t| t.to_string()));
             }
         }
 
@@ -128,13 +115,14 @@ impl ActionExecutor {
             ));
         }
 
-        let tags_to_remove: Vec<String> = input
+        let tags_to_remove: Vec<crate::types::TagName> = input
             .split_whitespace()
             .filter_map(|s| {
-                s.parse::<usize>().map_or_else(
+                let tag_str = s.parse::<usize>().map_or_else(
                     |_| Some(s.to_string()),
                     |num| tag_list.get(num.saturating_sub(1)).cloned(),
-                )
+                );
+                tag_str.and_then(|t| crate::types::TagName::new(&t).ok())
             })
             .collect();
 
@@ -142,7 +130,7 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("No valid tags selected".to_string()));
         }
 
-        let outcome = actions::execute_remove_tag(context.db, &files, &tags_to_remove)?;
+        let outcome = actions::execute_remove_tag(context.ds, &files, &tags_to_remove)?;
 
         Ok(outcome.into())
     }
@@ -158,7 +146,7 @@ impl ActionExecutor {
             return Ok(ActionResult::Message("Deletion cancelled".to_string()));
         }
 
-        let outcome = actions::execute_delete_from_db(context.db, &files)?;
+        let outcome = actions::execute_delete_from_db(context.ds, &files)?;
 
         Ok(outcome.into())
     }
@@ -183,6 +171,30 @@ impl ActionExecutor {
         Ok(outcome.into())
     }
 
+    fn selected_or_current_files(context: &ActionContext) -> Vec<TagrPath> {
+        if context.selected_files.is_empty() {
+            context
+                .current_file
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
+        } else {
+            context
+                .selected_files
+                .iter()
+                .filter_map(|p| TagrPath::new(p).ok())
+                .collect()
+        }
+    }
+
+    fn require_selected_files(context: &ActionContext) -> Result<Vec<TagrPath>, ExecutorError> {
+        let files = Self::selected_or_current_files(context);
+        if files.is_empty() {
+            return Err(ExecutorError::NoSelection);
+        }
+        Ok(files)
+    }
+
     /// Execute the `CopyPath` action.
     fn execute_copy_path(context: &ActionContext) -> Result<ActionResult, ExecutorError> {
         let files = Self::require_selected_files(context)?;
@@ -192,7 +204,7 @@ impl ActionExecutor {
             Err(e) => {
                 let paths_text = files
                     .iter()
-                    .map(|p| p.display().to_string())
+                    .map(|p| p.as_str().to_string())
                     .collect::<Vec<_>>()
                     .join("\n");
                 eprintln!("⚠️  {e}");
@@ -225,11 +237,13 @@ impl ActionExecutor {
         let files = Self::require_selected_files(context)?;
         let file_to_edit = files.first().ok_or(ExecutorError::NoSelection)?;
 
+        let tagrpath = file_to_edit.clone();
+
         // Get editor from environment
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
 
         // Get existing note or create new one
-        let existing_note = context.db.get_note(file_to_edit)?;
+        let existing_note = context.ds.get_note(&tagrpath)?;
         let initial_content = existing_note
             .as_ref()
             .map(|n| n.content.clone())
@@ -261,14 +275,13 @@ impl ActionExecutor {
             existing.update_content(updated_content);
             existing
         } else {
-            crate::db::NoteRecord::new(updated_content)
+            crate::types::NoteRecord::new(updated_content)
         };
 
-        context.db.set_note(file_to_edit, &note)?;
+        context.ds.set_note(&tagrpath, &note)?;
 
         Ok(ActionResult::Message(format!(
-            "✓ Updated note for {}",
-            file_to_edit.display()
+            "✓ Updated note for {file_to_edit}"
         )))
     }
 
@@ -373,9 +386,9 @@ pub enum ExecutorError {
     #[error("Action requires file selection")]
     NoSelection,
 
-    /// Database operation failed
-    #[error("Database error: {0}")]
-    Database(#[from] crate::db::DbError),
+    /// Store operation failed
+    #[error("Store error: {0}")]
+    Store(#[from] crate::store::StoreError),
 
     /// IO operation failed
     #[error("IO error: {0}")]
@@ -396,8 +409,11 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
 
     let pager = Pager::new();
 
-    // CRITICAL: Set exit strategy to PagerQuit so pressing 'q' only quits the pager,
-    // not the entire application. This ensures we return to browse mode after help.
+    // Override the default exit behavior so pressing 'q' returns to browse mode
+    // instead of killing the process. Using set_exit_strategy because the
+    // replacement hooks API (add_hook) can't safely replace the built-in ID 1
+    // callback without a race against PagerState init.
+    #[allow(deprecated)]
     pager
         .set_exit_strategy(ExitStrategy::PagerQuit)
         .map_err(|e| std::io::Error::other(format!("Failed to set exit strategy: {e}")))?;
@@ -414,17 +430,19 @@ fn show_in_pager(text: &str) -> Result<(), std::io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::DirectStore;
     use crate::testing::{TempFile, TestDb};
 
     #[test]
     fn test_executor_creation() {
         let executor = ActionExecutor::new();
-        let db = TestDb::new("test_executor_creation");
+        let test_db = TestDb::new("test_executor_creation");
+        let source = DirectStore::new(test_db.db().clone());
 
         let context = ActionContext {
             selected_files: &[],
             current_file: None,
-            db: db.db(),
+            ds: &source,
         };
 
         let result = executor.execute(&BrowseAction::Cancel, &context);
@@ -434,12 +452,13 @@ mod tests {
     #[test]
     fn test_action_requires_selection() {
         let executor = ActionExecutor::new();
-        let db = TestDb::new("test_action_requires_selection");
+        let test_db = TestDb::new("test_action_requires_selection");
+        let source = DirectStore::new(test_db.db().clone());
 
         let context = ActionContext {
             selected_files: &[],
             current_file: None,
-            db: db.db(),
+            ds: &source,
         };
 
         let result = executor.execute(&BrowseAction::RemoveTag, &context);

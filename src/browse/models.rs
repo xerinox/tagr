@@ -4,8 +4,8 @@
 //! via From/TryFrom traits. Direct field access is used for comparisons and
 //! filtering (idiomatic Rust style).
 
-use crate::Pair;
-use crate::db::{Database, DbError};
+use crate::store::{StoreError, TagStore};
+use crate::types::{MatchMode, TagName, TagrPath};
 use crate::ui::DisplayItem;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -64,10 +64,10 @@ pub struct TagMetadata {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMetadata {
     /// Absolute file path
-    pub path: PathBuf,
+    pub path: TagrPath,
 
     /// Tags associated with this file (from database)
-    pub tags: Vec<String>,
+    pub tags: Vec<TagName>,
 
     /// Cached filesystem metadata
     pub cached: CachedMetadata,
@@ -112,29 +112,19 @@ pub struct CachedMetadata {
 #[derive(Debug, Clone)]
 pub struct SelectionState {
     /// Phase 1: Selected tags
-    pub selected_tags: Vec<String>,
+    pub selected_tags: Vec<TagName>,
 
     /// Phase 2: Files matching tag selection (cached query result)
     pub available_files: Vec<TagrItem>,
 
     /// Phase 2: User-selected files
-    pub selected_files: Vec<PathBuf>,
+    pub selected_files: Vec<TagrPath>,
 
     /// Search mode (how to combine multiple tags)
-    pub search_mode: SearchMode,
+    pub search_mode: MatchMode,
 
     /// Metadata cache for performance
     pub metadata_cache: MetadataCache,
-}
-
-/// How to combine multiple selected tags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchMode {
-    /// Match files with ANY of the selected tags (OR logic)
-    Any,
-
-    /// Match files with ALL of the selected tags (AND logic)
-    All,
 }
 
 /// Cache for file metadata to avoid repeated syscalls
@@ -205,7 +195,7 @@ pub enum ActionOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionContext {
     /// Files to operate on
-    pub files: Vec<PathBuf>,
+    pub files: Vec<TagrPath>,
 
     /// Additional data specific to the action
     pub data: ActionData,
@@ -218,7 +208,7 @@ pub enum ActionData {
     None,
 
     /// Tags operation (add/remove)
-    Tags(Vec<String>),
+    Tags(Vec<TagName>),
 
     /// Copy operation
     CopyDestination(PathBuf),
@@ -260,15 +250,15 @@ impl TagrItem {
 
     /// Create a file item
     #[must_use]
-    pub fn file(path: PathBuf, tags: Vec<String>, cached: CachedMetadata) -> Self {
-        let name = path
+    pub fn file(path: TagrPath, tags: Vec<TagName>, cached: CachedMetadata) -> Self {
+        let name = Path::new(path.as_str())
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("<unknown>")
             .to_string();
 
         Self {
-            id: path.display().to_string(),
+            id: path.as_str().to_string(),
             name,
             metadata: ItemMetadata::File(FileMetadata { path, tags, cached }),
         }
@@ -276,7 +266,7 @@ impl TagrItem {
 
     /// Get file path if this is a file item
     #[must_use]
-    pub const fn as_file_path(&self) -> Option<&PathBuf> {
+    pub const fn as_file_path(&self) -> Option<&TagrPath> {
         match &self.metadata {
             ItemMetadata::File(FileMetadata { path, .. }) => Some(path),
             ItemMetadata::Tag(_) => None,
@@ -285,24 +275,10 @@ impl TagrItem {
 
     /// Get tags if this is a file item
     #[must_use]
-    pub fn file_tags(&self) -> Option<&[String]> {
+    pub fn file_tags(&self) -> Option<&[TagName]> {
         match &self.metadata {
             ItemMetadata::File(FileMetadata { tags, .. }) => Some(tags),
             ItemMetadata::Tag(_) => None,
-        }
-    }
-}
-
-impl crate::search::AsFileTagPair for TagrItem {
-    fn as_pair(&self) -> crate::search::FileTagPair<'_> {
-        match &self.metadata {
-            ItemMetadata::File(FileMetadata { tags, .. }) => {
-                crate::search::FileTagPair::new(&self.id, tags)
-            }
-            ItemMetadata::Tag(_) => {
-                // Tags don't have associated files, return empty
-                crate::search::FileTagPair::new(&self.id, &[])
-            }
         }
     }
 }
@@ -413,7 +389,7 @@ impl SelectionState {
             selected_tags: Vec::new(),
             available_files: Vec::new(),
             selected_files: Vec::new(),
-            search_mode: SearchMode::Any,
+            search_mode: MatchMode::Any,
             metadata_cache: MetadataCache::new(),
         }
     }
@@ -432,30 +408,11 @@ impl Default for SelectionState {
     }
 }
 
-impl SearchMode {
-    /// Get description for UI
-    #[must_use]
-    pub const fn description(self) -> &'static str {
-        match self {
-            Self::Any => "ANY (files with any of these tags)",
-            Self::All => "ALL (files with all of these tags)",
-        }
-    }
-
-    /// Toggle between modes
-    pub const fn toggle(&mut self) {
-        *self = match self {
-            Self::Any => Self::All,
-            Self::All => Self::Any,
-        };
-    }
-}
-
 impl MetadataCache {
     /// Create new cache with default TTL (300s)
     #[must_use]
     pub fn new() -> Self {
-        Self::with_ttl(std::time::Duration::from_secs(300))
+        Self::with_ttl(std::time::Duration::from_mins(5))
     }
 
     /// Create cache with custom TTL
@@ -560,54 +517,53 @@ impl ActionOutcome {
 // Conversions - Database -> Domain Models
 // ============================================================================
 
-/// Context for converting Pair to `TagrItem`
+/// Context for converting `types::Pair` to `TagrItem`
 pub struct PairWithCache<'a> {
-    pub pair: Pair,
+    pub pair: crate::types::Pair,
     pub cache: &'a mut MetadataCache,
 }
 
-/// Context for converting path to `TagrItem` with database lookup
+/// Context for converting path to `TagrItem` with data source lookup
 pub struct PathWithDb<'a> {
-    pub path: PathBuf,
-    pub db: &'a Database,
+    pub path: TagrPath,
+    pub ds: &'a dyn TagStore,
     pub cache: &'a mut MetadataCache,
 }
 
-/// Context for converting tag name to `TagrItem` with database lookup
+/// Context for converting tag name to `TagrItem` with data source lookup
 pub struct TagWithDb<'a> {
     pub tag: String,
-    pub db: &'a Database,
+    pub ds: &'a dyn TagStore,
 }
 
-/// Convert database Pair to `TagrItem` using cache
+/// Convert `types::Pair` to `TagrItem` using cache
 impl<'a> From<PairWithCache<'a>> for TagrItem {
     fn from(ctx: PairWithCache<'a>) -> Self {
-        let cached = ctx.cache.get_or_insert(&ctx.pair.file);
+        let cached = ctx.cache.get_or_insert(ctx.pair.file.as_path());
         Self::file(ctx.pair.file, ctx.pair.tags, cached)
     }
 }
 
-/// Convert path with database context to `TagrItem`
+/// Convert path with data source context to `TagrItem`
 impl<'a> TryFrom<PathWithDb<'a>> for TagrItem {
-    type Error = DbError;
+    type Error = StoreError;
 
     fn try_from(ctx: PathWithDb<'a>) -> Result<Self, Self::Error> {
-        let tags = ctx.db.get_tags(&ctx.path)?.unwrap_or_default();
-        let cached = ctx.cache.get_or_insert(&ctx.path);
+        let tags = ctx.ds.get_tags(&ctx.path)?.unwrap_or_default();
+        let cached = ctx.cache.get_or_insert(ctx.path.as_path());
         Ok(Self::file(ctx.path, tags, cached))
     }
 }
 
-/// Convert tag name with database context to `TagrItem`
+/// Convert tag name with data source context to `TagrItem`
 impl<'a> TryFrom<TagWithDb<'a>> for TagrItem {
-    type Error = DbError;
+    type Error = StoreError;
 
     fn try_from(ctx: TagWithDb<'a>) -> Result<Self, Self::Error> {
-        let file_count = ctx
-            .db
-            .find_by_tag(&ctx.tag)
-            .map(|files| files.len())
-            .unwrap_or(0);
+        let file_count = TagName::new(&ctx.tag)
+            .ok()
+            .and_then(|tn| ctx.ds.find_by_tag(&tn).ok())
+            .map_or(0, |files| files.len());
         Ok(Self::tag(ctx.tag, file_count))
     }
 }
@@ -665,13 +621,13 @@ mod tests {
 
     #[test]
     fn test_tagr_item_file_creation() {
-        let path = PathBuf::from("/tmp/test.txt");
-        let tags = vec!["rust".to_string(), "test".to_string()];
+        let path = TagrPath::from_string("/test/test.txt".to_string());
+        let tags = vec![TagName::new("rust").unwrap(), TagName::new("test").unwrap()];
         let cached = CachedMetadata::default();
 
         let item = TagrItem::file(path.clone(), tags.clone(), cached);
 
-        assert_eq!(item.id, "/tmp/test.txt");
+        assert_eq!(item.id, "/test/test.txt");
         assert_eq!(item.name, "test.txt");
         assert_eq!(item.as_file_path(), Some(&path));
         assert_eq!(item.file_tags(), Some(tags.as_slice()));
@@ -701,6 +657,7 @@ mod tests {
 
     #[test]
     fn test_metadata_cache_operations() {
+        #[allow(clippy::duration_suboptimal_units)]
         let mut cache = MetadataCache::with_ttl(std::time::Duration::from_secs(300));
         let path = PathBuf::from("/tmp/test.txt");
 
@@ -716,21 +673,23 @@ mod tests {
 
     #[test]
     fn test_search_mode_toggle() {
-        let mut mode = SearchMode::Any;
-        assert_eq!(mode, SearchMode::Any);
+        let mut mode = MatchMode::Any;
+        assert_eq!(mode, MatchMode::Any);
 
         mode.toggle();
-        assert_eq!(mode, SearchMode::All);
+        assert_eq!(mode, MatchMode::All);
 
         mode.toggle();
-        assert_eq!(mode, SearchMode::Any);
+        assert_eq!(mode, MatchMode::Any);
     }
 
     #[test]
     fn test_selection_state_clear() {
         let mut state = SelectionState::new();
-        state.selected_tags.push("rust".to_string());
-        state.selected_files.push(PathBuf::from("/tmp/test.txt"));
+        state.selected_tags.push(TagName::new("rust").unwrap());
+        state
+            .selected_files
+            .push(TagrPath::from_string("/test/test.txt".to_string()));
 
         state.clear();
 
@@ -781,7 +740,7 @@ mod tests {
     fn test_idiomatic_field_access() {
         // Demonstrate idiomatic direct field access for comparisons
         let item1 = TagrItem::file(
-            PathBuf::from("/tmp/old.txt"),
+            TagrPath::from_string("/test/old.txt".to_string()),
             vec![],
             CachedMetadata {
                 modified: Some(SystemTime::UNIX_EPOCH),
@@ -790,7 +749,7 @@ mod tests {
         );
 
         let item2 = TagrItem::file(
-            PathBuf::from("/tmp/new.txt"),
+            TagrPath::from_string("/test/new.txt".to_string()),
             vec![],
             CachedMetadata {
                 modified: Some(SystemTime::now()),
@@ -811,10 +770,10 @@ mod tests {
         let _db = crate::testing::TestDb::new("test_conversions");
         let mut cache = MetadataCache::new();
 
-        let pair = crate::Pair {
-            file: PathBuf::from("/tmp/test.txt"),
-            tags: vec!["rust".to_string()],
-        };
+        let pair = crate::types::Pair::new(
+            TagrPath::from_string("/test/test.txt".to_string()),
+            vec![TagName::new("rust").unwrap()],
+        );
 
         let item = TagrItem::from(PairWithCache {
             pair,
@@ -822,21 +781,21 @@ mod tests {
         });
 
         assert_eq!(item.name, "test.txt");
-        assert_eq!(item.file_tags(), Some(&["rust".to_string()][..]));
+        assert_eq!(item.file_tags(), Some(&[TagName::new("rust").unwrap()][..]));
 
         let display_item = DisplayItem::from(&item);
         assert_eq!(display_item.key, item.id);
         assert_eq!(display_item.display, item.name);
 
         let pairs = vec![
-            crate::Pair {
-                file: PathBuf::from("/tmp/file1.txt"),
-                tags: vec!["tag1".to_string()],
-            },
-            crate::Pair {
-                file: PathBuf::from("/tmp/file2.txt"),
-                tags: vec!["tag2".to_string()],
-            },
+            crate::types::Pair::new(
+                TagrPath::from_string("/test/file1.txt".to_string()),
+                vec![TagName::new("tag1").unwrap()],
+            ),
+            crate::types::Pair::new(
+                TagrPath::from_string("/test/file2.txt".to_string()),
+                vec![TagName::new("tag2").unwrap()],
+            ),
         ];
 
         let items: Vec<TagrItem> = pairs

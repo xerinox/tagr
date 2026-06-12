@@ -6,16 +6,28 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tagr::cli::{SearchMode, SearchParams};
 use tagr::commands::bulk::{bulk_tag, bulk_untag};
 use tagr::commands::search as search_cmd;
 use tagr::config;
-use tagr::{Pair, cli::execute_command_on_files, db::Database};
+use tagr::store::DirectStore;
+use tagr::types::{MatchMode, Pair, QueryCriteria, TagExpr, TagName, TagrPath};
+use tagr::{cli::execute_command_on_files, db::Database};
 
 /// Test database wrapper that cleans up on drop
 struct TestDb {
     db: Database,
+    store: DirectStore,
     path: PathBuf,
+}
+
+/// Convenience: build a `Pair` from a path and raw tag strings (test only).
+fn pair(path: &Path, tags: &[&str]) -> Pair {
+    Pair::new(
+        TagrPath::new(path).expect("valid UTF-8 path"),
+        tags.iter()
+            .map(|s| TagName::new(*s).expect("valid tag name"))
+            .collect(),
+    )
 }
 
 impl TestDb {
@@ -23,11 +35,16 @@ impl TestDb {
         let path = PathBuf::from(format!("test_integration_{name}"));
         let db = Database::open(&path).unwrap();
         db.clear().unwrap();
-        Self { db, path }
+        let store = DirectStore::new(db.clone());
+        Self { db, store, path }
     }
 
     const fn db(&self) -> &Database {
         &self.db
+    }
+
+    const fn store(&self) -> &DirectStore {
+        &self.store
     }
 }
 
@@ -89,31 +106,22 @@ fn test_e2e_bulk_tag_with_glob_file_patterns() {
         .insert(f_txt.path(), vec!["init".into()])
         .unwrap();
 
-    // Build SearchParams like CLI: file_patterns only, no explicit glob flag
-    let params = SearchParams {
-        query: None,
-        tags: vec![],
-        tag_mode: SearchMode::All,
+    // Build QueryCriteria: file_patterns only
+    let criteria = QueryCriteria {
         file_patterns: vec!["*.rs".to_string()],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+        ..QueryCriteria::default()
     };
 
-    // Execute bulk tag (normalize should enable glob and match only .rs files)
+    // Execute bulk tag (validate should pass and match only .rs files)
     bulk_tag(
-        test_db.db(),
-        params,
+        test_db.store(),
+        &criteria,
         &["added".into()],
         &tagr::cli::ConditionalArgs::default(),
         /*dry_run*/ false,
         /*yes*/ true,
         /*quiet*/ true,
+        &mut std::io::sink(),
     )
     .unwrap();
 
@@ -147,30 +155,22 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
         .insert(f_rs.path(), vec!["remove".into()])
         .unwrap();
 
-    let params = SearchParams {
-        query: None,
-        tags: vec![],
-        tag_mode: SearchMode::All,
+    let criteria = QueryCriteria {
         file_patterns: vec![".*\\.txt".to_string()],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: true,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+        regex_files: true,
+        ..QueryCriteria::default()
     };
 
     bulk_untag(
-        test_db.db(),
-        params,
+        test_db.store(),
+        &criteria,
         &["remove".into()],
         /*remove_all*/ false,
         &tagr::cli::ConditionalArgs::default(),
         /*dry_run*/ false,
         /*yes*/ true,
         /*quiet*/ true,
+        &mut std::io::sink(),
     )
     .unwrap();
 
@@ -188,31 +188,22 @@ fn test_e2e_bulk_untag_with_regex_file_patterns() {
 
 #[test]
 fn test_e2e_search_execute_with_glob_flag() {
+    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+    use tagr::types::QueryCriteria;
+
     let test_db = TestDb::new("e2e_search_glob");
     let db = test_db.db();
     let f_rs = TestFile::create("e2e_s1.rs", "content").unwrap();
     db.insert(f_rs.path(), vec!["t1".into()]).unwrap();
 
-    let params = SearchParams {
-        query: None,
-        tags: vec![],
-        tag_mode: SearchMode::All,
+    let criteria = QueryCriteria {
         file_patterns: vec!["*.rs".to_string()],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: true,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+        ..Default::default()
     };
 
-    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
-
     let res = search_cmd::execute(
-        db,
-        params,
+        test_db.store(),
+        criteria,
         FilterConfig {
             apply: None,
             save: None,
@@ -221,11 +212,14 @@ fn test_e2e_search_execute_with_glob_flag() {
             tag_mode: false,
             file_mode: false,
             virtual_mode: false,
+            glob_files: true,
         },
         OutputConfig {
             format: config::PathFormat::Absolute,
             quiet: true,
+            json: false,
         },
+        &mut Vec::new(),
     );
     assert!(res.is_ok());
 }
@@ -268,12 +262,13 @@ fn test_tag_command_add_tags() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_search_command_single_tag() {
     let test_db = TestDb::new("search_single");
 
-    let file1 = TestFile::create("file1.txt", "content1").unwrap();
-    let file2 = TestFile::create("file2.txt", "content2").unwrap();
-    let file3 = TestFile::create("file3.txt", "content3").unwrap();
+    let file1 = TestFile::create("search_single_file1.txt", "content1").unwrap();
+    let file2 = TestFile::create("search_single_file2.txt", "content2").unwrap();
+    let file3 = TestFile::create("search_single_file3.txt", "content3").unwrap();
 
     let file1_path = fs::canonicalize(file1.path()).unwrap();
     let file2_path = fs::canonicalize(file2.path()).unwrap();
@@ -609,8 +604,8 @@ fn test_find_by_any_tag() {
 
 #[test]
 fn test_pair_struct_operations() {
-    let file_path = PathBuf::from("test_pair.txt");
-    let tags = vec!["tag1".into(), "tag2".into()];
+    let file_path = TagrPath::from_string("test_pair.txt".to_owned());
+    let tags = vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()];
 
     let pair = Pair::new(file_path.clone(), tags.clone());
 
@@ -721,8 +716,11 @@ fn test_get_pair() {
     assert!(pair.is_some());
 
     let pair = pair.unwrap();
-    assert_eq!(pair.file, PathBuf::from("pair.txt"));
-    assert_eq!(pair.tags, vec!["tag1".to_string(), "tag2".to_string()]);
+    assert_eq!(pair.file, TagrPath::from_string("pair.txt".to_owned()));
+    assert_eq!(
+        pair.tags,
+        vec![TagName::new("tag1").unwrap(), TagName::new("tag2").unwrap()]
+    );
 
     let _ = fs::remove_file("pair.txt");
     // Cleanup happens automatically via Drop
@@ -732,7 +730,7 @@ fn test_get_pair() {
 // Filter Integration Tests
 // ============================================================================
 
-use tagr::filters::{FileMode, FilterCriteria, FilterManager, TagMode};
+use tagr::filters::FilterManager;
 
 /// RAII wrapper for `FilterManager` with automatic cleanup
 struct TestFilterManager {
@@ -797,12 +795,15 @@ fn test_filter_create_and_list() {
     let test_mgr = TestFilterManager::new("create_list");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder()
-        .tags(vec!["rust".into(), "tutorial".into()])
-        .tag_mode(TagMode::All)
-        .file_patterns(vec!["*.rs".into()])
-        .file_mode(FileMode::Any)
-        .build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("rust").unwrap()),
+            TagExpr::Tag(TagName::new("tutorial").unwrap()),
+        ])),
+        file_patterns: vec!["*.rs".into()],
+        file_mode: MatchMode::Any,
+        ..Default::default()
+    };
 
     let result = manager.create("test-filter", "Test filter".into(), criteria);
     assert!(result.is_ok());
@@ -818,19 +819,19 @@ fn test_filter_create_with_all_options() {
     let test_mgr = TestFilterManager::new("create_full");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder()
-        .tags(vec![
-            "rust".into(),
-            "tutorial".into(),
-            "documentation".into(),
-        ])
-        .tag_mode(TagMode::All)
-        .file_patterns(vec!["*.rs".into(), "*.toml".into()])
-        .file_mode(FileMode::Any)
-        .excludes(vec!["deprecated".into(), "old".into()])
-        .regex_tag(true)
-        .regex_file(false)
-        .build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("rust").unwrap()),
+            TagExpr::Tag(TagName::new("tutorial").unwrap()),
+            TagExpr::Tag(TagName::new("documentation").unwrap()),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("deprecated").unwrap()))),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("old").unwrap()))),
+        ])),
+        file_patterns: vec!["*.rs".into(), "*.toml".into()],
+        file_mode: MatchMode::Any,
+        regex_tags: true,
+        ..Default::default()
+    };
 
     let filter = manager
         .create(
@@ -841,13 +842,13 @@ fn test_filter_create_with_all_options() {
         .unwrap();
 
     assert_eq!(filter.name, "complex-filter");
-    assert_eq!(filter.criteria.tags.len(), 3);
+    let include_tags = filter.criteria.flat_include_tags().unwrap();
+    assert_eq!(include_tags.len(), 3);
     assert_eq!(filter.criteria.file_patterns.len(), 2);
-    assert_eq!(filter.criteria.excludes.len(), 2);
-    assert_eq!(filter.criteria.tag_mode, TagMode::All);
-    assert_eq!(filter.criteria.file_mode, FileMode::Any);
-    assert!(filter.criteria.regex_tag);
-    assert!(!filter.criteria.regex_file);
+    let exclude_tags = filter.criteria.flat_exclude_tags().unwrap();
+    assert_eq!(exclude_tags.len(), 2);
+    assert!(filter.criteria.regex_tags);
+    assert!(!filter.criteria.regex_files);
 }
 
 #[test]
@@ -855,12 +856,12 @@ fn test_filter_get_and_show() {
     let test_mgr = TestFilterManager::new("get_show");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder()
-        .tags(vec!["rust".into()])
-        .tag_mode(TagMode::All)
-        .file_patterns(vec!["src/*.rs".into()])
-        .file_mode(FileMode::All)
-        .build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+        file_patterns: vec!["src/*.rs".into()],
+        file_mode: MatchMode::All,
+        ..Default::default()
+    };
 
     manager
         .create("get-test", "Get test filter".into(), criteria)
@@ -869,7 +870,8 @@ fn test_filter_get_and_show() {
     let filter = manager.get("get-test").unwrap();
     assert_eq!(filter.name, "get-test");
     assert_eq!(filter.description, "Get test filter");
-    assert_eq!(filter.criteria.tags, vec!["rust"]);
+    let include_tags = filter.criteria.flat_include_tags().unwrap();
+    assert!(include_tags.contains(&TagName::new("rust").unwrap()));
     assert_eq!(filter.criteria.file_patterns, vec!["src/*.rs"]);
 }
 
@@ -887,7 +889,10 @@ fn test_filter_rename() {
     let test_mgr = TestFilterManager::new("rename");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("old-name", "Description".into(), criteria)
@@ -905,7 +910,10 @@ fn test_filter_delete() {
     let test_mgr = TestFilterManager::new("delete");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("to-delete", "Will be deleted".into(), criteria)
@@ -923,7 +931,10 @@ fn test_filter_duplicate_name() {
     let test_mgr = TestFilterManager::new("duplicate");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("duplicate", "First".into(), criteria.clone())
@@ -940,15 +951,17 @@ fn test_filter_export_and_import() {
     let temp_file = TempFilterFile::new("test_export.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = FilterCriteria::builder()
-        .tag("rust".into())
-        .file_pattern("*.rs".into())
-        .build();
+    let criteria1 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("rust").unwrap())),
+        file_patterns: vec!["*.rs".into()],
+        ..Default::default()
+    };
 
-    let criteria2 = FilterCriteria::builder()
-        .tag("python".into())
-        .file_pattern("*.py".into())
-        .build();
+    let criteria2 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("python").unwrap())),
+        file_patterns: vec!["*.py".into()],
+        ..Default::default()
+    };
 
     manager
         .create("filter1", "First filter".into(), criteria1)
@@ -980,7 +993,10 @@ fn test_filter_export_selective() {
     let temp_file = TempFilterFile::new("test_export_selective.toml");
     let export_path = temp_file.path();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     manager
         .create("filter-a", "A".into(), criteria.clone())
@@ -1016,9 +1032,15 @@ fn test_filter_import_conflict_skip() {
     let temp_file = TempFilterFile::new("test_import_skip.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = FilterCriteria::builder().tag("existing".into()).build();
+    let criteria1 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("existing").unwrap())),
+        ..Default::default()
+    };
 
-    let criteria2 = FilterCriteria::builder().tag("new".into()).build();
+    let criteria2 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("new").unwrap())),
+        ..Default::default()
+    };
 
     // Create existing filter
     manager
@@ -1055,9 +1077,15 @@ fn test_filter_import_conflict_overwrite() {
     let temp_file = TempFilterFile::new("test_import_overwrite.toml");
     let export_path = temp_file.path();
 
-    let criteria1 = FilterCriteria::builder().tag("original".into()).build();
+    let criteria1 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("original").unwrap())),
+        ..Default::default()
+    };
 
-    let criteria2 = FilterCriteria::builder().tag("updated".into()).build();
+    let criteria2 = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("updated").unwrap())),
+        ..Default::default()
+    };
 
     // Create existing filter
     manager
@@ -1079,7 +1107,13 @@ fn test_filter_import_conflict_overwrite() {
     // Should be updated
     let filter = manager.get("overwrite-me").unwrap();
     assert_eq!(filter.description, "Updated");
-    assert_eq!(filter.criteria.tags, vec!["updated"]);
+    assert!(
+        filter
+            .criteria
+            .flat_include_tags()
+            .unwrap()
+            .contains(&TagName::new("updated").unwrap())
+    );
 }
 
 #[test]
@@ -1087,7 +1121,10 @@ fn test_filter_usage_tracking() {
     let test_mgr = TestFilterManager::new("usage_tracking");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     let filter = manager
         .create("track-usage", "Test".into(), criteria)
@@ -1112,7 +1149,7 @@ fn test_filter_criteria_validation() {
     let manager = test_mgr.manager();
 
     // Empty criteria should fail
-    let empty_criteria = FilterCriteria::builder().build();
+    let empty_criteria = QueryCriteria::default();
 
     let result = manager.create("invalid", "Invalid".into(), empty_criteria);
     assert!(result.is_err());
@@ -1123,7 +1160,10 @@ fn test_filter_name_validation() {
     let test_mgr = TestFilterManager::new("name_validation");
     let manager = test_mgr.manager();
 
-    let criteria = FilterCriteria::builder().tag("test".into()).build();
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("test").unwrap())),
+        ..Default::default()
+    };
 
     // Invalid characters
     let result = manager.create("invalid name!", "Invalid".into(), criteria.clone());
@@ -1148,39 +1188,22 @@ fn test_hierarchy_prefix_matching() {
     let file2 = TestFile::create("file2.rs", "").unwrap();
     let file3 = TestFile::create("file3.py", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:javascript".into(), "production".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:rust".into(), "tests".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file3.path().to_path_buf(),
-        vec!["lang:python".into(), "tests".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:javascript", "production"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust", "tests"]))
+        .unwrap();
+    db.insert_pair(&pair(file3.path(), &["lang:python", "tests"]))
+        .unwrap();
 
     // Search for "-t lang" should match all files with lang:* tags
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("lang").unwrap())),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 3);
 }
 
@@ -1192,37 +1215,25 @@ fn test_hierarchy_specificity_exclude_wins() {
     let file1 = TestFile::create("spec1.js", "").unwrap();
     let file2 = TestFile::create("spec2.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:javascript".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:rust".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:javascript"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust"])).unwrap();
 
     // Search: -t lang -x lang:rust
     // Should include lang:javascript but exclude lang:rust
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec!["lang:rust".to_string()],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("lang").unwrap()),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("lang:rust").unwrap()))),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("spec1.js"));
+    assert!(results[0].as_str().contains("spec1.js"));
 }
 
 #[test]
@@ -1233,37 +1244,26 @@ fn test_hierarchy_cross_hierarchy_exclude() {
     let file1 = TestFile::create("cross1.js", "").unwrap();
     let file2 = TestFile::create("cross2.js", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:javascript".into(), "production".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:javascript".into(), "tests".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:javascript", "production"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:javascript", "tests"]))
+        .unwrap();
 
     // Search: -t lang -x tests
     // Different hierarchies - exclude wins
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec!["tests".to_string()],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("lang").unwrap()),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("tests").unwrap()))),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("cross1.js"));
+    assert!(results[0].as_str().contains("cross1.js"));
 }
 
 #[test]
@@ -1273,30 +1273,25 @@ fn test_hierarchy_deeper_include_overrides_exclude() {
 
     let file = TestFile::create("deep.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file.path().to_path_buf(),
-        vec!["lang:rust:async".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file.path(), &["lang:rust:async"]))
+        .unwrap();
 
     // Search: -t lang -t lang:rust:async -x lang:rust
     // Depth 3 include should override depth 2 exclude
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string(), "lang:rust:async".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec!["lang:rust".to_string()],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Or(vec![
+                TagExpr::Tag(TagName::new("lang").unwrap()),
+                TagExpr::Tag(TagName::new("lang:rust:async").unwrap()),
+            ]),
+            TagExpr::Not(Box::new(TagExpr::Tag(TagName::new("lang:rust").unwrap()))),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
 }
 
@@ -1309,42 +1304,27 @@ fn test_hierarchy_all_mode_requires_all_patterns() {
     let file2 = TestFile::create("all2.rs", "").unwrap();
     let file3 = TestFile::create("all3.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:rust".into(), "project:backend".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file2.path().to_path_buf(),
-        vec!["lang:rust".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(
-        file3.path().to_path_buf(),
-        vec!["project:backend".into()],
-    ))
-    .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:rust", "project:backend"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang:rust"])).unwrap();
+    db.insert_pair(&pair(file3.path(), &["project:backend"]))
+        .unwrap();
 
     // Search: -t lang -t project --all-tags
     // Only file1 has tags matching both patterns
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string(), "project".to_string()],
-        tag_mode: SearchMode::All,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: false,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::And(vec![
+            TagExpr::Tag(TagName::new("lang").unwrap()),
+            TagExpr::Tag(TagName::new("project").unwrap()),
+        ])),
+        expand_hierarchy: true,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("all1.rs"));
+    assert!(results[0].as_str().contains("all1.rs"));
 }
 
 #[test]
@@ -1355,32 +1335,624 @@ fn test_hierarchy_no_hierarchy_flag_disables_prefix_matching() {
     let file1 = TestFile::create("nohier1.rs", "").unwrap();
     let file2 = TestFile::create("nohier2.rs", "").unwrap();
 
-    db.insert_pair(&Pair::new(
-        file1.path().to_path_buf(),
-        vec!["lang:rust".into()],
-    ))
-    .unwrap();
-    db.insert_pair(&Pair::new(file2.path().to_path_buf(), vec!["lang".into()]))
-        .unwrap();
+    db.insert_pair(&pair(file1.path(), &["lang:rust"])).unwrap();
+    db.insert_pair(&pair(file2.path(), &["lang"])).unwrap();
 
     // Search: -t lang --no-hierarchy
     // Should only match file2 (exact match only)
-    let params = SearchParams {
-        query: None,
-        tags: vec!["lang".to_string()],
-        tag_mode: SearchMode::Any,
-        file_patterns: vec![],
-        file_mode: SearchMode::All,
-        exclude_tags: vec![],
-        regex_tag: false,
-        regex_file: false,
-        glob_files: false,
-        virtual_tags: vec![],
-        virtual_mode: SearchMode::All,
-        no_hierarchy: true,
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("lang").unwrap())),
+        expand_hierarchy: false,
+        ..QueryCriteria::default()
     };
 
-    let results = tagr::db::query::apply_search_params(db, &params).unwrap();
+    let schema = tagr::schema::load_default_schema().unwrap_or_default();
+    let results = tagr::query::execute(test_db.store(), &criteria, &schema).unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].to_str().unwrap().contains("nohier2.rs"));
+    assert!(results[0].as_str().contains("nohier2.rs"));
+}
+
+// ============================================================================
+// Command executor smoke tests — exercise execute() entry points
+// ============================================================================
+
+#[test]
+fn test_cleanup_execute_empty_db() {
+    let test_db = TestDb::new("cleanup_empty");
+    let mut out = Vec::new();
+    tagr::commands::cleanup::execute(
+        test_db.store(),
+        config::PathFormat::Absolute,
+        false,
+        &mut out,
+    )
+    .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("clean") || output.contains("No issues"));
+}
+
+#[test]
+fn test_cleanup_execute_missing_file() {
+    let test_db = TestDb::new("cleanup_exec_missing");
+    let db = test_db.db();
+    // Create a real file, insert it, then delete the file to simulate "missing"
+    let f = TestFile::create("cleanup_ghost_file.txt", "temp").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["orphan".into()])
+        .unwrap();
+    // Remove the file so cleanup detects it as missing
+    drop(f);
+    let _ = fs::remove_file(&canonical);
+    let mut out = Vec::new();
+    // quiet=true auto-deletes without TTY prompt
+    tagr::commands::cleanup::execute(
+        test_db.store(),
+        config::PathFormat::Absolute,
+        true,
+        &mut out,
+    )
+    .unwrap();
+    assert_eq!(db.count(), 0, "missing file should be cleaned up");
+}
+
+#[test]
+fn test_cleanup_execute_all_files_exist() {
+    let test_db = TestDb::new("cleanup_exists");
+    let db = test_db.db();
+    let f = TestFile::create("cleanup_test_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let mut out = Vec::new();
+    tagr::commands::cleanup::execute(
+        test_db.store(),
+        config::PathFormat::Absolute,
+        false,
+        &mut out,
+    )
+    .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("clean") || output.contains("No issues"));
+    assert_eq!(db.count(), 1, "existing file should remain");
+}
+
+#[test]
+fn test_tags_list_empty_db() {
+    let test_db = TestDb::new("tags_list_empty");
+    let cmd = tagr::cli::TagsCommands::List { tree: false };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("No tags"));
+}
+
+#[test]
+fn test_tags_list_flat() {
+    let test_db = TestDb::new("tags_list_flat");
+    let db = test_db.db();
+    let f = TestFile::create("tags_list_file.txt", "x").unwrap();
+    db.insert(
+        f.path().to_str().unwrap(),
+        vec!["alpha".into(), "beta".into()],
+    )
+    .unwrap();
+    let cmd = tagr::cli::TagsCommands::List { tree: false };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("alpha"));
+    assert!(output.contains("beta"));
+}
+
+#[test]
+fn test_tags_list_tree() {
+    let test_db = TestDb::new("tags_list_tree");
+    let db = test_db.db();
+    let f = TestFile::create("tags_tree_file.txt", "x").unwrap();
+    db.insert(
+        f.path().to_str().unwrap(),
+        vec!["lang".into(), "lang:rust".into()],
+    )
+    .unwrap();
+    let cmd = tagr::cli::TagsCommands::List { tree: true };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("tree view"));
+    assert!(output.contains("lang"));
+}
+
+#[test]
+fn test_tags_list_quiet() {
+    let test_db = TestDb::new("tags_list_quiet");
+    let db = test_db.db();
+    let f = TestFile::create("tags_quiet_file.txt", "x").unwrap();
+    db.insert(f.path().to_str().unwrap(), vec!["alpha".into()])
+        .unwrap();
+    let cmd = tagr::cli::TagsCommands::List { tree: false };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(test_db.store(), &cmd, true, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("alpha"));
+    // Quiet mode should NOT contain the "Tags in database:" header
+    assert!(!output.contains("Tags in database"));
+}
+
+#[test]
+fn test_tags_remove_existing() {
+    let test_db = TestDb::new("tags_remove_exec");
+    let db = test_db.db();
+    let f = TestFile::create("tags_remove_file.txt", "x").unwrap();
+    db.insert(
+        f.path().to_str().unwrap(),
+        vec!["remove-me".into(), "keep".into()],
+    )
+    .unwrap();
+    let cmd = tagr::cli::TagsCommands::Remove {
+        tag: "remove-me".into(),
+    };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(test_db.store(), &cmd, true, &mut out).unwrap();
+    let tags = db.get_tags(f.path()).unwrap().unwrap();
+    assert!(!tags.contains(&"remove-me".into()));
+    assert!(tags.contains(&"keep".into()));
+}
+
+#[test]
+fn test_tags_remove_nonexistent() {
+    let test_db = TestDb::new("tags_remove_none");
+    let cmd = tagr::cli::TagsCommands::Remove {
+        tag: "ghost".into(),
+    };
+    let mut out = Vec::new();
+    tagr::commands::tags::execute(test_db.store(), &cmd, false, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("not found"));
+}
+
+#[test]
+fn test_note_list_empty() {
+    use tagr::commands::note::{ListArgs, NoteSubcommand, OutputFormat};
+    let test_db = TestDb::new("note_list_empty");
+    let config = tagr::config::TagrConfig::default();
+    let cmd = NoteSubcommand::List(ListArgs {
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    cmd.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("No notes"));
+}
+
+#[test]
+fn test_note_add_and_show() {
+    use tagr::commands::note::{AddArgs, NoteSubcommand, OutputFormat, ShowArgs};
+    let test_db = TestDb::new("note_add_show");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_test_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    // Need the file in DB first
+    db.insert(canonical.to_str().unwrap(), vec!["tagged".into()])
+        .unwrap();
+    // Add a note
+    let add_cmd = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "test note content".into(),
+    });
+    let mut out = Vec::new();
+    add_cmd
+        .execute(
+            test_db.store(),
+            &config,
+            config::PathFormat::Absolute,
+            &mut out,
+        )
+        .unwrap();
+
+    // Show the note
+    let show_cmd = NoteSubcommand::Show(ShowArgs {
+        files: vec![canonical],
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    show_cmd
+        .execute(
+            test_db.store(),
+            &config,
+            config::PathFormat::Absolute,
+            &mut out,
+        )
+        .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("test note content"));
+}
+
+#[test]
+fn test_note_delete_dry_run() {
+    use tagr::commands::note::{AddArgs, DeleteArgs, NoteSubcommand};
+    let test_db = TestDb::new("note_del_dry");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_del_dry_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    // Add a note
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "to delete".into(),
+    });
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+
+    // Dry-run delete
+    let del = NoteSubcommand::Delete(DeleteArgs {
+        files: vec![canonical.clone()],
+        dry_run: true,
+        yes: true,
+    });
+    let mut out = Vec::new();
+    del.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Would delete"));
+    // Note should still exist
+    assert!(db.get_note(&canonical).unwrap().is_some());
+}
+
+#[test]
+fn test_note_delete_applied() {
+    use tagr::commands::note::{AddArgs, DeleteArgs, NoteSubcommand};
+    let test_db = TestDb::new("note_del_apply");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_del_apply_file.txt", "content").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical.clone(),
+        content: "to delete".into(),
+    });
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+
+    let del = NoteSubcommand::Delete(DeleteArgs {
+        files: vec![canonical.clone()],
+        dry_run: false,
+        yes: true,
+    });
+    del.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+    assert!(
+        db.get_note(&canonical).unwrap().is_none(),
+        "note should be deleted"
+    );
+}
+
+#[test]
+fn test_note_show_nonexistent() {
+    use tagr::commands::note::{NoteSubcommand, OutputFormat, ShowArgs};
+    let test_db = TestDb::new("note_show_none");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_show_none_file.txt", "x").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let cmd = NoteSubcommand::Show(ShowArgs {
+        files: vec![canonical],
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let result = cmd.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    );
+    assert!(
+        result.is_err(),
+        "showing note for file without note should error"
+    );
+}
+
+#[test]
+fn test_note_list_with_notes() {
+    use tagr::commands::note::{AddArgs, ListArgs, NoteSubcommand, OutputFormat};
+    let test_db = TestDb::new("note_list_notes");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_list_file.txt", "x").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical,
+        content: "some note".into(),
+    });
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+
+    let list = NoteSubcommand::List(ListArgs {
+        format: OutputFormat::Text,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    list.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("note_list_file"));
+}
+
+#[test]
+fn test_note_list_json_format() {
+    use tagr::commands::note::{AddArgs, ListArgs, NoteSubcommand, OutputFormat};
+    let test_db = TestDb::new("note_list_json");
+    let db = test_db.db();
+    let config = tagr::config::TagrConfig::default();
+    let f = TestFile::create("note_json_file.txt", "x").unwrap();
+    let canonical = f.path().canonicalize().unwrap();
+    db.insert(canonical.to_str().unwrap(), vec!["tag".into()])
+        .unwrap();
+    let add = NoteSubcommand::Add(AddArgs {
+        file: canonical,
+        content: "json test".into(),
+    });
+    add.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+
+    let list = NoteSubcommand::List(ListArgs {
+        format: OutputFormat::Json,
+        verbose: false,
+    });
+    let mut out = Vec::new();
+    list.execute(
+        test_db.store(),
+        &config,
+        config::PathFormat::Absolute,
+        &mut out,
+    )
+    .unwrap();
+    let output = String::from_utf8(out).unwrap();
+    // Should be valid JSON
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(parsed.is_array());
+}
+
+#[test]
+fn test_search_command_json_format() {
+    use tagr::commands::search::{ExplicitFlags, FilterConfig, OutputConfig};
+    let test_db = TestDb::new("search_json_format");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("search_json1.rs", "content 1").unwrap();
+    let file2 = TestFile::create("search_json2.rs", "content 2").unwrap();
+
+    db.insert_pair(&pair(file1.path(), &["rust", "json-test"]))
+        .unwrap();
+    db.insert_pair(&pair(file2.path(), &["rust", "other"]))
+        .unwrap();
+
+    let criteria = QueryCriteria {
+        tag_expr: Some(TagExpr::Tag(TagName::new("json-test").unwrap())),
+        ..QueryCriteria::default()
+    };
+
+    let mut out = Vec::new();
+    tagr::commands::search::execute(
+        test_db.store(),
+        criteria,
+        FilterConfig {
+            apply: None,
+            save: None,
+        },
+        ExplicitFlags {
+            tag_mode: false,
+            file_mode: false,
+            virtual_mode: false,
+            glob_files: false,
+        },
+        OutputConfig {
+            format: config::PathFormat::Absolute,
+            quiet: true,
+            json: true,
+        },
+        &mut out,
+    )
+    .unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(parsed.is_array());
+    let array = parsed.as_array().unwrap();
+    assert_eq!(array.len(), 1);
+
+    let item = &array[0];
+    assert!(item["file"].as_str().unwrap().contains("search_json1.rs"));
+
+    let tags = item["tags"].as_array().unwrap();
+    let tag_strs: Vec<&str> = tags.iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(tag_strs.contains(&"rust"));
+    assert!(tag_strs.contains(&"json-test"));
+}
+
+#[test]
+fn test_list_command_json_format() {
+    use tagr::cli::ListVariant;
+    let test_db = TestDb::new("list_json_format");
+    let db = test_db.db();
+
+    let file1 = TestFile::create("list_json_file1.rs", "").unwrap();
+    db.insert_pair(&pair(file1.path(), &["alpha", "beta"]))
+        .unwrap();
+
+    // 1. Files List JSON
+    let mut out_files = Vec::new();
+    tagr::commands::list::execute(
+        test_db.store(),
+        ListVariant::Files,
+        config::PathFormat::Absolute,
+        true,
+        true,
+        &mut out_files,
+    )
+    .unwrap();
+
+    let output_files = String::from_utf8(out_files).unwrap();
+    let parsed_files: serde_json::Value = serde_json::from_str(&output_files).unwrap();
+    assert!(parsed_files.is_array());
+    let files_arr = parsed_files.as_array().unwrap();
+    assert_eq!(files_arr.len(), 1);
+    assert!(
+        files_arr[0]["file"]
+            .as_str()
+            .unwrap()
+            .contains("list_json_file1.rs")
+    );
+    let tags_arr = files_arr[0]["tags"].as_array().unwrap();
+    assert_eq!(tags_arr.len(), 2);
+
+    // 2. Tags List JSON
+    let mut out_tags = Vec::new();
+    tagr::commands::list::execute(
+        test_db.store(),
+        ListVariant::Tags,
+        config::PathFormat::Absolute,
+        true,
+        true,
+        &mut out_tags,
+    )
+    .unwrap();
+
+    let output_tags = String::from_utf8(out_tags).unwrap();
+    let parsed_tags: serde_json::Value = serde_json::from_str(&output_tags).unwrap();
+    assert!(parsed_tags.is_array());
+    let tags_arr = parsed_tags.as_array().unwrap();
+    // alpha and beta tags
+    assert_eq!(tags_arr.len(), 2);
+    // alphabetical or db order - let's check both are present
+    let tag_names: Vec<&str> = tags_arr
+        .iter()
+        .map(|item| item["name"].as_str().unwrap())
+        .collect();
+    assert!(tag_names.contains(&"alpha"));
+    assert!(tag_names.contains(&"beta"));
+
+    let file_count = tags_arr[0]["file_count"].as_u64().unwrap();
+    assert_eq!(file_count, 1);
+}
+
+#[test]
+fn test_file_show_command() {
+    use tagr::commands::file::{FileCommands, execute};
+    use tagr::types::NoteRecord;
+    let test_db = TestDb::new("file_show_command");
+    let db = test_db.db();
+
+    let file = TestFile::create("show_file_test.rs", "fn main() {}").unwrap();
+    let canonical_path = fs::canonicalize(file.path()).unwrap();
+    let tagr_path = tagr::types::TagrPath::new(&canonical_path).unwrap();
+
+    // Setup tags and note in db
+    db.insert_pair(&pair(&canonical_path, &["rust", "show-test"]))
+        .unwrap();
+    db.set_note(
+        &tagr_path,
+        &NoteRecord::new("This is a show command test note".to_string()),
+    )
+    .unwrap();
+
+    // 1. Text Format
+    let mut out_text = Vec::new();
+    execute(
+        test_db.store(),
+        &FileCommands::Show {
+            file: file.path().to_path_buf(),
+            json: false,
+            absolute: true,
+            relative: false,
+        },
+        config::PathFormat::Absolute,
+        &mut out_text,
+    )
+    .unwrap();
+
+    let output_text = String::from_utf8(out_text).unwrap();
+    assert!(output_text.contains("File:"));
+    assert!(output_text.contains("Status: Exists"));
+    assert!(output_text.contains("Tags: [rust, show-test]"));
+    assert!(output_text.contains("This is a show command test note"));
+
+    // 2. JSON Format
+    let mut out_json = Vec::new();
+    execute(
+        test_db.store(),
+        &FileCommands::Show {
+            file: file.path().to_path_buf(),
+            json: true,
+            absolute: true,
+            relative: false,
+        },
+        config::PathFormat::Absolute,
+        &mut out_json,
+    )
+    .unwrap();
+
+    let output_json = String::from_utf8(out_json).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output_json).unwrap();
+    assert!(parsed["exists"].as_bool().unwrap());
+    assert_eq!(parsed["tags"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        parsed["tags"].as_array().unwrap()[0].as_str().unwrap(),
+        "rust"
+    );
+    assert_eq!(
+        parsed["note"]["content"].as_str().unwrap(),
+        "This is a show command test note"
+    );
 }

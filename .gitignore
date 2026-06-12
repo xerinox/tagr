@@ -25,3 +25,8 @@ test_db
 # Ignore embedded sled database directories
 src/my_db/
 my_db/
+lcov.info
+checks.md
+file.txt
+ignore.txt
+my file.txt

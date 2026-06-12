@@ -1,5 +1,6 @@
 use colored::Colorize;
 use dialoguer::Confirm;
+use std::io::Write;
 use std::path::PathBuf;
 
 use crate::TagrError;
@@ -77,35 +78,49 @@ impl BulkOpSummary {
         self.errors += 1;
         self.error_messages.push(msg);
     }
-    pub fn print(&self, operation: &str) {
-        println!("\n{}", format!("=== {operation} Summary ===").bold());
-        println!("  {} {}", "✓ Success:".green(), self.success);
+    /// # Errors
+    /// Returns I/O errors if writing to the output fails.
+    pub fn print(&self, operation: &str, writer: &mut impl Write) -> Result<()> {
+        writeln!(
+            writer,
+            "\n{}",
+            format!("=== {operation} Summary ===").bold()
+        )?;
+        writeln!(writer, "  {} {}", "✓ Success:".green(), self.success)?;
         if self.skipped > 0 {
-            println!("  {} {}", "⊘ Skipped:".yellow(), self.skipped);
+            writeln!(writer, "  {} {}", "⊘ Skipped:".yellow(), self.skipped)?;
         }
         if self.skipped_condition > 0 {
-            println!(
+            writeln!(
+                writer,
                 "  {} {}",
                 "⊘ Skipped (condition):".yellow(),
                 self.skipped_condition
-            );
+            )?;
         }
         if self.errors > 0 {
-            println!("  {} {}", "✗ Errors:".red(), self.errors);
+            writeln!(writer, "  {} {}", "✗ Errors:".red(), self.errors)?;
             if !self.error_messages.is_empty() {
-                println!("\n{}", "Error details:".red().bold());
+                writeln!(writer, "\n{}", "Error details:".red().bold())?;
                 for msg in &self.error_messages {
-                    println!("  - {msg}");
+                    writeln!(writer, "  - {msg}")?;
                 }
             }
         }
+        Ok(())
     }
 }
 
 /// Print dry-run preview of bulk operation
-pub fn print_dry_run_preview(files: &[PathBuf], tags: &[String], action: BulkAction) {
-    println!("{}", "=== Dry Run Mode ===".yellow().bold());
-    println!(
+pub fn print_dry_run_preview(
+    files: &[PathBuf],
+    tags: &[String],
+    action: BulkAction,
+    writer: &mut impl Write,
+) -> Result<()> {
+    writeln!(writer, "{}", "=== Dry Run Mode ===".yellow().bold())?;
+    writeln!(
+        writer,
         "Would {} tags {} {} {} file(s)",
         action.verb(),
         if tags.is_empty() {
@@ -115,15 +130,20 @@ pub fn print_dry_run_preview(files: &[PathBuf], tags: &[String], action: BulkAct
         },
         action.preposition(),
         files.len()
-    );
-    println!("\n{}", "Affected files:".bold());
+    )?;
+    writeln!(writer, "\n{}", "Affected files:".bold())?;
     for (i, file) in files.iter().enumerate().take(10) {
-        println!("  {}. {}", i + 1, file.display());
+        writeln!(writer, "  {}. {}", i + 1, file.display())?;
     }
     if files.len() > 10 {
-        println!("  ... and {} more", files.len() - 10);
+        writeln!(writer, "  ... and {} more", files.len() - 10)?;
     }
-    println!("\n{}", "Run without --dry-run to apply changes.".yellow());
+    writeln!(
+        writer,
+        "\n{}",
+        "Run without --dry-run to apply changes.".yellow()
+    )?;
+    Ok(())
 }
 
 /// Show confirmation prompt for bulk operation
