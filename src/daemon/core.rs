@@ -401,16 +401,19 @@ fn spawn_tag_work_with_events(
 /// The caller is responsible for spawning the actual DB writes off the event loop
 /// so that IPC connections are never blocked.
 #[allow(clippy::too_many_arguments)]
-fn handle_debounced_events(
+fn handle_debounced_events<C>(
     events: &[DebouncedEvent],
     config: &mut WatchConfig,
     config_path: &Path,
-    debouncer: &mut Debouncer<notify::RecommendedWatcher, notify_debouncer_full::NoCache>,
+    debouncer: &mut Debouncer<notify::RecommendedWatcher, C>,
     watched_roots: &mut HashSet<PathBuf>,
     last_config_reload: &mut Option<Instant>,
     db: &Database,
     filter_evaluator: &mut FilterEvaluator,
-) -> Vec<(PathBuf, Vec<String>)> {
+) -> Vec<(PathBuf, Vec<String>)>
+where
+    C: notify_debouncer_full::FileIdCache,
+{
     let mut work: Vec<(PathBuf, Vec<String>)> = Vec::new();
     let store = DirectStore::new(db.clone());
 
@@ -530,11 +533,13 @@ fn resolve_all_rules(rules: &mut [WatchRule]) {
 
 /// Register any watch roots from the config that are not yet watched.
 /// We never remove roots to avoid races; a daemon restart cleans up.
-fn add_new_watch_roots(
-    debouncer: &mut Debouncer<notify::RecommendedWatcher, notify_debouncer_full::NoCache>,
+fn add_new_watch_roots<C>(
+    debouncer: &mut Debouncer<notify::RecommendedWatcher, C>,
     config: &WatchConfig,
     watched: &mut HashSet<PathBuf>,
-) {
+) where
+    C: notify_debouncer_full::FileIdCache,
+{
     for rule in &config.rules {
         for pattern in &rule.patterns {
             let root = glob_parent(pattern);
