@@ -481,6 +481,22 @@ pub fn watch_stop(quiet: bool, writer: &mut impl Write) -> anyhow::Result<()> {
         .block_on(PlatformDaemonManager.is_running())
         .unwrap_or(false);
     if !is_running {
+        // On Linux the daemon may be systemd-managed. Even if the IPC socket is
+        // gone, the process might still be alive and holding the sled lock.
+        // Attempt a graceful systemd stop so the DB lock is released.
+        #[cfg(target_os = "linux")]
+        {
+            let stopped = std::process::Command::new("systemctl")
+                .args(["--user", "stop", "tagr.service"])
+                .output()
+                .is_ok_and(|o| o.status.success());
+            if stopped {
+                if !quiet {
+                    writeln!(writer, "Daemon stopped (via systemd).")?;
+                }
+                return Ok(());
+            }
+        }
         if !quiet {
             writeln!(writer, "No daemon is running.")?;
         }

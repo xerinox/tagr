@@ -510,6 +510,29 @@ fn run() -> Result<()> {
                     .unwrap_or(false);
 
                 if !daemon_running {
+                    // Daemon not running but DB appears locked — likely a stale advisory
+                    // lock from a crashed or ungracefully killed daemon. On Linux, flock
+                    // advisory locks are released immediately when the holding process
+                    // exits, but a brief retry loop handles edge cases such as zombie
+                    // processes that haven't been reaped yet.
+                    for _ in 0..5u8 {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        match DirectStore::open(db_path) {
+                            Ok(store) => {
+                                let mut stdout = std::io::stdout();
+                                return commands::dispatch_command(
+                                    &command,
+                                    std::sync::Arc::new(store),
+                                    &config,
+                                    path_format,
+                                    quiet,
+                                    &mut stdout,
+                                );
+                            }
+                            Err(StoreError::DatabaseLocked) => {}
+                            Err(other) => return Err(store_error_to_tagr(other)),
+                        }
+                    }
                     return Err(TagrError::InvalidInput(
                         "Database is locked and the daemon is not responding. \
                          Try `tagr watch --stop` then retry."

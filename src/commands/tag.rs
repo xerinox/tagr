@@ -14,7 +14,7 @@ type Result<T> = std::result::Result<T, TagrError>;
 fn invalidate_cache_if_new_tags(store: &dyn TagStore, tags: &[TagName]) {
     let has_new_tag = tags
         .iter()
-        .any(|tag| store.tag_exists(tag).unwrap_or(false) == false);
+        .any(|tag| !store.tag_exists(tag).unwrap_or(false));
 
     if has_new_tag {
         crate::completions::invalidate_cache(store);
@@ -26,7 +26,7 @@ fn invalidate_cache_if_new_tags(store: &dyn TagStore, tags: &[TagName]) {
 fn invalidate_cache_if_orphaned_tags(store: &dyn TagStore, tags: &[TagName]) {
     let has_orphaned_tag = tags
         .iter()
-        .any(|tag| store.tag_exists(tag).unwrap_or(true) == false);
+        .any(|tag| !store.tag_exists(tag).unwrap_or(true));
 
     if has_orphaned_tag {
         crate::completions::invalidate_cache(store);

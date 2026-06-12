@@ -1483,9 +1483,10 @@ impl Cli {
                     absolute, relative, ..
                 }
                 | Commands::File {
-                    command: crate::commands::file::FileCommands::Show {
-                        absolute, relative, ..
-                    },
+                    command:
+                        crate::commands::file::FileCommands::Show {
+                            absolute, relative, ..
+                        },
                     ..
                 },
             ) => to_format(*absolute, *relative),
