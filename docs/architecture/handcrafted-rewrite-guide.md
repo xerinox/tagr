@@ -17,7 +17,7 @@ That has consequences the rest of this document is built around:
 
 - **Interest is the scarce resource, not time.** The plan is sequenced to keep something interesting in front of you, because a stalled rewrite is worse than no rewrite.
 - **The ADRs matter more than the code.** See [Architecture decision records](#architecture-decision-records).
-- **Hand-craft selectively.** Design-heavy modules get the full treatment; plumbing gets transcribed fast so the budget survives to reach the interesting parts.
+- **Spend effort where design lives.** `types/`, `db/`, `query/` and the TUI deserve deliberation. Clap wiring and TOML plumbing do not — write them quickly and without ceremony so the budget survives to reach the interesting parts.
 
 ### The autogen boundary
 
@@ -227,33 +227,69 @@ tagr/
 
 Rules:
 
-1. `legacy/` is **reference material only**. You may read it. You may not `use` it from `tagr/`.
-2. **Never copy-paste from `legacy/`.** Read the old implementation, close the file, then type the new one. If you cannot retype it, you do not understand it, and that is the signal to stop and think.
+1. `legacy/` is a **black box**. You run it. You do not read it. See below.
+2. `legacy/` may never be `use`d from `tagr/`.
 3. `tagr/` must compile and pass its own tests at every commit.
 4. Delete `legacy/` when `tagr/` reaches parity. Do not keep it "just in case".
 
-### How to use `legacy/`: design first, read second
+### How to use `legacy/`: behaviour, not source
 
-The retyping rule defends against copy-paste but not against **anchoring**. If you
-read `QueryCriteria` before deciding what a query needs to express, you will
-reconstruct `QueryCriteria` — slightly cleaner, same shape, same seams. That produces
-a hand-*transcribed* tagr, which is not what you are after.
+The obvious approach — read the old implementation, close the file, retype it — guards
+against copy-paste but not against **anchoring**. If you read `QueryCriteria` before
+deciding what a query needs to express, you will reconstruct `QueryCriteria`: slightly
+cleaner, same shape, same seams. That yields a hand-*transcribed* tagr, which is not
+the point.
 
-For design-heavy modules — `types/`, `db/`, `query/`, and the TUI architecture — use
-this order instead:
+So the rule is stronger: **the old binary is the specification; the old source is
+not.** You determine what tagr does by running it, not by reading it.
 
-1. Write down what the layer must do, from the requirement, **without opening `legacy/`**.
-2. Design it. Record the decision.
-3. Implement it.
-4. *Now* read the legacy implementation, as a code review of your own work — looking for edge cases you missed.
-5. Fold in what is genuinely load-bearing. Ignore the rest.
+This works because of the CLI-first philosophy — nearly everything tagr does is
+observable through stdout and exit codes. The old binary is therefore a genuinely
+complete spec for Slices 1–5 and 7.
 
-Legacy becomes a test oracle rather than a template.
+**What you give up, and how to get it back.** Black-box testing only catches what you
+think to test. The failures that will bite are the ones nobody would think of: a
+symlinked directory that recursed, a non-UTF-8 filename, a tree that wasn't flushed on
+an early return, an empty tag list that became a match-everything query. Each is
+probably a one-line guard in `legacy/` with no comment, and each cost someone an
+afternoon.
 
-For plumbing — clap wiring, note formatting, TOML parsing, `bulk/` — this is overkill.
-Read it, retype it, move on. That code is mechanical and the legacy version already
-encodes real bug fixes. **Do not spend the motivation budget hand-crafting argument
-parsers.**
+Recover those without reading code:
+
+```sh
+git log --oneline -- legacy/ | grep -iE 'fix|crash|panic|edge|regress'
+```
+
+**Commit messages give you the edge cases without giving you the shape.** "fix: handle
+symlinked dirs in recursive tag" tells you to write a test; it tells you nothing about
+how to structure the fix. Do this once per slice, *before* designing, and treat the
+output as a requirements list.
+
+**The one exception: read as debugging, never as reference.** When the differential
+harness shows a diff you cannot explain after genuinely trying, open the single
+function responsible, understand that behaviour, close the file. Keep a running
+**mystery list** of these — it stays short, and every entry is a real fact about the
+problem domain you would otherwise have lost.
+
+**Where the black-box rule does not hold** — plan for it rather than discovering it:
+
+- **Slice 6 (TUI).** There is no stdout to diff. The old binary is not a specification for a TUI; you will be reimplementing from your memory of *using* it. That is arguably ideal — the TUI is where you most want your own design — but the safety net is genuinely absent here.
+- **Slice 8 (daemon).** Correctness lives in shutdown ordering, lock discipline, and backpressure, none of which appear in output diffs. The direct-vs-daemon parity contracts in `legacy/tests/daemon_test.rs` are the closest thing to a black-box spec; reading *tests* is permitted where reading source is not.
+- **Performance.** A diff harness cannot tell you the reverse index mattered. This is why the Slice 2 benchmark carries more weight under this approach, not less.
+
+### The differential harness
+
+Build it in Slice 1. Thirty lines of shell: run `legacy/tagr` and `tagr/tagr` against
+the same corpus, diff stdout and exit codes.
+
+It turns "does the new one still work?" from anxiety into a command, it catches
+regressions during the boring slices where your attention is lowest, and it is what
+lets you delete `legacy/` with confidence rather than hope.
+
+Because it is now your *only* specification, the corpus cannot be lazy. Deliberately
+include: unicode filenames, paths with spaces and shell metacharacters, symlinks
+(including circular ones), an empty database, a file with 500 tags, a tag with 50k
+files, deeply nested hierarchies, and every flag combination the CLI accepts.
 
 ### Architecture decision records
 
@@ -351,6 +387,7 @@ Every layer present, every layer minimal: one newtype, a handful of store method
 query engine that only does exact-tag lookup, two commands, one output format. No
 trait abstractions yet — a concrete store type is correct here; extract `TagStore` in
 Slice 8 if the daemon actually needs a second implementor.
+Also ships: the differential harness, and `tagr-old` on `$PATH` for dogfooding.
 This is the most important slice: it fixes the seams, and you get a working binary in
 week one.
 
@@ -382,7 +419,7 @@ implementors instead of one and a mock. This is the largest slice and the one wh
 the architecture decisions are most yours to make — budget accordingly.
 
 **Slice 7 — `bulk/`.** Mechanical, derivative of everything below it, ~2,900 lines in
-legacy. Transcription tier.
+legacy. Low design content — lean hard on the differential harness and move fast.
 
 **Slice 8 — daemon / watch.** Last, because it is an optimisation over a system that
 must already work without it. This is also where the store abstraction gets earned:
@@ -395,6 +432,8 @@ was correct. Pick one wire format.
 A slice is complete when:
 
 - The binary still works, end to end. **Non-negotiable from Slice 1 onward.**
+- The differential harness is clean, or every remaining diff is a deliberate, recorded change.
+- `legacy/`'s git log for this area has been mined for edge cases, and they are tests.
 - No layer gained an upward dependency. Check it; don't assume it.
 - It compiles with `cargo clippy -- -W clippy::pedantic -W clippy::nursery` clean.
 - Its tests pass, and you can state what each test is protecting against.
@@ -479,6 +518,47 @@ Extend that to modules — a module doc should say what the module is for and wh
 invariants it maintains, not draw a diagram of the whole program. Architecture belongs
 in `docs/`, and `docs/` must be updated or deleted when it stops being true.
 
+### Practical notes
+
+Things that are not architecture but will decide how this goes.
+
+**Dogfood from Slice 1, on your real data.** Keep the old binary on `$PATH` as
+`tagr-old` and use the new one for whatever it can already do. Two effects: you find
+the papercuts tests never will, and you stay motivated because the thing is actually
+yours and actually used. A rewrite you don't use is a rewrite you're guessing at.
+
+**Data migration is deliberately deferred.** Not decided, not forgotten. Whatever
+happens to your existing database — migrate, export/import, or re-tag from scratch —
+gets settled when Slice 2 forces the storage design, not before. Keep a working
+`tagr-old export` path available so the option stays open.
+
+**Verify the performance claim before designing around it.** The README promises
+100–1000× from reverse indexing. If that holds, it is load-bearing and the two-tree
+design survives. If it was measured once on a synthetic corpus, you may be preserving
+the invariant that complicates every write path in exchange for a benefit you never
+confirmed. Benchmark it in Slice 2 and let that ADR rest on a number.
+
+**Allow exactly one restart of Slice 1.** You will understand more by Slice 3 and want
+to redo the foundations. That instinct is right once and corrosive forever after.
+Budget one do-over; after that, changes go through ADR supersession like everything
+else.
+
+**Watch for the second-system effect.** Brooks' observation is that the rewrite is
+where architects finally build all the generality they were previously denied. Your
+specific version of the risk is subtler: having correctly identified over-abstraction
+as the disease, you may over-correct into rigidity — or, more likely, be so deliberate
+about each decision that you elaborate a simple thing into a considered thing.
+*"I decided this"* and *"this is minimal"* must both stay true.
+
+**Sessions long enough to hold the context.** This work dies in twenty-minute
+increments. The re-understanding only happens once a whole layer is in your head at
+the same time. Fewer, longer sittings beat frequent short ones, and that is a
+scheduling constraint, not a preference.
+
+**Keep user-facing docs honest per slice.** README and CHANGELOG get updated inside
+the slice that changes behaviour, not in a cleanup pass at the end. Stale docs are how
+this codebase got `overview.md` describing a system that does not exist.
+
 ### The honest risk
 
 The most likely failure mode is **stalling in the pleasant part**. The core types and
@@ -491,7 +571,7 @@ Mitigations, in order of importance:
 
 1. **A working binary from Slice 1 onward, every commit.** A rewrite that produces a beautiful `types/` and nothing else is strictly worse than the code you have now.
 2. **Timebox each slice.** Not to hit a date — to notice when a slice has stopped being about the slice.
-3. **Transcribe the plumbing.** The tedium tax is unavoidable; do not voluntarily increase it by hand-designing code that has no design in it.
+3. **Don't deliberate over plumbing.** The tedium tax is unavoidable; do not voluntarily increase it by agonising over code that has no design in it.
 
 The second failure mode is scope creep — "while I'm in here, I'll also add…". The
 success criterion is *feature parity, less code, decisions you made*. New features go
@@ -517,17 +597,19 @@ one than pushing through on discipline alone.
 
 - [ ] Write the one-page "what tagr is for"
 - [ ] Set up `docs/adr/`; ADR-0001 = the layer model (ratify, amend, or replace)
-- [ ] Set up workspace: `legacy/` (frozen) + `tagr/` (empty)
+- [ ] Set up workspace: `legacy/` (frozen, black box) + `tagr/` (empty)
 
 **Slices**
 
 - [ ] Slice 1 — the spine: `tag` → `search` → path on stdout (**working binary**)
-- [ ] Slice 2 — depth in `types/`, `db/`, `query/` (design first; read legacy last)
+- [ ] Slice 1 — differential harness + nasty corpus
+- [ ] Slice 1 — `tagr-old` on `$PATH`; start dogfooding
+- [ ] Slice 2 — depth in `types/`, `db/`, `query/`; **benchmark the reverse index**
 - [ ] Slice 3 — CLI breadth, output formats, exit codes
 - [ ] Slice 4 — `schema/`, `vtags/`
 - [ ] Slice 5 — `filter`, `note`, `alias` (break the pre-1.0 TOML format)
 - [ ] Slice 6 — TUI, concrete, zero traits
-- [ ] Slice 7 — `bulk/` (transcription tier)
+- [ ] Slice 7 — `bulk/` (low design content; lean on the harness)
 - [ ] Slice 8 — daemon / watch; pick one wire format
 
 **Close-out**
