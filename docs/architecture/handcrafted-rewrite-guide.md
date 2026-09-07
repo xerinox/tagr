@@ -307,11 +307,171 @@ Candidate ADR-0001 through 0005, all of which the current code decided implicitl
 none of which you have consciously ratified: sled vs. an alternative store; whether
 `TagStore` should exist as a trait at all; sync trait vs. async; one wire format;
 error strategy (per-module `thiserror` and where conversion happens, versus the
-`TagrError` god-enum).
+`TagrError` god-enum). Scratch material for the first two is collected in
+[Open considerations](#open-considerations-storage-daemonisation-and-data-ownership)
+below.
 
 For prior art on the bar to hit, [migration-plan.md](migration-plan.md) carries a
 14-entry decision log — the most useful thing in `docs/`, and the reason this rewrite
 is worth doing as records rather than as commits.
+
+### Open considerations: storage, daemonisation, and data ownership
+
+> **Nothing below is decided.** This is scratch material for the storage and daemon
+> ADRs — the arguments, the couplings between them, and the traps worth knowing about
+> before writing anything down. Every claim here needs verifying against current crate
+> releases and against a benchmark before it goes into an ADR.
+
+These questions arrived together and are entangled. Untangling them is most of the work.
+
+#### The questions, and how they depend on each other
+
+1. **Does a process-owned store still make sense, or should one process own the data?**
+2. **If sled goes, what replaces it — redb, SQLite, or something hand-written?**
+3. **Should tagr watch the filesystem, and should that be on by default?**
+4. **How do users keep their data if tagr stops existing?**
+
+Q1 and Q2 are not independent. The main technical argument for daemon-only storage was
+that sled holds a directory lock, so only one process can open the database — the
+problem `tmp/sled_lock_test.rs` was poking at. **A store with cross-process concurrency
+removes that argument entirely.** SQLite in WAL mode gives concurrent readers plus a
+serialized writer across processes; if that holds, the daemon stops being a storage
+requirement and goes back to being an optimisation, which is where the slice ordering
+already puts it.
+
+So: **decide the store first, then re-ask whether the daemon is needed.** Deciding them
+in the other order risks picking a store to satisfy a constraint that the other choice
+would have dissolved.
+
+Q3 is a separate question from Q1 and should not be bundled with it. A lazily-spawned,
+idle-exiting server is an *agent* (`gpg-agent`, `ssh-agent`, every LSP) and nobody
+objects to those. An always-on recursive filesystem watcher is an *indexer* (Baloo,
+Tracker) and the CLI-tool audience disables those first — inotify watch exhaustion
+breaks other tools, and installing a login unit without asking is a trust violation.
+Those are different products wearing the same word.
+
+#### Daemon-owned storage — arguments on both sides
+
+Worth capturing even if the store decision moots most of it.
+
+**For:**
+- Single writer by construction; the lock problem cannot occur.
+- Resolves the `TagStore` trait question by evidence: one process opens the DB, so there is one store implementation and the `DirectStore`/`DaemonStore`/`MockStore` triad plus the ~20-method trait disappear. So does direct-vs-daemon parity testing — not a contract you can violate if there is only one path.
+- Amortises store open cost across invocations.
+- If it owns everything, an in-memory index becomes viable, which opens the "no embedded KV at all" option.
+
+**Against:**
+- Moves the hardest concurrency work into Slice 1, against the guide's own sequencing and against the "working binary in week one" anchor.
+- Bootstrap: who spawns it, what happens when two invocations race to bind the socket, version skew after an upgrade (needs a version handshake and auto-respawn), stale sockets.
+- Environments where a background process is wrong: `docker run --rm`, CI, nix sandboxes, `ssh host tagr search x`, cron. An `--inline` escape hatch risks reintroducing the second implementation that daemon-only just deleted — unless `--inline` spawns a private server on a temp socket and exits with it, which keeps one code path.
+- State lives elsewhere: needs `tagr daemon status`, log access, clear stale-socket errors.
+
+#### If the store were in-memory: persistence notes
+
+Only relevant under daemon-owned. Recorded because the reasoning generalises.
+
+**Saving state on shutdown is the one option to rule out.** The shutdown path is the
+least reliable moment in a process's life — `SIGKILL`, OOM, panic, power loss, suspend,
+`pkill`. Under a lazy-spawn/idle-exit model the daemon dies routinely, so that would make
+the most frequent event in its lifecycle the only moment correctness depends on. It also
+gives the worst of both worlds: still a store dependency, still custom in-memory state,
+plus a durability hole the store didn't have.
+
+The framing that survives regardless of mechanism: **persist operations, not indexes.**
+If the forward and reverse maps are both derived by replaying a log, the "both trees
+always agree" invariant stops needing a choke point, because there is only one thing
+being written.
+
+Mechanism options, all needing compaction: append log with `fsync` per mutation (zero
+loss, batch within a request to avoid per-op cost); append log with debounced `fsync`
+(bounded sub-second loss); full-state atomic rewrite per mutation (viable while small);
+or a store write-through, which is a legitimate reason to keep a store at all. A shutdown
+hook should only ever be *flush and compact* — the system must be correct if it never runs.
+
+#### Log design notes (if it goes that way)
+
+The awkward cases are `rename tag` and `move file between tags`, and they test the
+logical-vs-physical logging distinction.
+
+- **Physical** (record effects): tiny record vocabulary that never grows as commands are added, trivially deterministic replay — but renaming a 50k-file tag writes 100k records.
+- **Logical** (record intent): O(1) rename, but every mutating command becomes a permanent format entity you must replay correctly forever. The log becomes a versioned API.
+
+**Interning collapses the tension.** If pairs reference IDs rather than strings, both
+awkward operations are O(1) *in a physical log*: `SetTagName(TagId, name)` and
+`SetFilePath(FileId, path)` touch one record because the pairs never referenced the
+string. A vocabulary of roughly seven records — intern tag, intern file, set name, set
+path, add pair, remove pair, tombstone — covers every command in `bulk/` and stays fixed
+for the life of the format.
+
+Traps:
+- **Never log a predicate whose evaluation isn't deterministic.** This one will bite because of vtags: logging `--older-than 30d` as a predicate means replay re-evaluates it against a future filesystem. Resolve the selection set at command time, log the resolved pairs. Physical logging enforces this by construction.
+- **Rename-onto-an-existing-tag is a merge, not a rename** — two IDs must collapse, so it is genuinely O(n). Decide the semantics (error vs. merge-with-confirmation) rather than inheriting whatever silent special case is in `legacy/` now.
+- **Never reuse IDs.** An old frame referring to a dead tag would silently reattach to a new one during replay.
+- **Multi-record operations need atomicity.** Frame-per-transaction, `[len][crc][records…]`, truncate at the first bad frame. Replay is naturally idempotent under set semantics, so a duplicated frame is harmless.
+- **Compaction needs the same crash-safety as the log**: temp file → fsync → rename → fsync dir → *then* truncate.
+
+#### The candidates, against what the storage layer is actually for
+
+Stated purpose: fast *combined tag expression → files*, fast *write of file+tag pairs*,
+and *outliving the process*. Note that no embedded KV evaluates `work AND rust NOT
+archived` — sled and redb both offer exactly one primitive (given a tag, hand me its
+posting list) and the set algebra stays in `query/`. SQLite is the only candidate where
+the store evaluates the expression.
+
+| | expression → files | write one pair | rename tag | notes |
+| --- | --- | --- | --- | --- |
+| sled, `Vec<path>` values | deserialize whole posting list per tag | **read-modify-write the entire list** | O(n) | current shape; the write cost is the schema's fault, not sled's |
+| redb multimap | range scan per tag, intersect in `query/` | single B-tree insert | O(n) unless interned | `MultimapTableDefinition<K,V>` is literally the reverse index |
+| SQLite | planner does it | one row insert | one `UPDATE` | junction table is the textbook shape for this data |
+| in-memory + log | pure memory set ops | append one record | O(1) if interned | needs daemon; full load at startup |
+
+Points worth verifying and then recording:
+
+- **sled's maintenance status is the strongest single argument against it** — long stalled, self-described beta, historical format breaks without migration. "It was picked, not decided" is more serious than it sounds when it holds the only copy of the data. Check crates.io for the current state before asserting this.
+- **redb has `MultimapTable`**, which is exactly `tag → files` and `file → tags`, so adding a pair is one insert with no read-modify-write and no manual two-index invariant. That may delete a large fraction of `src/db/`'s 1,400 lines. It also has per-transaction durability control and a stated format-stability commitment. It has **no watch/subscribe equivalent** to sled's `Tree::watch_prefix` — check whether anything currently relies on that.
+- **Interning paths and tags to integer IDs may matter more than the store choice.** Sorted `u32` posting lists make intersection a linear merge over contiguous memory, shrink a 50k-file tag from ~3MB of strings to ~200KB, and make renames O(1). Roaring bitmaps if it needs to go further. Orthogonal to every option above.
+- **SQLite is not a server.** No process, no port, no config; it links into the binary. If it gets rejected, reject it for the C dependency or for wanting to hand-write the query engine — both legitimate — not for weight.
+- **The "1GB text file" fear is probably mis-sized.** 100k files × 5 tags ≈ 500k pairs ≈ 40MB as text, well under 10MB interned. That load cost is unacceptable per-invocation and irrelevant per-daemon-lifetime, which is another way of saying Q1 and Q2 are the same question.
+- **Benchmark before deciding.** The README's 100–1000× claim is about the reverse index, and the multimap-vs-blob distinction means the sled number and the redb number measure different things.
+
+#### The honest cost of the boring answer
+
+SQLite has the **least design content** of anything on the list. Given that this project
+exists to re-understand the codebase, delegating query evaluation, index maintenance and
+crash safety to a C library means `store/` and much of `query/` stop being places where
+decisions get made. That may well be the right trade — it buys correctness and buys back
+budget for the TUI slice, which is where the stall risk actually lives. It should be a
+trade made deliberately in the ADR, not one noticed in month four.
+
+#### Data ownership and the export format
+
+The requirement "if tagr is discontinued, users can still get at their tags" is bundling
+three things that have different answers:
+
+- **Archival longevity.** SQLite is arguably the best answer available — documented format with a stated commitment to readability for decades, `sqlite3` present on nearly every machine, `.dump` emits plain SQL text. Verify the specifics, but this requirement is likely already satisfied.
+- **Ad-hoc queryability today.** `sqlite3 tagr.db "select …"` is more capable than regex but is not `grep`. Pipeline ergonomics are what `tagr search --quiet` is for, and that path presumes tagr exists anyway.
+- **Philosophical ownership** — data not trapped in someone's binary. This is a values position, it is legitimate, and it is the one a good file format does not fully satisfy.
+
+Options for the third, roughly in order of trustworthiness:
+
+- **Lossless JSONL export as a tested guarantee.** Not a nice-to-have subcommand: a documented format, a CI test asserting `export → import → export` is byte-identical, and a stated promise that no tagr state lives outside it. Optionally auto-written on a timer so a current copy always sits beside the database. The round-trip test is what stops the promise rotting.
+- **Text as the source of truth, index as a rebuildable cache** — the notmuch model (maildir is truth, the index is derived and disposable). Fully satisfies the value. Costs: owning the parse path, more awkward writes, cache invalidation. Note it does not dodge the load-time concern; it just relies on amortisation.
+- **Extended attributes as truth.** The purest form of the value — tags travel with the file, readable via `getfattr`, survive tagr entirely. Probably still rejectable: xattrs are silently dropped by `cp` without `--preserve=xattr`, `tar` without `--xattrs`, `rsync` without `-X`, most GUI file managers, most network filesystems, and every FAT volume. Data that vanishes when copied is worse than data in a binary format. Worth naming as a rejected option *because* it serves the stated value most directly — rejecting it forces the value to be articulated.
+
+**Format trap:** TSV will bite. Linux filenames may contain tabs and newlines, and the
+differential corpus already includes hostile paths. JSONL (one object per line,
+grep-able in practice, unambiguous) or NUL-delimited records. A naive TSV export is a
+correctness bug waiting for the one file with a newline in its name.
+
+#### Framing that made the daemon question easier to think about
+
+If a daemon happens, the comfortable model is **`tagr` is a client and `tagrd` is where
+the data lives** — the `git`/`gpg` split, not the Baloo one. Users accept the first
+universally and reject the second loudly. Which suggests, if it goes that way: never
+install or enable a unit; lazy spawn with an idle timeout; ship a systemd unit for people
+who want it, disabled; and keep watching opt-in with explicit roots and a visible watch
+count, never recursive `$HOME` by default.
+
 ### Layers and slices are orthogonal
 
 These are not competing plans, and they are not the same kind of thing.
@@ -584,6 +744,99 @@ one than pushing through on discipline alone.
 
 ---
 
+## Part 4 — Zero-inheritance operating rules
+
+This section makes "inherit zero" explicit and operational.
+
+### Decision freshness contract
+
+Legacy architecture is not accepted by default. A structure is admissible only if:
+- it has a new ADR decision in this rewrite, or
+- it is explicitly rejected in an ADR with reasons.
+
+No "carry-over because it already exists" decisions.
+
+### Legacy contact protocol (black-box discipline)
+
+**Allowed:** CLI behavior checks, exit-code checks, parity checks, performance baselines.  
+**Forbidden:** reading legacy source as design reference.  
+**Debugger-of-last-resort exception:** if you must inspect legacy source to explain a behavior diff, log a "mystery case" entry stating only:
+1. observed behavior
+2. what was learned
+3. test added in the new crate
+
+Never copy implementation shape from legacy.
+
+### Logical stop lines (explicit completion points)
+
+- **Stop A (after Slice 3):** usable CLI core
+- **Stop B (after Slice 5):** complete CLI-first product
+- **Stop C (after Slice 8):** full parity (CLI + TUI + daemon/watch)
+
+Stopping at A or B is a successful outcome, not a partial failure.
+
+### ADR quality gate (before coding each slice)
+
+A slice does not start until its ADR(s) include:
+1. at least two shippable options
+2. one credible rejected option
+3. one measurable validation criterion (performance, complexity, or behavioral signal)
+
+Write ADRs before code, never after.
+
+### Anti-overbuild rules
+
+- No trait with one real implementor
+- No generic abstraction before second concrete use
+- No extensibility points "for future" without a present caller
+
+### Certification alignment (Journeyman prep)
+
+For each slice, record which exam-relevant skills were exercised:
+- ownership/borrowing design
+- error taxonomy and boundary mapping
+- API boundary and module layering
+- testing strategy (unit/integration/behavioral parity)
+- concurrency model (where applicable)
+
+### Complexity budget (per slice)
+
+Track and review:
+- files touched
+- public API items added
+- net LOC delta
+- dependency delta
+
+If complexity rises without clear capability gain, pause and redesign.
+
+### Performance decision triggers
+
+Each performance-sensitive ADR must define concrete revisit thresholds, e.g.:
+- query p95 latency on corpus X exceeds target Y
+- mutation throughput drops below target Z
+- memory footprint exceeds target M
+
+No open-ended "optimize later" decisions.
+
+### Definition of "handcrafted"
+
+**Still handcrafted:** autocomplete fragments, compiler-error analysis, API docs lookup.  
+**Not handcrafted:** generated function bodies, generated module scaffolds, generated ADR prose adopted as-is.
+
+If authorship feels ambiguous, treat it as non-handcrafted and rewrite manually.
+
+### Weekly rewrite journal (short and strict)
+
+Keep one brief entry per week:
+1. decision made
+2. option rejected
+3. surprise encountered
+4. what to change next week
+
+This is both motivation hygiene and exam reflection evidence.
+
+---
+
 ## Quick reference: rewrite checklist
 
 **Pre-work (independent of the rewrite)**
@@ -616,6 +869,12 @@ one than pushing through on discipline alone.
 
 - [ ] Delete `legacy/`
 - [ ] Audit dependency list; drop `anyhow` or `TagrError`, `wincode` or `postcard`, narrow `tokio` features
+
+**Planned stop lines**
+
+- [ ] Stop A reached (after Slice 3): usable CLI core
+- [ ] Stop B reached (after Slice 5): complete CLI-first product
+- [ ] Stop C reached (after Slice 8): full parity incl. TUI + daemon/watch
 
 Per-module gate, applied every time:
 
