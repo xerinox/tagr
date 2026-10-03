@@ -2,668 +2,89 @@
 
 ## Project Overview
 
-Tagr is a **fast, tag-based file organizer** for the command line built in Rust. It uses an embedded sled database with **reverse indexing** for O(1) tag lookups, fuzzy finding (skim), and interactive browsing. Think of it as a tag-based alternative to traditional folder hierarchies.
+Tagr is a **fast, tag-based file organizer** for the command line, written in Rust. Tags replace folder hierarchies. You assign tags to files, search by tags, compose workflows, and pipe results into other tools. Think of it as a filesystem-side tagging system built for speed and Unix philosophy.
 
-**Core value proposition**: 100-1000x faster tag queries via multi-tree architecture (files tree + tags reverse index).
+**Current state:** Greenfield. Zero code. Every choice is open.
 
-## Architecture Philosophy: CLI-First, TUI-Assisted
+## Roles
 
-**Tagr has two distinct, first-class modes with different purposes:**
+- **User:** Architect, decision-maker, writer. Writes ADRs, picks tools, writes code.
+- **AI:** Rubber duck only. Reflects ideas, spots blind spots, asks "what if X breaks?". **Never writes production code unless explicitly asked.** Never makes architectural decisions on the user's behalf.
 
-### 1. Headless/CLI Mode (Primary Interface)
-**Commands:** `tagr search`, `tagr tag`, `tagr note`, `tagr filter`, etc.
+## Core Philosophy
 
-**Purpose:** Power user / automation / scripting interface
-- **All functionality MUST work headlessly** - TUI is never required
-- Designed for Unix philosophy: pipes, filters, composition
-- Primary interface for automation: `tagr search -F filter | xargs cmd`
-- Exit codes matter for script composition
-- Output is pipe-friendly by default (one path per line)
-- JSON format available via `--format json` for structured parsing
+### CLI-First, TUI-Assisted
 
-**Design Principles:**
-- Never degrade CLI functionality to support TUI features
-- Default output: balanced human/machine readability
-- `--quiet` mode: pure pipe-friendly (one item per line, no decoration) - **power user toggle**
-- `--verbose` mode: human-friendly with additional metadata
-- Support `--format json` for structured parsing
-- Exit codes: 0 = success, 1 = failure/not found (enables `if tagr search ...`)
+All functionality works headlessly. The terminal is the primary interface. A TUI may exist as an optional discovery layer — a visual playground that teaches users the CLI, not a replacement for it. Unix philosophy applies: pipes, filters, composition, meaningful exit codes.
 
-### 2. TUI Mode (Discovery & Learning Interface)
-**Command:** `tagr browse`
+### Pipe-Friendly by Default
 
-**Purpose:** Beginner / visual learning / quick lookup / tutorial mode
-- Helps users **discover** and **construct** queries visually
-- Guides users toward CLI "power user" workflow via status bar hints
-- Shows CLI equivalents: "Save filter: `tagr filter save my-filter`"
-- Goal: Build queries in TUI → Save as filter → Reuse in CLI scripts
-- For users who learn visually and need guidance
-
-**NOT a replacement for CLI** - it's a teaching/discovery layer that leads users to the headless commands.
-
-**Example Workflow:**
-```bash
-# 1. User starts in TUI to explore
-tagr browse
-
-# 2. Discovers Rust files with "TODO" in notes (visual exploration)
-# 3. TUI status bar shows: "Equivalent CLI: tagr search --tag rust | tagr note search TODO"
-
-# 4. User saves the filter
-tagr filter save rust-todos
-
-# 5. Now uses it in automation (headless)
-tagr search -F rust-todos | xargs notify-send "Pending work"
-```
-
-### Implementation Priority
-
-1. **CLI commands first** - Must work perfectly headlessly
-2. **TUI integration second** - Visual convenience layer only
-3. **Never sacrifice CLI functionality for TUI features**
-
-All new features must have complete CLI implementations before TUI integration begins.
-
-## Architecture
-
-### Multi-Tree Database Design
-
-The database uses **two sled trees** for bidirectional lookups:
-
-```rust
-Database {
-    db: Db,           // Database handle
-    files: Tree,      // file_path -> Vec<tag>
-    tags: Tree        // tag -> Vec<file_path> (reverse index)
-}
-```
-
-**Critical**: Both trees must stay synchronized. When updating tags:
-1. Update `files` tree with new tags
-2. Remove old file associations from `tags` tree via `remove_from_tag_index()`
-3. Add new file associations to `tags` tree via `add_to_tag_index()`
-
-See `src/db/mod.rs::insert_pair()` for the canonical pattern.
-
-### Module Structure
-
-- **`src/db/`**: Database wrapper (types, query, error handling)
-  - Uses bincode for serialization (not serde_json)
-  - `PathKey` and `PathString` wrappers ensure UTF-8 safety
-  - All database operations return `Result<T, DbError>`
-- **`src/filters/`**: Saved filter management (CRUD, export/import)
-  - Stores filters in `~/.config/tagr/filters.toml`
-  - `FilterCriteria` represents search params
-  - Builder pattern via `FilterCriteria::builder()` for tests
-- **`src/vtags/`**: Virtual tags (dynamic file metadata queries)
-  - Parser, evaluator, cache, config modules
-  - Zero database storage - computed from filesystem metadata
-  - Uses rayon for parallel evaluation
-- **`src/search/`**: Interactive browse mode using skim fuzzy finder
-  - Two-stage selection: tags → files
-  - Multi-select enabled via TAB key
-- **`src/commands/`**: CLI command implementations
-  - Each command in separate file: `browse.rs`, `tag.rs`, `search.rs`, etc.
-  - Command logic decoupled from CLI parsing (`src/cli.rs`)
-- **`src/config/`**: Configuration management
-  - Platform-specific paths (Linux/macOS/Windows)
-  - First-run setup wizard in `setup.rs`
-
-## Rust Coding Philosophy & Hard Rules
-
-### Your Primary Objective
-
-**Your goal is NOT just to make the code compile.** Your primary objective is to write code that is **idiomatic, understandable, readable, efficient, and provably memory-safe and thread-safe** according to Rust's formal guarantees.
-
-### 1. The `unsafe` Keyword is FORBIDDEN
-
-- **You MUST NOT use the `unsafe` keyword under any circumstances.** All generated code must be 100% safe Rust.
-- A compiler error that suggests `unsafe` (e.g., "use of mutable static is unsafe") is a **signal that your entire approach is wrong.**
-- **You must NEVER use `static mut`.** This is a C-style pattern, not idiomatic Rust.
-- If you believe `unsafe` is the *only* possible solution (e.g., for FFI), you must **stop, state why, and ask for explicit permission** from the user.
-
-### 2. Compiler Errors are Mentoring, Not Obstacles
-
-- Treat the Rust compiler (rustc) and the borrow checker as a **mentor, not an adversary.**
-- When you encounter a compilation error, your goal is to **understand the underlying logical flaw** in the code's proof of safety (e.g., "I created a mutable reference while an immutable reference was still active").
-- **DO NOT apply superficial, local patches just to make the error message disappear.**
-- In your response, **explain the borrow checker error in plain English** and then explain how your new code *semantically* and *logically* satisfies the ownership and borrowing rules.
-
-### 3. Prioritize Ownership & Borrows over `.clone()`
-
-- **Avoid the `.clone()` epidemic.** Do not use `.clone()` as a first-line, "path of least resistance" fix for move or borrow errors.
-- Excessive `.clone()` is a **"code smell"** indicating potential performance issues or flawed ownership design.
-- Your **first priority** is to solve the error by refactoring the code to use correct ownership, references (`&`, `&mut`), and lifetimes.
-- Only use `.clone()` when a deep copy of the data is *semantically required* for the program's logic.
-
-### 4. Use Idiomatic Rust Concurrency Patterns
-
-- Prefer standard Rust concurrency primitives (`Arc`, `Mutex`, `RwLock`, channels) over custom synchronization schemes.
-- For shared, mutable state, `Arc<Mutex<T>>` is the default baseline pattern: thread-safe shared ownership (`Arc`) plus interior mutability (`Mutex`).
-- Use alternatives intentionally when they better fit the workload (for example, `Arc<RwLock<T>>` for read-heavy access, channels for ownership transfer/message passing).
-- **Do not invent ad-hoc concurrency mechanisms** or use C-style global mutable state patterns, as they increase race and deadlock risk.
-- When using `Arc<Mutex<T>>`, use `Arc::clone()` to share ownership, acquire with `.lock()`, and keep lock scope as small as practical.
-
-### 5. Reject C/C++ Patterns
-
-- Your training data is biased towards C/C++ patterns. You must **actively reject these patterns** when writing Rust.
-- **FORBIDDEN C-PATTERNS INCLUDE:**
-  - Global mutable variables (`static mut`)
-  - Raw pointers (`*const T`, `*mut T`) in safe code
-  - Manual memory management. Always use Rust's RAII (owner-goes-out-of-scope) model.
-  - Unguarded access to shared state
-  - Ignoring or circumventing the borrow checker
-
-### Idiomatic Rust & Code Patterns
-
-1. **Prefer iterators over manual loops**: Use `.map()`, `.filter()`, `.fold()`, `.collect()`, and other iterator methods instead of explicit `for` loops when processing collections. Iterator chains are more expressive and often more efficient.
-
-2. **Embrace functional style**: Use functional composition where it improves clarity and conciseness. Avoid imperative C-style loops.
-
-3. **Pattern matching over conditionals**: Use `match`, `if let`, and `while let` for control flow instead of complex `if`/`else` chains. Pattern matching is exhaustive and prevents bugs.
-
-4. **Leverage the type system**: Use enums to represent state machines, structs for data containers, and traits for shared behavior. Make invalid states unrepresentable.
-
-5. **Implement standard traits**: Add `From`, `Into`, `Display`, `Debug`, `Default`, `PartialEq`, `Eq`, etc. where appropriate to integrate with Rust's ecosystem.
-
-6. **Function signatures**: Pass `&[T]` not `&Vec<T>`, use `&str` not `&String` for parameters. Use `Option<&[T]>` for optional slices (idiomatic over checking empty vec).
-
-7. **Iterator error handling**: Use `.collect::<Result<Vec<_>>>()` to propagate errors through iterator chains. Use `.enumerate()` for line numbers in parsing.
-
-8. **Optimize for readability first**: Prefer descriptive names, cohesive functions, and straightforward control flow. If a block needs heavy commenting to be understood, refactor it.
-
-9. **Apply DRY pragmatically**: Reuse existing helpers and centralize repeated business rules, parsing, validation, and formatting logic. Avoid over-abstraction for one-off logic; prioritize clarity and stable interfaces.
-
-10. **Quality bar for completion**: Treat a task as done only when code is correct, readable, and validated (build/tests/lints as applicable), with explicit error handling and behavior-preserving changes unless intentionally specified.
-
-### CLI Design Patterns (clap v4)
-
-**Output Design Philosophy:**
-
-CLI commands should balance human readability with machine parseability:
-
-**Default mode:** Reasonable human output with minimal decoration
-- Show essential information clearly
-- Parseable but not strictly minimal
-- Example: `file.txt [tag1, tag2]` or simple tables
-
-**`--quiet` mode:** Pure pipe-friendly output (**power user toggle**)
-- One item per line, no decoration
-- No headers, no formatting, no colors
-- Perfect for `| xargs`, `| while read`, script composition
-- Example: just `file.txt` on each line
-
-**`--verbose` mode:** Human-friendly with rich metadata
-- Tables, colors, extra context
-- Detailed information for interactive use
-- Example: full file details with timestamps, sizes, permissions
-
-**`--format json`:** Structured data for advanced parsing
-- Machine-readable JSON objects
-- For complex script integration
-- Example: `{"file": "...", "tags": [...], "metadata": {...}}`
-
-All CLI commands must produce **pipe-friendly output in `--quiet` mode**:
-- One item per line (file paths, tags, etc.)
-- No decorative formatting
+- Default output: one item per line, parseable
+- `--format json` for structured output
 - Exit codes for script composition (0 = success, 1 = failure)
+- `--quiet` / `--verbose` for toggling noise
 
-**Example Command Patterns:**
+## Rust Conventions
 
-```rust
-use clap::{Args, ValueEnum};
+### Hard Rules
 
-/// Standard output format options
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    /// One item per line (default, pipe-friendly)
-    Text,
-    /// JSON objects for structured parsing
-    Json,
-    /// No output, exit codes only
-    Quiet,
-}
+1. **No `unsafe`** — period. If something seems to require it, the design is wrong.
+2. **No `unwrap()` / `expect()`** in production code. Use `?`, `Result`, `Option`.
+3. **Ownership over `.clone()`** — clone is a code smell, not a first-line fix.
+4. **Idiomatic concurrency** — `Arc<Mutex<T>>`, channels. No ad-hoc schemes.
+5. **Reject C/C++ patterns** — no raw pointers, no global mutable state, no manual memory management.
 
-/// Reusable output configuration
-#[derive(Args, Debug, Clone)]
-pub struct OutputArgs {
-    /// Output format
-    #[arg(short = 'f', long = "format", default_value = "text")]
-    pub format: OutputFormat,
-    
-    /// Show additional metadata (human-readable)
-    #[arg(short = 'v', long = "verbose")]
-    pub verbose: bool,
-}
-```
+### Style
 
-**Create reusable argument groups with `#[command(flatten)]`:**
+- Prefer iterators, pattern matching, functional composition over imperative loops.
+- `&[T]` not `&Vec<T>`, `&str` not `&String`.
+- `thiserror` for error types. `#[from]` for auto-conversion.
+- Edition 2024. `clippy::pedantic` + `clippy::nursery`.
+- Descriptive names. Small functions. Code explains the *what*, comments explain the *why*.
 
-```rust
-use clap::{Args, ValueEnum};
+### Comments
 
-/// Reusable dry-run and confirmation flags
-#[derive(Args, Debug, Clone)]
-pub struct DryRunArgs {
-    /// Preview changes without applying them
-    #[arg(short = 'n', long = "dry-run")]
-    pub dry_run: bool,
-    
-    /// Skip confirmation prompt
-    #[arg(short = 'y', long = "yes")]
-    pub yes: bool,
-}
+- **Why**, not **what**. Intent, constraints, tradeoffs, invariants.
+- If the code needs a comment to explain what it's doing, it probably needs a better name or a smaller function.
 
-/// Use in commands via flatten
-#[derive(Args)]
-pub struct MyCommand {
-    #[command(flatten)]
-    dry_run: DryRunArgs,
-    
-    // ... other args
-}
-```
+### Testing
 
-**Type-safe enums with `#[derive(ValueEnum)]`:**
+- Every commit compiles (code + tests).
+- Tests may fail during development, but stubs must compile.
+- All tests pass before merging.
+- Run with `cargo test`, lint with `cargo clippy -- -W clippy::pedantic -W clippy::nursery`.
 
-```rust
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    Text,
-    Json,
-    Quiet,
-}
+## Decision Process
 
-// In command struct:
-#[arg(short = 'f', long = "format", default_value = "text")]
-format: OutputFormat,
-```
+Every non-obvious choice gets an **ADR** (Architectural Decision Record). Examples of decisions that need one:
 
-**Custom parsing with `value_parser`:**
+- Database engine (sled? redb? sqlx? something else?)
+- Serialization format (bincode? rmp-serde? postcard?)
+- TUI framework (ratatui? crossterm? none at all?)
+- CLI framework (clap? LEPTON?)
+- Project structure (cargo workspace? single crate?)
+- Path encoding and UTF-8 strategy
+- Error handling boundaries
 
-```rust
-// Helper function for parsing "key:value" pairs
-fn parse_mapping(s: &str) -> Result<(String, String), String> {
-    let (key, value) = s.split_once(':')
-        .ok_or_else(|| format!("Invalid format '{}'. Expected 'key:value'", s))?;
-    Ok((key.to_string(), value.to_string()))
-}
-
-// Use in arg:
-#[arg(long = "map", value_parser = parse_mapping)]
-mappings: Vec<(String, String)>,
-```
-
-**Conditional requirements and conflicts:**
-
-```rust
-// Require param for certain enum values
-#[arg(
-    short = 'p',
-    long = "param",
-    required_if_eq_any([
-        ("operation", "add-prefix"),
-        ("operation", "add-suffix"),
-    ])
-)]
-param: Option<String>,
-
-// Mutually exclusive flags
-#[arg(long = "all", conflicts_with_all = ["specific", "pattern"])]
-all: bool,
-
-// Range validation
-#[arg(
-    short = 't',
-    long = "threshold",
-    value_parser = clap::value_parser!(f64).range(0.0..=1.0)
-)]
-threshold: f64,
-```
-
-### Correctness & Error Handling
-
-**Critical**: Never write code that "works but is wrong."
-
-1. **Forbidden: `unwrap()` and `expect()`**: Production code must never use `.unwrap()` or `.expect()`. These are only acceptable in:
-   - Example code explicitly marked as such
-   - Test code where panics are intentional
-   - Situations where invariants are guaranteed (document why with a `// INVARIANT:` comment). Reserve `// SAFETY:` for `unsafe` blocks (which are forbidden in this project).
-
-2. **Explicit error propagation**: Use `Result<T, E>` for operations that can fail. Use the `?` operator to propagate errors up the call stack.
-
-3. **Option for absent values**: Use `Option<T>` for values that may not exist. Use `.ok_or()` to convert to `Result` when needed.
-
-4. **Assume failure**: If an operation can fail (I/O, parsing, allocation, external library calls), its signature must reflect this with `Result` or `Option`. Do not make optimistic assumptions.
-
-5. **Handle edge cases**: Before implementation, consider:
-   - Empty collections
-   - Invalid inputs (negative numbers, out-of-bounds indices)
-   - Potential panics (division by zero, index access)
-   - Resource exhaustion (memory, file handles)
+The user writes the ADR. I can help stress-test it by asking what breaks, what the tradeoffs are, and what the failure modes look like.
 
 ## Development Conventions
 
-### Code Comments
-
-**Avoid redundant "what" comments** - code should be self-explanatory through clear naming and structure. Comments should explain **intent and constraints**, not narrate obvious steps.
-
-Use comments for:
-- **Why** this approach exists (tradeoff, bug prevention, compatibility reason)
-- **Invariants/assumptions** that are not obvious from types alone
-- **Non-obvious edge-case handling** and failure behavior
-- **Performance rationale** when code is intentionally shaped for speed/memory
-
-Avoid comments that merely restate code mechanics ("get metadata", "loop files", "set value").
-
-❌ **Bad - Redundant "what" comments:**
-```rust
-// Get file metadata
-let metadata = fs::metadata(path)?;
-
-// Check if file exists
-if path.exists() {
-    // Create new item
-    let item = Item::new();
-}
-```
-
-✅ **Good - Comments explain WHY:**
-```rust
-let metadata = fs::metadata(path)?;
-
-// Skip preview if file exceeds size limit to avoid memory issues
-if metadata.len() > self.config.max_file_size {
-    return Err(PreviewError::FileTooLarge);
-}
-
-// Use InvalidData error to distinguish encoding issues from I/O errors
-let content = fs::read_to_string(path).map_err(|e| {
-    if e.kind() == std::io::ErrorKind::InvalidData {
-        PreviewError::InvalidUtf8(path.display().to_string())
-    } else {
-        PreviewError::IoError(e)
-    }
-})?;
-```
-
-✅ **Good - Comments explain intent and constraints:**
-```rust
-// Keep this check before opening the file so large binary blobs never hit UTF-8 decoding.
-if metadata.len() > self.config.max_file_size {
-    return Err(PreviewError::FileTooLarge);
-}
-```
-
-When the code is clear, no comment is needed. Prefer better names and smaller functions over extra comments.
-
-### Error Handling
-
-**Use `thiserror` crate for all error types:**
-
-```rust
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum ModuleError {
-    /// Use #[from] for automatic conversion from dependency errors
-    #[error("Database error: {0}")]
-    Database(#[from] crate::db::DbError),
-    
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-    
-    /// Custom error with formatted message
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
-    
-    /// Structured errors with multiple fields
-    #[error("Parse error at line {line}: {message}")]
-    ParseError { line: usize, message: String },
-}
-
-/// Type alias for cleaner function signatures
-pub type Result<T> = std::result::Result<T, ModuleError>;
-```
-
-**Error Propagation Patterns:**
-
-```rust
-// 1. Auto-conversion with #[from] - most concise
-let db = Database::open(path)?;
-
-// 2. Add context with .map_err() when wrapping
-fs::read_to_string(path)
-    .map_err(|e| ModuleError::InvalidInput(format!("Failed to read {}: {}", path.display(), e)))?;
-
-// 3. Option → Result with .ok_or_else()
-let tags = db.get_tags(file)?
-    .ok_or_else(|| ModuleError::InvalidInput(format!("File not found: {}", file.display())))?;
-
-// 4. Collect with error propagation
-let results = items.iter()
-    .map(|item| process_item(item))
-    .collect::<Result<Vec<_>>>()?;
-
-// 5. Parsing with line-number context
-let entries = content.lines()
-    .enumerate()
-    .map(|(idx, line)| {
-        parse_line(line).map_err(|e| ModuleError::ParseError {
-            line: idx + 1,
-            message: e.to_string(),
-        })
-    })
-    .collect::<Result<Vec<_>>>()?;
-```
-
-**Best Practices:**
-- Propagate errors with `?` operator, never unwrap in library code
-- Return `Result<T, DbError>` for database ops, `Result<T, TagrError>` for top-level
-- Use `#[must_use]` on functions returning Results or important values
-- Use `#[from]` attribute for automatic error conversion
-- Add context with `.map_err()` for better error messages
-- Use `.ok_or_else()` for Option → Result conversion
-- Create module-specific error types, add to top-level `TagrError` via `#[from]`
-
-### Path Handling
-
-- **Always** use `PathString::new()` to validate UTF-8 when storing paths as strings
-- **Always** use `PathKey::new()` when creating database keys from paths
-- Use `PathBuf` internally, but validate before database insertion
-- Example pattern:
-  ```rust
-  let file_path = PathString::new(&pair.file)?;
-  let key: Vec<u8> = PathKey::new(&pair.file).try_into()?;
-  ```
-
-### Testing
-
-- Use `TestDb` wrapper from `src/testing.rs` for database tests
-  - Automatically cleans up on drop
-  - Always `clear()` before testing
-- Use `TempFile` for test file fixtures (auto-cleanup)
-  - Creates unique temp dirs to avoid parallel test collisions
-- Integration tests in `tests/integration_test.rs`
-- Unit tests inline with `#[cfg(test)]` modules
-- Run with: `cargo test`
-
-**Commit Guidelines:**
-- Make incremental, logical commits while working on features
-- Every commit must compile (both code and tests)
-- Tests may fail during feature development, but create stubs if needed to keep them compiling
-- All tests must pass before finalizing/merging a feature
-- Use `cargo test --no-run` to verify tests compile without running them
-
 ### Clippy & Code Quality
 
-- Project uses **edition 2024** Rust
-- Adheres to `clippy::pedantic` and `clippy::nursery` lints
-- Use `#[allow(clippy::lint_name)]` sparingly and only when justified
-- Common acceptable exceptions:
-  - `#[allow(clippy::too_many_lines)]` for long but cohesive functions (e.g., CLI handlers)
-  - `#[allow(clippy::too_many_arguments)]` for builder-like patterns
-  - `#[allow(clippy::unnecessary_wraps)]` for API consistency
+- Project uses **edition 2024** Rust.
+- Adheres to `clippy::pedantic` and `clippy::nursery` lints.
+- Use `#[allow(clippy::lint_name)]` sparingly and only when justified.
 
 ### Documentation
 
-- All public items require doc comments (`///`)
-- Use "Examples", "Errors", "Panics" sections consistently
-- Module-level docs explain purpose and key types
-- See `src/db/mod.rs` for canonical documentation style
+- All public items require doc comments (`///`).
+- Use "Examples", "Errors", "Panics" sections consistently.
+- Module-level docs explain purpose and key types.
 
-## Key Workflows
+### Commit Guidelines
 
-### Building & Running
-
-```bash
-# Debug build
-cargo build
-
-# Release build (much faster for large databases)
-cargo build --release
-
-# Run (uses default database)
-cargo run -- browse
-
-# Run with specific database
-cargo run -- --db mydb browse
-```
-
-### Testing
-
-```bash
-# All tests
-cargo test
-
-# Specific test
-cargo test test_insert_and_retrieve
-
-# Integration tests only
-cargo test --test integration_test
-
-# Linting
-cargo clippy -- -W clippy::pedantic -W clippy::nursery
-```
-
-### Adding New Commands
-
-1. Create command module in `src/commands/`
-2. Add command variant to `Commands` enum in `src/cli.rs`
-3. Implement argument parsing (use `clap` derives)
-4. Add handler in `main.rs` match statement
-5. Wire up helper methods (`get_*_from_*` pattern)
-
-Example: See `src/commands/filter.rs` for full command implementation.
-
-### Working with Filters
-
-When implementing search/filter features:
-
-1. Use `FilterCriteria` for search parameters
-2. Implement bidirectional conversion:
-   - `impl From<SearchParams> for FilterCriteria`
-   - `impl From<&FilterCriteria> for SearchParams`
-3. Use `SearchParams::merge()` to combine filter + CLI args
-4. Store filters via `FilterManager` at `~/.config/tagr/filters.toml`
-
-Pattern from `src/commands/search.rs`:
-```rust
-let mut params = cli_params;
-if let Some(filter_name) = filter_name {
-    let filter = filter_manager.get(filter_name)?;
-    params = params.merge(&filter.criteria);
-}
-```
-
-### Implementing Virtual Tags
-
-Virtual tags evaluate file metadata dynamically:
-
-1. Add variant to `VirtualTag` enum in `src/vtags/types.rs`
-2. Implement parsing in `src/vtags/parser.rs`
-3. Add evaluation logic in `src/vtags/evaluator.rs::evaluate()`
-4. Update documentation with examples
-5. Consider caching in `MetadataCache` for performance
-
-## Performance Considerations
-
-- **Tag lookups**: O(1) via reverse index - use `find_by_tag()` not iteration
-- **Large file sets**: Use rayon's `par_iter()` for parallel processing (see vtags)
-- **Database flushes**: Automatic on drop, but explicit `flush()` for durability
-- **Serialization**: bincode is faster than serde_json for internal storage
-- **Metadata caching**: Use `MetadataCache` with TTL for vtag evaluations (default 300s)
-
-## Common Pitfalls
-
-❌ **Don't** iterate files to find tags - use reverse index:
-```rust
-// BAD
-for pair in db.list_all()? {
-    if pair.tags.contains(&tag) { /* ... */ }
-}
-
-// GOOD
-let files = db.find_by_tag(&tag)?;
-```
-
-❌ **Don't** forget to update reverse index when modifying tags:
-```rust
-// Must remove old associations before adding new ones
-self.remove_from_tag_index(file_path.as_str(), &old_tags)?;
-self.add_to_tag_index(file_path.as_str(), &pair.tags)?;
-```
-
-❌ **Don't** use `PathBuf::to_str()` without checking for None:
-```rust
-// BAD
-let path_str = path.to_str().unwrap();
-
-// GOOD
-let path_str = PathString::new(path)?;
-```
-
-❌ **Don't** create temporary files without cleanup:
-```rust
-// Use TempFile wrapper for automatic cleanup
-let temp = TempFile::create("test.txt")?;
-// File auto-deleted on drop
-```
-
-## Library Usage
-
-Tagr can be used as a library. Public API exports:
-
-- `tagr::db::Database` - Core database operations
-- `tagr::search::browse()` - Interactive fuzzy finder
-- `tagr::filters::FilterManager` - Filter management
-- `tagr::Pair` - File-tag data structure
-- `tagr::cli::execute_command_on_files()` - Execute shell commands on file selections
-
-See `README.md` "Library Usage" section for examples.
-
-## Configuration
-
-- Config file: `~/.config/tagr/config.toml` (Linux)
-- Filters file: `~/.config/tagr/filters.toml`
-- Database default: `~/.local/share/tagr/` (Linux)
-- Paths are platform-specific - use `dirs` crate functions
-
-## Project State
-
-**Current version**: 0.4.0 (edition 2024)
-
-**Recently completed** (see CHANGELOG.md):
-- ✅ Virtual tags (12 types: time, size, extension, permissions, git, etc.)
-- ✅ Saved filters with export/import
-- ✅ Multi-tree reverse indexing (100-1000x faster queries)
-- ✅ Interactive browse mode with fuzzy finding
-- ✅ Database cleanup command
-
-**Future enhancements** (from CHANGELOG.md):
-- Preview pane in browse mode
-- Tag statistics and autocomplete
-- Transaction support for batch operations
-- File watching for auto-cleanup
-
-When implementing new features, follow patterns from recently completed work (virtual tags, filters) as reference implementations.
+- Make incremental, logical commits.
+- Every commit must compile (both code and tests).
+- Tests may fail during feature development, but create stubs if needed.
+- All tests must pass before finalizing a feature.
