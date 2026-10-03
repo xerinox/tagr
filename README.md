@@ -2,6 +2,12 @@
 <img width="1886" height="1114" alt="image" src="https://github.com/user-attachments/assets/42972348-825b-4a3e-9164-62dc8144ca9f" />
 
 A fast, interactive command-line tool for organizing files with tags using fuzzy finding and persistent storage.
+> [!NOTE]
+> **V2 Rewrite in Progress**
+> 
+> This repository is currently undergoing a complete from-scratch rewrite on the [`v2`](https://github.com/xerinox/tagr/tree/v2) branch. 
+> 
+> The initial version relied heavily on AI assistance, which resulted in architectural decisions and tradeoffs that were "inherited" rather than intentionally chosen. V2 is being entirely handcrafted to take full ownership of every ADR, API design, and implementation detail.
 
 ## Features
 
