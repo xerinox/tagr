@@ -1,77 +1,80 @@
-# ADR-000: Template
-
-> Copy to `ADR-NNN-short-title.md`, increment `NNN`, delete this blockquote and any
-> guidance in _italics_. Keep the section order.
-
-- **Status:** Proposed
-- **Date:** YYYY-MM-DD
-- **Slice:** _e.g. Slice 2 — depth in the core_
-- **Supersedes:** _ADR-NNN, or_ —
-- **Superseded by:** —
-
-## Context
-
-_What is true right now that forces a choice? Constraints, not preferences: what the
-code already does, what the layer model requires, what the CLI-first philosophy
-implies, what performance or compatibility demands. Someone who has never seen the
-codebase should be able to see why a decision was unavoidable here._
-
-_If you cannot write this section without describing the solution, you have not found
-the real question yet._
-
-## Options considered
-
-_At least two, described fairly. The rejected options must be ones you would have been
-willing to ship. If the alternatives are strawmen, this ADR is a rationalisation._
-
-### Option A — _name_
-
-_What it is._
-
-- **For:**
-- **Against:**
-
-### Option B — _name_
-
-_What it is._
-
-- **For:**
-- **Against:**
-
-## Decision
-
-_One paragraph, in the active voice: "We store tags in…", not "It was decided that…".
-State the choice and the single reason that actually settled it — not every reason
-that supports it._
-
-## Consequences
-
-_What becomes true as a result. Include the bad parts; an ADR with no negative
-consequences is not describing a real tradeoff._
-
-- **Enables:**
-- **Costs:**
-- **Constrains:** _what future decisions this now forecloses_
-- **Revisit if:** _the concrete condition that would make this decision wrong_
-
-## Notes
-
-_Optional. Benchmarks, links, prior art, the legacy implementation this replaces and
-what it got right. Delete if empty._
-
 ---
+# Configuration for the Jekyll template "Just the Docs"
+parent: Decisions
+nav_order: 100
+title: ADR Template
 
-<!--
-House rules (see docs/architecture/handcrafted-rewrite-guide.md):
+# These are optional elements. Feel free to remove any of them.
+# status: "{proposed | rejected | accepted | deprecated | … | superseded by ADR-0123"
+# date: {YYYY-MM-DD when the decision was last updated}
+# decision-makers: {list everyone involved in the decision}
+# consulted: {list everyone whose opinions are sought (typically subject-matter experts); and with whom there is a two-way communication}
+# informed: {list everyone who is kept up-to-date on progress; and with whom there is a one-way communication}
+---
+<!-- we need to disable MD025, because we use the different heading "ADR Template" in the homepage (see above) than it is foreseen in the template -->
+<!-- markdownlint-disable-next-line MD025 -->
+# {short title, representative of solved problem and found solution}
 
-1. Write the ADR BEFORE the code. A record written afterwards rationalises; one
-   written beforehand decides.
-2. If you cannot name a rejected option, you have not made a decision — you have
-   copied one. Stop and find the alternative.
-3. Supersede, never edit. When a decision changes, set this file's status to
-   `Superseded by ADR-NNN` and write a new file. The trail of changed minds is the
-   point; overwriting destroys it.
-4. No LLM-authored ADRs. Rubber-duck the tradeoffs if useful, then write it yourself.
+## Context and Problem Statement
 
-Status values: Proposed | Accepted | Superseded | Rejected
--->
+{Describe the context and problem statement, e.g., in free form using two to three sentences or in the form of an illustrative story. You may want to articulate the problem in form of a question and add links to collaboration boards or issue management systems.}
+
+<!-- This is an optional element. Feel free to remove. -->
+## Decision Drivers
+
+* {decision driver 1, e.g., a force, facing concern, …}
+* {decision driver 2, e.g., a force, facing concern, …}
+* … <!-- numbers of drivers can vary -->
+
+## Considered Options
+
+* {title of option 1}
+* {title of option 2}
+* {title of option 3}
+* … <!-- numbers of options can vary -->
+
+## Decision Outcome
+
+Chosen option: "{title of option 1}", because {justification. e.g., only option, which meets k.o. criterion decision driver | which resolves force {force} | … | comes out best (see below)}.
+
+<!-- This is an optional element. Feel free to remove. -->
+### Consequences
+
+* Good, because {positive consequence, e.g., improvement of one or more desired qualities, …}
+* Bad, because {negative consequence, e.g., compromising one or more desired qualities, …}
+* … <!-- numbers of consequences can vary -->
+
+<!-- This is an optional element. Feel free to remove. -->
+### Confirmation
+
+{Describe how the implementation of/compliance with the ADR can/will be confirmed. Is the chosen design and its implementation in line with the decision? E.g., a design/code review or a test with a library such as ArchUnit can help validate this. Note that although we classify this element as optional, it is included in many ADRs.}
+
+<!-- This is an optional element. Feel free to remove. -->
+## Pros and Cons of the Options
+
+### {title of option 1}
+
+<!-- This is an optional element. Feel free to remove. -->
+{example | description | pointer to more information | …}
+
+* Good, because {argument a}
+* Good, because {argument b}
+<!-- use "neutral" if the given argument weights neither for good nor bad -->
+* Neutral, because {argument c}
+* Bad, because {argument d}
+* … <!-- numbers of pros and cons can vary -->
+
+### {title of other option}
+
+{example | description | pointer to more information | …}
+
+* Good, because {argument a}
+* Good, because {argument b}
+* Neutral, because {argument c}
+* Bad, because {argument d}
+* …
+
+<!-- This is an optional element. Feel free to remove. -->
+## More Information
+
+{You might want to provide additional evidence/confidence for the decision outcome here and/or document the team agreement on the decision and/or define when/how this decision the decision should be realized and if/when it should be re-visited. Links to other decisions and resources might appear here as well.}
