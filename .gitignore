@@ -18,3 +18,4 @@ target
 
 test.db
 .sqlx/
+tagr.db*
