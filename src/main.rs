@@ -1,4 +1,5 @@
 use clap::Parser;
+
 use tagr::{
     TagName,
     commands::{
@@ -20,8 +21,26 @@ enum Commands {
     Search { tag: String },
 }
 
-fn main() {
-    let args = Args::parse();
-    dbg!(args);
-    println!("Hello, world!");
+#[tokio::main]
+async fn main() {
+    //let args = Args::parse();
+    let store = Store::new("tagr").connect().await.unwrap();
+
+    dbg!(store);
+    /*match args.command {
+        Commands::Tag{tag, file} => {
+            let tag = TagName(tag);
+            let cmd = TagCommand::new(tag, file);
+            run_tag(cmd, &store);
+            todo!()
+        },
+        Commands::Search{tag} => {
+            let tag = TagName(tag);
+            let cmd = SearchCommand::new(tag);
+            run_search(cmd, &store);
+            todo!();
+        }
+
+    }
+    */
 }
