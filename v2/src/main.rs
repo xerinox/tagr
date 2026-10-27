@@ -1,12 +1,8 @@
 use clap::Parser;
 
 use tagr::{
-    TagName,
-    commands::{
-        search::{SearchCommand, run as run_search},
-        tag::{TagCommand, run as run_tag},
-    },
-    store::{Store, StoreError},
+    Command, QueryCriteria, TagName, commands::tag::run as run_tag, store::{Store, StoreError},
+    query
 };
 
 #[derive(Debug, Parser)]
@@ -29,17 +25,18 @@ async fn main() -> Result<(), StoreError> {
 
     match args.command {
         Commands::Tag { tag, file } => {
-            let cmd = TagCommand::new(file, TagName(tag));
+            let cmd = Command::TagCommand{file, tag: TagName(tag)};
             run_tag(cmd, &store).await
         }
         Commands::Search { tag } => {
-            let cmd = SearchCommand::new(TagName(tag));
+            let tags = Some(vec![TagName(tag)]);
+            let cmd = QueryCriteria{tags};
 
-            match run_search(cmd, &store).await? {
+            match query::execute(&cmd, &store).await? {
                 None => println!("No files found with tag"),
                 Some(files) => {
                     for file in files {
-                        println!("Found file: {file}");
+                        println!("{file}");
                     }
                 }
             }

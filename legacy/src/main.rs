@@ -43,9 +43,10 @@
 //! the user's config directory (`~/.config/tagr/config.toml` on Linux).
 
 use std::io::IsTerminal;
+use tagr_legacy as tagr;
 
 use clap::CommandFactory;
-use tagr::{
+use tagr_legacy::{
     TagrError,
     cli::{Cli, Commands, ConfigCommands, DbCommands},
     commands, config,

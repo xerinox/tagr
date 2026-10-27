@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::str::FromStr;
 
 pub struct NotConnected;
@@ -13,7 +14,7 @@ use sqlx::{
 
 use thiserror::Error;
 
-use crate::TagName;
+use crate::{TagName, types::TagrPath};
 
 #[derive(Error, Debug)]
 pub enum StoreError {
@@ -23,6 +24,8 @@ pub enum StoreError {
     MigrateError(#[from] MigrateError),
     #[error("Could not store tag/file {0}")]
     TagError(String),
+    #[error("Wrong command supplied to run")]
+    MismatchedCommand
 }
 
 #[derive(Debug)]
@@ -126,10 +129,10 @@ impl Store<Connected> {
     ///
     /// # Errors
     /// # Panics
-    pub async fn tag_file(&self, tags: &[&TagName], file: &str) -> Result<(), StoreError> {
+    pub async fn tag_file(&self, tags: &[&TagName], file: &TagrPath) -> Result<(), StoreError> {
         let mut tx = self.state.pool.begin().await?;
         let file_id: i64 =
-            sqlx::query_scalar!("INSERT INTO files (path) VALUES (?) ON CONFLICT(path) DO UPDATE SET path = path RETURNING id", file)
+            sqlx::query_scalar!("INSERT INTO files (path) VALUES (?) ON CONFLICT(path) DO UPDATE SET path = path RETURNING id", &file.to_string())
                 .fetch_one(&mut *tx)
                 .await?;
 
@@ -156,7 +159,7 @@ impl Store<Connected> {
     pub async fn search_file_by_tag(
         &self,
         tag: &TagName,
-    ) -> Result<Option<Vec<String>>, StoreError> {
+    ) -> Result<Option<Vec<TagrPath>>, StoreError> {
         let recs = sqlx::query!(
             "SELECT files.path from files JOIN tags_x_files as txf ON files.id = txf.file_id JOIN tags ON txf.tag_id = tags.id WHERE tags.name = ?",
             tag.0
@@ -164,16 +167,21 @@ impl Store<Connected> {
         if recs.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(recs.into_iter().map(|r| r.path).collect()))
+            Ok(Some(
+                recs.into_iter()
+                    .map(|r| PathBuf::from(r.path).into())
+                    .collect(),
+            ))
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        TagName,
-        store::{Store, StoreError},
+    use std::str::FromStr;
+
+use crate::{
+        TagName, store::{Store, StoreError}, types::TagrPath,
     };
     use sqlx::SqlitePool;
 
@@ -189,9 +197,9 @@ mod test {
     async fn test_read(pool: SqlitePool) -> Result<(), StoreError> {
         let store = Store::from_pool("test", pool);
         let test_tag = TagName("test".to_string());
-        store.tag_file(&[&test_tag], "/tmp/testfile").await?;
+        store.tag_file(&[&test_tag], &TagrPath::from_str("/tmp/testfile").unwrap()).await?;
         let results = store.search_file_by_tag(&test_tag).await?;
-        assert!(results.is_some_and(|i| { i.contains(&"/tmp/testfile".to_string()) }));
+        assert!(results.is_some_and(|i| { i.contains(&TagrPath::from_str("/tmp/testfile").unwrap()) }));
         Ok(())
     }
 }

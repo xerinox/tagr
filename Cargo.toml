@@ -1,25 +1,6 @@
-[package]
-name = "tagr"
-description = "A fast, tag-based file organizer and search tool for the command line."
-version = "1.0.0-alpha.1"
-authors = ["Rainer Kildal <rkildal@gmail.com>"]
-edition = "2024"
-license = "MIT"
-readme = "README.md"
-repository = "https://github.com/xerinox/tagr"
-keywords = ["search", "tag", "organization", "cli"]
-
-[dependencies]
-clap = { version = "4.6.1", features = ["derive"] }
-serde = { version = "1.0.228", features = ["derive"] }
-thiserror = "2.0.18"
-serde_json = "1.0"
-anyhow = "1.0"
-log = "0.4.32"
-env_logger = "0.11.10"
-tokio = {version = "1.54.0", features=["full"]}
-sqlx = {version = "0.9.0", features=["runtime-tokio", "sqlite"]}
-
-[lints.clippy]
-pedantic = "warn"
-nursery = "warn"
+[workspace]
+members = [
+"legacy",
+"v2"
+]
+resolver = "2"
