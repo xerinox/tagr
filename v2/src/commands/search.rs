@@ -12,5 +12,8 @@ impl SearchCommand {
 }
 /// # Errors
 pub async fn run(tag: &TagName,  store: &Store<Connected>) -> Result<Option<Vec<TagrPath>>, StoreError>{
+    todo!();
+    /*
     store.search_file_by_tag(tag).await
+    */
 }

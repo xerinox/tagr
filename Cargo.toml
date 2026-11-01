@@ -1,6 +1,6 @@
 [workspace]
 members = [
-"legacy",
+# "legacy",
 "v2"
 ]
 resolver = "2"

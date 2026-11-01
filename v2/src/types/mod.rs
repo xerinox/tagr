@@ -1,35 +1,14 @@
-use std::{fmt::Display, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 /// Newtype for tag names
 #[derive(Debug, Clone)]
 pub struct TagName(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TagrPath(pub PathBuf);
+pub struct Tag {
 
-impl From<PathBuf> for TagrPath {
-    fn from(value: PathBuf) -> Self {
-        Self(value)
-    }
 }
 
-impl Display for TagrPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0.to_string_lossy())
-    }
-}
-
-#[derive(Debug)]
-pub struct TagrPathError {
-}
-
-impl FromStr for TagrPath {
-    type Err = TagrPathError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let p = PathBuf::from(s);
-        Ok(Self(p))
-    }
-}
+pub type TagrPath = PathBuf;
 
 impl FromStr for TagName {
     type Err = ();

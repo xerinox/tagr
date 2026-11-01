@@ -16,6 +16,7 @@ use thiserror::Error;
 
 use crate::{TagName, types::TagrPath};
 
+
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
@@ -25,7 +26,23 @@ pub enum StoreError {
     #[error("Could not store tag/file {0}")]
     TagError(String),
     #[error("Wrong command supplied to run")]
-    MismatchedCommand
+    MismatchedCommand,
+    #[error("Delete this error when fixing next step")]
+    NotImplementedError
+}
+
+#[derive(sqlx::FromRow)]
+struct TagRecord {
+    pub id: i64,
+    pub path: String,
+    #[sqlx(rename = "parent_tagID")]
+    pub parent_tag_id: Option<i64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct FileRecord {
+    pub id: i64,
+    pub path: PathBuf
 }
 
 #[derive(Debug)]
@@ -80,6 +97,15 @@ impl Store<NotConnected> {
     }
 }
 impl Store<Connected> {
+    pub async fn search_file_by_tag(&self, _tag: &TagName) {
+        todo!();
+    }
+    pub async fn search_file_by_path() {
+        todo!();
+    }
+    pub async fn tag_file(&self, _tags: &[&TagName], _file: &PathBuf) {
+        todo!();
+    }
     #[must_use]
     pub fn from_pool(name: &str, pool: SqlitePool) -> Self {
         Self {
@@ -125,56 +151,9 @@ impl Store<Connected> {
         .await?;
         Ok(String::new())
     }
-
-    ///
-    /// # Errors
-    /// # Panics
-    pub async fn tag_file(&self, tags: &[&TagName], file: &TagrPath) -> Result<(), StoreError> {
-        let mut tx = self.state.pool.begin().await?;
-        let file_id: i64 =
-            sqlx::query_scalar!("INSERT INTO files (path) VALUES (?) ON CONFLICT(path) DO UPDATE SET path = path RETURNING id", &file.to_string())
-                .fetch_one(&mut *tx)
-                .await?;
-
-        for tag in tags {
-            let tag_id = sqlx::query_scalar!(
-                "INSERT INTO tags (name) VALUES (?) ON CONFLICT(name) DO UPDATE SET name=name RETURNING id",
-                tag.0
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-
-            sqlx::query!(
-                "INSERT INTO tags_x_files (tag_id, file_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-                tag_id,
-                file_id
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-        tx.commit().await.map_err(StoreError::from)
-    }
-
-    ///# Errors
-    pub async fn search_file_by_tag(
-        &self,
-        tag: &TagName,
-    ) -> Result<Option<Vec<TagrPath>>, StoreError> {
-        let recs = sqlx::query!(
-            "SELECT files.path from files JOIN tags_x_files as txf ON files.id = txf.file_id JOIN tags ON txf.tag_id = tags.id WHERE tags.name = ?",
-            tag.0
-        ).fetch_all(&self.state.pool).await?;
-        if recs.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(
-                recs.into_iter()
-                    .map(|r| PathBuf::from(r.path).into())
-                    .collect(),
-            ))
-        }
-    }
 }
+
+
 
 #[cfg(test)]
 mod test {
@@ -193,13 +172,4 @@ use crate::{
         assert!(!Store::db_exists("test_create").await.unwrap());
     }
 
-    #[sqlx::test]
-    async fn test_read(pool: SqlitePool) -> Result<(), StoreError> {
-        let store = Store::from_pool("test", pool);
-        let test_tag = TagName("test".to_string());
-        store.tag_file(&[&test_tag], &TagrPath::from_str("/tmp/testfile").unwrap()).await?;
-        let results = store.search_file_by_tag(&test_tag).await?;
-        assert!(results.is_some_and(|i| { i.contains(&TagrPath::from_str("/tmp/testfile").unwrap()) }));
-        Ok(())
-    }
 }

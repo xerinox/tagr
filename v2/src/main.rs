@@ -20,7 +20,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), StoreError> {
     let args = Args::parse();
-    let store = Store::new("tagr").connect().await.unwrap();
+    let store = Store::new("test").connect().await.unwrap();
     store.migrate().await?;
 
     match args.command {
@@ -36,7 +36,7 @@ async fn main() -> Result<(), StoreError> {
                 None => println!("No files found with tag"),
                 Some(files) => {
                     for file in files {
-                        println!("{file}");
+                        println!("{}", file.display());
                     }
                 }
             }
