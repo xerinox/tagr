@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS files (
     extension TEXT,
     size_bytes INTEGER NOT NULL DEFAULT 0,
     mtime_epoch_ms INTEGER NOT NULL DEFAULT 0,
-    file_exists INTEGER NOT NULL DEFAULT 1,
+    file_exists BOOLEAN NOT NULL DEFAULT 1,
     last_seen_at_epoch_ms INTEGER NOT NULL DEFAULT 0
 );
 
