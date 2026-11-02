@@ -1,4 +1,5 @@
 use crate::{store::{Connected, Store, StoreError}, types::TagrPath};
+mod parse;
 
 use super::types::QueryCriteria;
 

@@ -29,20 +29,8 @@ async fn main() -> Result<(), StoreError> {
             run_tag(cmd, &store).await
         }
         Commands::Search { tag } => {
-            let res = store.search_file_by_tag(&TagName(tag.clone())).await;
-            dbg!(res);
-            let tags = Some(vec![TagName(tag)]);
-            let cmd = QueryCriteria{tags};
-
-            match query::execute(&cmd, &store).await? {
-                None => println!("No files found with tag"),
-                Some(files) => {
-                    for file in files {
-                        println!("{}", file.display());
-                    }
-                }
-            }
-            Ok(())
+            let _res = store.search_file_by_tag(&TagName(tag.clone())).await;
+            todo!();
         }
     }
 }
