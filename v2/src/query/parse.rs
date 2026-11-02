@@ -1,8 +1,28 @@
+use std::{iter::Peekable, str::CharIndices};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ParsingError {
+    #[error("Expected closing parenthesis at span {span:?}, found {kind:?}")]
+    UnmatchedParens { span: Span, kind: TokenKind },
+    #[error("Expected closing parenthesis, found end of query")]
+    MissingParens,
+    #[error("Expected word at span {span:?}, found {kind:?}")]
+    ExpectedWord { span: Span, kind: TokenKind },
+    #[error("Expected word, found end of query")]
+    MissingWord,
+    #[error("Unexpected token at span: {span:?}: {kind:?}")]
+    UnexpectedToken{span: Span, kind: TokenKind},
+    #[error("Unexpected end of query")]
+    UnexpectedEnd
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
 }
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TokenKind {
     Word(String),
@@ -34,6 +54,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    #[must_use]
     pub const fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, pos: 0 }
     }
@@ -49,11 +70,14 @@ impl Parser {
         }
         tok
     }
-    pub fn parse_expr(&mut self) -> Result<Expr, String> {
+
+    /// # Errors
+    pub fn parse_expr(&mut self) -> Result<Expr, ParsingError> {
         self.parse_or()
     }
 
-    pub fn parse_or(&mut self) -> Result<Expr, String> {
+    /// # Errors
+    pub fn parse_or(&mut self) -> Result<Expr, ParsingError> {
         let mut left = self.parse_and()?;
         while let Some(Token {
             kind: TokenKind::Or,
@@ -67,7 +91,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_and(&mut self) -> Result<Expr, String> {
+    fn parse_and(&mut self) -> Result<Expr, ParsingError> {
         let mut left = self.parse_unary()?;
         while let Some(token) = self.peek() {
             if matches!(&token.kind, TokenKind::Or | TokenKind::RParen) {
@@ -82,7 +106,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_unary(&mut self) -> Result<Expr, String> {
+    fn parse_unary(&mut self) -> Result<Expr, ParsingError> {
         if let Some(Token { kind, .. }) = self.peek() {
             if matches!(kind, TokenKind::Not | TokenKind::Minus) {
                 self.advance();
@@ -96,7 +120,7 @@ impl Parser {
         }
     }
 
-    fn parse_primary(&mut self) -> Result<Expr, String> {
+    fn parse_primary(&mut self) -> Result<Expr, ParsingError> {
         match self.peek() {
             Some(Token {
                 kind: TokenKind::Word(_),
@@ -116,102 +140,119 @@ impl Parser {
                         kind: TokenKind::RParen,
                         ..
                     }) => Ok(expr),
-                    Some(tok) => Err(format!(
-                        "Expected closing parenthesis at span {:?}, found {:?}",
-                        tok.span, tok.kind
-                    )),
-                    None => Err("Expected closing parenthesis, found end of query".into()),
+                    Some(tok) => Err(ParsingError::UnmatchedParens {
+                        span: tok.span,
+                        kind: tok.kind,
+                    }),
+                    None => Err(ParsingError::MissingParens),
                 }
             }
             Some(tok) => {
-                let msg = format!("Unexpected token at span {:?},: {:?}", tok.span, tok.kind);
+                let err = ParsingError::UnexpectedToken { span: tok.span, kind: tok.kind.clone() };
                 self.advance();
-                Err(msg)
+                Err(err)
             }
-            None => Err("Unexpected end of query".into()),
+            None => Err(ParsingError::UnexpectedEnd),
         }
     }
 
-    fn expect_word(&mut self) -> Result<String, String> {
+    fn expect_word(&mut self) -> Result<String, ParsingError> {
         match self.advance() {
             Some(Token {
                 kind: TokenKind::Word(w),
                 ..
             }) => Ok(w),
-            Some(tok) => Err(format!(
-                "Expected word at span {:?}, found {:?}",
-                tok.span, tok.kind
-            )),
-            None => Err("Expected word, found end of query".into()),
+            Some(tok) => Err(ParsingError::ExpectedWord { span: tok.span, kind: tok.kind }),
+            None => Err(ParsingError::MissingWord),
         }
     }
 }
 
-fn tokenize(input: &str) -> Vec<Token> {
-    let mut tokens = Vec::new();
-    let mut chars = input.char_indices().peekable();
-    while let Some(&(i, c)) = chars.peek() {
-        match c {
-            ' ' | '\t' | '\n' | '\r' => {
-                chars.next();
-            }
-            '(' => {
-                chars.next();
-                tokens.push(Token {
-                    kind: TokenKind::LParen,
-                    span: Span {
-                        start: i,
-                        end: i + 1,
-                    },
-                });
-            }
-            ')' => {
-                chars.next();
-                tokens.push(Token {
-                    kind: TokenKind::RParen,
-                    span: Span {
-                        start: i,
-                        end: i + 1,
-                    },
-                });
-            }
-            '-' => {
-                chars.next();
-                tokens.push(Token {
-                    kind: TokenKind::Minus,
-                    span: Span {
-                        start: i,
-                        end: i + 1,
-                    },
-                });
-            }
-            _ => {
-                let start = i;
-                let mut word = String::new();
+struct Lexer<'a> {
+    input: Peekable<CharIndices<'a>>,
+}
 
-                while let Some((_, c)) = chars
-                    .next_if(|&(_, ch)| !ch.is_whitespace() && ch != '(' && ch != ')' && ch != '-')
-                {
-                    word.push(c);
-                }
-                let end = start + word.len();
-                let kind = match word.to_lowercase().as_str() {
-                    "and" => TokenKind::And,
-                    "or" => TokenKind::Or,
-                    "not" => TokenKind::Not,
-                    _ => TokenKind::Word(word),
-                };
-                tokens.push(Token {
-                    kind,
-                    span: Span { start, end },
-                });
+impl<'a> Lexer<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            input: input.char_indices().peekable(),
+        }
+    }
+
+    fn next_token(&mut self) -> Option<Token> {
+        loop {
+            match self.input.peek() {
+                Some(&(i, c)) => match c {
+                    ' ' | '\t' | '\n' | '\r' => {
+                        self.input.next();
+                    }
+                    '(' => {
+                        self.input.next();
+                        return Some(Token {
+                            kind: TokenKind::LParen,
+                            span: Span {
+                                start: i,
+                                end: i + 1,
+                            },
+                        });
+                    }
+                    ')' => {
+                        self.input.next();
+                        return Some(Token {
+                            kind: TokenKind::RParen,
+                            span: Span {
+                                start: i,
+                                end: i + 1,
+                            },
+                        });
+                    }
+                    '-' => {
+                        self.input.next();
+                        return Some(Token {
+                            kind: TokenKind::Minus,
+                            span: Span {
+                                start: i,
+                                end: i + 1,
+                            },
+                        });
+                    }
+                    _ => {
+                        let start = i;
+                        let mut word = String::new();
+
+                        while let Some((_, c)) = self.input.next_if(|&(_, ch)| {
+                            !ch.is_whitespace() && ch != '(' && ch != ')' && ch != '-'
+                        }) {
+                            word.push(c);
+                        }
+                        let end = start + word.len();
+                        let kind = match word.to_lowercase().as_str() {
+                            "and" => TokenKind::And,
+                            "or" => TokenKind::Or,
+                            "not" => TokenKind::Not,
+                            _ => TokenKind::Word(word),
+                        };
+                        return Some(Token {
+                            kind,
+                            span: Span { start, end },
+                        });
+                    }
+                },
+                None => return None,
             }
         }
     }
-    tokens
+}
+
+impl Iterator for Lexer<'_> {
+    type Item = Token;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_token()
+    }
 }
 
 impl Expr {
+    #[must_use]
     pub fn compile_to_fts5(&self) -> String {
         match self {
             Self::Word(w) => w.strip_prefix('@').map_or_else(
@@ -233,8 +274,9 @@ impl Expr {
     }
 }
 
-pub fn parse(input: &str) -> Result<Expr, String> {
-    let tokens = tokenize(input);
+/// # Errors
+pub fn parse(input: &str) -> Result<Expr, ParsingError> {
+    let tokens = Lexer::new(input).collect();
     let mut parser = Parser::new(tokens);
     parser.parse_expr()
 }
