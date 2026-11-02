@@ -1,5 +1,8 @@
+use sqlx::{Encode, sqlite::any};
 use std::path::PathBuf;
 use std::str::FromStr;
+pub mod ids;
+mod models;
 
 pub struct NotConnected;
 #[derive(Debug, Clone)]
@@ -8,14 +11,14 @@ pub struct Connected {
 }
 
 use sqlx::{
-    Error as SqlxError, Row, Sqlite, SqlitePool,
+    Error as SqlxError, Row, Sqlite, SqlitePool, Type, TypeInfo,
     migrate::{MigrateDatabase, MigrateError},
+    sqlite::SqliteTypeInfo,
 };
 
 use thiserror::Error;
 
-use crate::{TagName, types::TagrPath};
-
+use crate::{TagName, store::models::FileRecord, types::TagrPath};
 
 #[derive(Error, Debug)]
 pub enum StoreError {
@@ -28,21 +31,7 @@ pub enum StoreError {
     #[error("Wrong command supplied to run")]
     MismatchedCommand,
     #[error("Delete this error when fixing next step")]
-    NotImplementedError
-}
-
-#[derive(sqlx::FromRow)]
-struct TagRecord {
-    pub id: i64,
-    pub path: String,
-    #[sqlx(rename = "parent_tagID")]
-    pub parent_tag_id: Option<i64>,
-}
-
-#[derive(sqlx::FromRow)]
-struct FileRecord {
-    pub id: i64,
-    pub path: PathBuf
+    NotImplementedError,
 }
 
 #[derive(Debug)]
@@ -96,9 +85,29 @@ impl Store<NotConnected> {
         })
     }
 }
+
 impl Store<Connected> {
-    pub async fn search_file_by_tag(&self, _tag: &TagName) {
-        todo!();
+    /// # Errors
+    pub async fn search_file_by_tag(&self, tag: &TagName) -> Result<Vec<FileRecord>, StoreError> {
+        Ok(sqlx::query_as!(
+            FileRecord,
+            r#"SELECT files.id, 
+            files.path, 
+            files.basename, 
+            files.extension, 
+            files.size_bytes, 
+            files.mtime_epoch_ms, 
+            files.file_exists, 
+            files.last_seen_at_epoch_ms
+            FROM files 
+            LEFT JOIN file_tags AS ft ON ft.file_id = files.id
+            LEFT JOIN tags AS t ON t.id = ft.tag_id
+            WHERE t.name = ?
+            "#,
+            tag.0
+        )
+        .fetch_all(&self.state.pool)
+        .await?)
     }
     pub async fn search_file_by_path() {
         todo!();
@@ -153,14 +162,15 @@ impl Store<Connected> {
     }
 }
 
-
-
 #[cfg(test)]
 mod test {
+    use super::models::*;
     use std::str::FromStr;
 
-use crate::{
-        TagName, store::{Store, StoreError}, types::TagrPath,
+    use crate::{
+        TagName,
+        store::{Store, StoreError},
+        types::TagrPath,
     };
     use sqlx::SqlitePool;
 
@@ -171,5 +181,4 @@ use crate::{
         Store::drop_database("test_create").await.unwrap();
         assert!(!Store::db_exists("test_create").await.unwrap());
     }
-
 }

@@ -29,6 +29,8 @@ async fn main() -> Result<(), StoreError> {
             run_tag(cmd, &store).await
         }
         Commands::Search { tag } => {
+            let res = store.search_file_by_tag(&TagName(tag.clone())).await;
+            dbg!(res);
             let tags = Some(vec![TagName(tag)]);
             let cmd = QueryCriteria{tags};
 
